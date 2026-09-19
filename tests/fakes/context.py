@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT
+"""Build an ``AppContext`` from in-memory fakes for HTTP tests."""
+
+from datetime import UTC, datetime
+
+from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
+from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.settings import Settings
+from tests.fakes.repositories import (
+    InMemoryAttachmentRepository,
+    InMemoryBotAnswerRepository,
+    InMemoryConversationRepository,
+    InMemoryMessageRepository,
+    InMemorySourceRepository,
+)
+from tests.fakes.support import (
+    FrozenClock,
+    InMemoryRecapStateRepository,
+    RecordingTransport,
+)
+
+DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
+WEBHOOK_SECRET = "secret"
+ALLOWED_CHAT_ID = "-100"
+BOT_ID = "999"
+BOT_USERNAME = "bot"
+
+
+def build_test_context(
+    *,
+    background_listener_enabled: bool = False,
+    recap_enabled: bool = False,
+) -> tuple[AppContext, RecordingTransport]:
+    """Build a context wired to in-memory fakes.
+
+    Args:
+        background_listener_enabled: Whether unaddressed traffic is ingested.
+        recap_enabled: Whether the recap service may send.
+
+    Returns:
+        The context and the recording transport used by the recap service.
+    """
+    ingestor = MessageIngestor(
+        sources=InMemorySourceRepository(),
+        conversations=InMemoryConversationRepository(),
+        messages=InMemoryMessageRepository(),
+        attachments=InMemoryAttachmentRepository(),
+    )
+    transport = RecordingTransport()
+    recap = RecapService(
+        answers=InMemoryBotAnswerRepository(),
+        state=InMemoryRecapStateRepository(),
+        transport=transport,
+        clock=FrozenClock(DEFAULT_NOW),
+        enabled=recap_enabled,
+        interval_hours=24,
+        language="ca",
+    )
+    settings = Settings(
+        telegram_webhook_secret=WEBHOOK_SECRET,
+        telegram_bot_id=BOT_ID,
+        telegram_bot_username=BOT_USERNAME,
+        allowed_telegram_chat_id=ALLOWED_CHAT_ID,
+        admin_telegram_user_id="1",
+        internal_admin_key="internal",
+        background_listener_enabled=background_listener_enabled,
+        recap_enabled=recap_enabled,
+    )
+    identity = TelegramIdentity(
+        allowed_chat_id=ALLOWED_CHAT_ID,
+        admin_user_id="1",
+        bot_id=BOT_ID,
+        bot_username=BOT_USERNAME,
+    )
+    context = AppContext(
+        settings=settings, identity=identity, ingestor=ingestor, recap=recap
+    )
+    return context, transport

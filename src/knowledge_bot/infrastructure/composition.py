@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: MIT
+"""Compose the application context from Cloudflare Worker bindings."""
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
+from knowledge_bot.adapters.outbound.telegram import TelegramTransport
+from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.infrastructure.clock import SystemClock
+from knowledge_bot.infrastructure.cloudflare.d1 import (
+    D1AttachmentRepository,
+    D1BotAnswerRepository,
+    D1ConversationRepository,
+    D1Database,
+    D1MessageRepository,
+    D1RecapStateRepository,
+    D1SourceRepository,
+)
+from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
+from knowledge_bot.infrastructure.settings import Settings
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    """Everything the HTTP layer needs, wired once per isolate."""
+
+    settings: Settings
+    identity: TelegramIdentity
+    ingestor: MessageIngestor
+    recap: RecapService
+
+
+class WorkerEnv(Protocol):
+    """The Cloudflare ``env`` object: bindings plus optional string variables."""
+
+    DB: D1Database
+
+
+def _text(env: WorkerEnv, name: str, default: str = "") -> str:
+    value = getattr(env, name, None)
+    return default if value is None else str(value)
+
+
+def _flag(env: WorkerEnv, name: str, default: bool = False) -> bool:
+    value = getattr(env, name, None)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _int(env: WorkerEnv, name: str, default: int) -> int:
+    try:
+        return int(_text(env, name, str(default)))
+    except ValueError:
+        return default
+
+
+def build_context(env: WorkerEnv) -> AppContext:
+    """Build the application context from Worker bindings.
+
+    Args:
+        env: The Cloudflare ``env`` object with bindings and variables.
+
+    Returns:
+        The wired application context.
+    """
+    settings = Settings(
+        telegram_bot_token=_text(env, "TELEGRAM_BOT_TOKEN"),
+        telegram_webhook_secret=_text(env, "TELEGRAM_WEBHOOK_SECRET"),
+        allowed_telegram_chat_id=_text(env, "ALLOWED_TELEGRAM_CHAT_ID"),
+        admin_telegram_user_id=_text(env, "ADMIN_TELEGRAM_USER_ID"),
+        telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
+        telegram_bot_username=_text(env, "TELEGRAM_BOT_USERNAME"),
+        internal_admin_key=_text(env, "INTERNAL_ADMIN_KEY"),
+        recap_enabled=_flag(env, "RECAP_ENABLED", True),
+        recap_interval_hours=_int(env, "RECAP_INTERVAL_HOURS", 24),
+        recap_language=_text(env, "RECAP_LANGUAGE", "ca") or "ca",
+        background_listener_enabled=_flag(env, "BACKGROUND_LISTENER_ENABLED", False),
+    )
+    database = env.DB
+    return AppContext(
+        settings=settings,
+        identity=TelegramIdentity(
+            allowed_chat_id=settings.allowed_telegram_chat_id,
+            admin_user_id=settings.admin_telegram_user_id,
+            bot_id=settings.telegram_bot_id,
+            bot_username=settings.telegram_bot_username,
+        ),
+        ingestor=MessageIngestor(
+            sources=D1SourceRepository(database),
+            conversations=D1ConversationRepository(database),
+            messages=D1MessageRepository(database),
+            attachments=D1AttachmentRepository(database),
+        ),
+        recap=RecapService(
+            answers=D1BotAnswerRepository(database),
+            state=D1RecapStateRepository(database),
+            transport=TelegramTransport(
+                WorkersHttpClient(), settings.telegram_bot_token
+            ),
+            clock=SystemClock(),
+            enabled=settings.recap_enabled,
+            interval_hours=settings.recap_interval_hours,
+            language=settings.recap_language,
+        ),
+    )

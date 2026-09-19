@@ -46,14 +46,14 @@ class RecapService:
             return False
         now = self.clock.now()
         if not is_recap_due(
-            self.state.get_last_sent_at(conversation_id),
+            await self.state.get_last_sent_at(conversation_id),
             now,
             interval_hours=self.interval_hours,
         ):
             return False
         window_start = now - timedelta(hours=self.interval_hours)
         recap = build_recap(
-            self.answers.list_between(window_start, now),
+            await self.answers.list_between(window_start, now),
             window_start=window_start,
             window_end=now,
         )
@@ -61,5 +61,5 @@ class RecapService:
             conversation_id,
             render_recap(recap, language=self.language),
         )
-        self.state.set_last_sent_at(conversation_id, now)
+        await self.state.set_last_sent_at(conversation_id, now)
         return True
