@@ -7,6 +7,7 @@ from typing import Protocol
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -18,7 +19,9 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1BotAnswerRepository,
     D1ConversationRepository,
     D1Database,
+    D1FeedbackRepository,
     D1MessageRepository,
+    D1QAEvidenceRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
     D1RecapStateRepository,
@@ -36,6 +39,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIGenerator,
 )
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.transport import MessageTransport
 
 
 class WorkerEnv(Protocol):
@@ -57,6 +61,8 @@ class AppContext:
     recap: RecapService
     reindex: ReindexService
     seed: SeedService
+    feedback: FeedbackService
+    transport: MessageTransport
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -170,4 +176,13 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             clock=clock,
         ),
+        feedback=FeedbackService(
+            answers=answers,
+            feedback=D1FeedbackRepository(database),
+            qa_items=D1QAItemRepository(database),
+            qa_versions=D1QAVersionRepository(database),
+            evidence=D1QAEvidenceRepository(database),
+            clock=clock,
+        ),
+        transport=transport,
     )

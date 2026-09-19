@@ -13,6 +13,7 @@ from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
     Conversation,
+    Feedback,
     Message,
     QAEvidence,
     QAItem,
@@ -23,6 +24,7 @@ from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
     EvidenceType,
+    FeedbackStatus,
     ProcessingStatus,
     QAOrigin,
     QAStatus,
@@ -699,4 +701,82 @@ def _qa_version(row: dict[str, object]) -> QAVersion:
         confidence=float(cast(float, confidence)) if confidence is not None else None,
         created_by=_opt_str(row["created_by"]),
         supersedes_version_id=_opt_str(row["supersedes_version_id"]),
+    )
+
+
+class D1FeedbackRepository:
+    """D1 implementation of ``FeedbackRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, feedback: Feedback) -> None:
+        """Persist a new correction proposal."""
+        await (
+            self._db.prepare(
+                "INSERT INTO feedback"
+                " (id, bot_answer_id, qa_id, reporter_hash, status, proposed_answer,"
+                " admin_edited_answer, created_at, resolved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                feedback.id,
+                feedback.bot_answer_id,
+                feedback.qa_id,
+                feedback.reporter_hash,
+                feedback.status.value,
+                feedback.proposed_answer,
+                feedback.admin_edited_answer,
+                _iso(feedback.created_at),
+                _iso(feedback.resolved_at)
+                if feedback.resolved_at is not None
+                else None,
+            )
+            .run()
+        )
+
+    async def get(self, feedback_id: str) -> Feedback | None:
+        """Return a correction proposal by id, if present."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM feedback WHERE id = ?")
+            .bind(feedback_id)
+            .first()
+        )
+        return _feedback(row) if row is not None else None
+
+    async def save(self, feedback: Feedback) -> None:
+        """Persist changes to an existing correction proposal."""
+        await (
+            self._db.prepare(
+                "UPDATE feedback SET qa_id = ?, reporter_hash = ?, status = ?,"
+                " proposed_answer = ?, admin_edited_answer = ?, resolved_at = ?"
+                " WHERE id = ?"
+            )
+            .bind(
+                feedback.qa_id,
+                feedback.reporter_hash,
+                feedback.status.value,
+                feedback.proposed_answer,
+                feedback.admin_edited_answer,
+                _iso(feedback.resolved_at)
+                if feedback.resolved_at is not None
+                else None,
+                feedback.id,
+            )
+            .run()
+        )
+
+
+def _feedback(row: dict[str, object]) -> Feedback:
+    return Feedback(
+        id=str(row["id"]),
+        bot_answer_id=str(row["bot_answer_id"]),
+        status=FeedbackStatus(str(row["status"])),
+        created_at=_dt(row["created_at"]),
+        qa_id=_opt_str(row["qa_id"]),
+        reporter_hash=_opt_str(row["reporter_hash"]),
+        proposed_answer=_opt_str(row["proposed_answer"]),
+        admin_edited_answer=_opt_str(row["admin_edited_answer"]),
+        resolved_at=_opt_dt(row["resolved_at"]),
     )

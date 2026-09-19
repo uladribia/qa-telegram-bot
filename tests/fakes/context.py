@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -22,7 +23,9 @@ from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
+    InMemoryFeedbackRepository,
     InMemoryMessageRepository,
+    InMemoryQAEvidenceRepository,
     InMemoryQAItemRepository,
     InMemoryQAVersionRepository,
     InMemorySourceRepository,
@@ -114,5 +117,14 @@ def build_test_context(
             ingestor=ingestor,
             clock=clock,
         ),
+        feedback=FeedbackService(
+            answers=answers,
+            feedback=InMemoryFeedbackRepository(),
+            qa_items=InMemoryQAItemRepository(),
+            qa_versions=InMemoryQAVersionRepository(),
+            evidence=InMemoryQAEvidenceRepository(),
+            clock=clock,
+        ),
+        transport=transport,
     )
     return context, transport

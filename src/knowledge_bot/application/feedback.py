@@ -1,0 +1,325 @@
+# SPDX-License-Identifier: MIT
+"""Feedback and correction flow (spec §21-§26).
+
+Everything happens inside Telegram: a user marks an answer wrong, proposes a
+correction, the admin approves/edits/rejects it privately, and an approved
+correction becomes a new, highest-authority Q&A version. History is never
+mutated destructively.
+"""
+
+import hashlib
+from dataclasses import dataclass
+
+from knowledge_bot.domain.entities import Feedback, QAEvidence, QAItem, QAVersion
+from knowledge_bot.domain.enums import (
+    EvidenceType,
+    FeedbackStatus,
+    QAOrigin,
+    QAStatus,
+)
+from knowledge_bot.domain.policies import Authority
+from knowledge_bot.ports.clock import Clock
+from knowledge_bot.ports.repositories import (
+    BotAnswerRepository,
+    FeedbackRepository,
+    QAEvidenceRepository,
+    QAItemRepository,
+    QAVersionRepository,
+)
+
+START_PREFIX = "feedback:start:"
+APPROVE_PREFIX = "feedback:approve:"
+EDIT_PREFIX = "feedback:edit:"
+REJECT_PREFIX = "feedback:reject:"
+
+PROPOSAL_PROMPT = (
+    "Què corregiries? Escriu la resposta correcta o explica què està malament."
+)
+PROPOSAL_ACK = "Gràcies. Ho he enviat a revisió."
+EDIT_PROMPT = "Envia'm el text correcte."
+
+_ACTIONS: tuple[tuple[str, str], ...] = (
+    (START_PREFIX, "start"),
+    (APPROVE_PREFIX, "approve"),
+    (EDIT_PREFIX, "edit"),
+    (REJECT_PREFIX, "reject"),
+)
+
+
+def canonical_key_for(question: str) -> str:
+    """Return the canonical key for a question.
+
+    Args:
+        question: The question text.
+
+    Returns:
+        A short, stable key.
+    """
+    return hashlib.sha256(question.casefold().strip().encode("utf-8")).hexdigest()[:16]
+
+
+def callback_action(data: str | None) -> str | None:
+    """Return the action encoded in a callback payload.
+
+    Args:
+        data: The raw callback data.
+
+    Returns:
+        One of ``start``/``approve``/``edit``/``reject``, or ``None``.
+    """
+    for prefix, action in _ACTIONS:
+        if data and data.startswith(prefix):
+            return action
+    return None
+
+
+def callback_target(data: str | None) -> str | None:
+    """Return the id encoded in a callback payload.
+
+    Args:
+        data: The raw callback data.
+
+    Returns:
+        The trailing id, or ``None``.
+    """
+    if not data:
+        return None
+    parts = data.split(":", 2)
+    return parts[2] if len(parts) == 3 else None
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionRequest:
+    """A correction proposal shown to the admin."""
+
+    feedback_id: str
+    question: str
+    current_answer: str
+    proposed_answer: str
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackService:
+    """Start, propose, and review corrections."""
+
+    answers: BotAnswerRepository
+    feedback: FeedbackRepository
+    qa_items: QAItemRepository
+    qa_versions: QAVersionRepository
+    evidence: QAEvidenceRepository
+    clock: Clock
+
+    async def start(self, answer_id: str, reporter_hash: str | None) -> Feedback | None:
+        """Open a correction proposal for a bot answer.
+
+        Args:
+            answer_id: The bot answer the user marked wrong.
+            reporter_hash: A pseudonymized reporter id.
+
+        Returns:
+            The created feedback, or ``None`` when the answer is unknown.
+        """
+        answer = await self.answers.get(answer_id)
+        if answer is None:
+            return None
+        feedback = Feedback(
+            id=f"fb:{answer_id}",
+            bot_answer_id=answer_id,
+            status=FeedbackStatus.AWAITING_PROPOSAL,
+            created_at=self.clock.now(),
+            qa_id=answer.qa_version_id,
+            reporter_hash=reporter_hash,
+        )
+        await self.feedback.add(feedback)
+        return feedback
+
+    async def _update(
+        self,
+        feedback: Feedback,
+        *,
+        status: FeedbackStatus,
+        proposed_answer: str | None = None,
+        admin_edited_answer: str | None = None,
+        resolved: bool = False,
+    ) -> Feedback:
+        updated = Feedback(
+            id=feedback.id,
+            bot_answer_id=feedback.bot_answer_id,
+            status=status,
+            created_at=feedback.created_at,
+            qa_id=feedback.qa_id,
+            reporter_hash=feedback.reporter_hash,
+            proposed_answer=proposed_answer,
+            admin_edited_answer=admin_edited_answer,
+            resolved_at=self.clock.now() if resolved else None,
+        )
+        await self.feedback.save(updated)
+        return updated
+
+    async def propose(self, feedback_id: str, proposed_answer: str) -> Feedback | None:
+        """Record the correction proposed by the reporter.
+
+        Args:
+            feedback_id: The feedback being answered.
+            proposed_answer: The text the reporter proposes.
+
+        Returns:
+            The updated feedback, or ``None`` when it does not exist.
+        """
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return None
+        return await self._update(
+            feedback,
+            status=FeedbackStatus.PENDING_ADMIN,
+            proposed_answer=proposed_answer,
+            admin_edited_answer=feedback.admin_edited_answer,
+        )
+
+    async def admin_edit(self, feedback_id: str, edited_answer: str) -> Feedback | None:
+        """Record the admin's edited version, still pending approval.
+
+        Args:
+            feedback_id: The feedback being edited.
+            edited_answer: The admin's corrected text.
+
+        Returns:
+            The updated feedback, or ``None`` when it does not exist.
+        """
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return None
+        return await self._update(
+            feedback,
+            status=FeedbackStatus.PENDING_ADMIN,
+            proposed_answer=feedback.proposed_answer,
+            admin_edited_answer=edited_answer,
+        )
+
+    async def reject(self, feedback_id: str) -> Feedback | None:
+        """Reject a proposal without touching knowledge.
+
+        Args:
+            feedback_id: The feedback to reject.
+
+        Returns:
+            The updated feedback, or ``None`` when it does not exist.
+        """
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return None
+        return await self._update(
+            feedback,
+            status=FeedbackStatus.REJECTED,
+            proposed_answer=feedback.proposed_answer,
+            admin_edited_answer=feedback.admin_edited_answer,
+            resolved=True,
+        )
+
+    async def correction_request(self, feedback_id: str) -> CorrectionRequest | None:
+        """Build the admin review payload for a proposal.
+
+        Args:
+            feedback_id: The feedback to review.
+
+        Returns:
+            The review payload, or ``None`` when there is nothing to review.
+        """
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return None
+        answer = await self.answers.get(feedback.bot_answer_id)
+        proposal = feedback.admin_edited_answer or feedback.proposed_answer
+        if answer is None or not proposal:
+            return None
+        return CorrectionRequest(
+            feedback_id=feedback.id,
+            question=answer.question,
+            current_answer=answer.answer,
+            proposed_answer=proposal,
+        )
+
+    async def approve(self, feedback_id: str) -> QAVersion | None:
+        """Approve a proposal and supersede the previous answer version.
+
+        Args:
+            feedback_id: The feedback to approve.
+
+        Returns:
+            The new Q&A version, or ``None`` when the feedback is unknown or has
+            no proposed answer.
+        """
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return None
+        answer_text = feedback.admin_edited_answer or feedback.proposed_answer
+        if not answer_text:
+            return None
+        now = self.clock.now()
+        answer = await self.answers.get(feedback.bot_answer_id)
+        question = answer.question if answer is not None else ""
+        qa_id = await self._resolve_qa_id(feedback, question)
+        item = await self.qa_items.get(qa_id)
+        if item is None:
+            return None
+        version = QAVersion(
+            id=f"qav:{feedback.id}:{int(now.timestamp())}",
+            qa_id=qa_id,
+            answer=answer_text,
+            authority=int(Authority.ADMIN_APPROVED),
+            origin=QAOrigin.ADMIN_APPROVED,
+            created_at=now,
+            created_by="admin",
+            supersedes_version_id=item.current_version_id,
+        )
+        await self.qa_versions.add(version)
+        await self.qa_items.save(
+            QAItem(
+                id=item.id,
+                canonical_key=item.canonical_key,
+                canonical_question=item.canonical_question,
+                status=QAStatus.ACTIVE,
+                created_at=item.created_at,
+                updated_at=now,
+                current_version_id=version.id,
+            )
+        )
+        await self.evidence.add(
+            QAEvidence(
+                qa_version_id=version.id,
+                evidence_type=EvidenceType.MESSAGE,
+                evidence_id=feedback.bot_answer_id,
+            )
+        )
+        await self._update(
+            feedback,
+            status=FeedbackStatus.APPROVED,
+            proposed_answer=feedback.proposed_answer,
+            admin_edited_answer=feedback.admin_edited_answer,
+            resolved=True,
+        )
+        return version
+
+    async def _resolve_qa_id(self, feedback: Feedback, question: str) -> str:
+        if feedback.qa_id is not None:
+            existing = await self.qa_items.get(feedback.qa_id)
+            if existing is not None:
+                return existing.id
+            source = await self.qa_versions.get(feedback.qa_id)
+            if source is not None:
+                return source.qa_id
+        key = canonical_key_for(question) if question else feedback.id
+        item = await self.qa_items.get_by_canonical_key(key)
+        if item is not None:
+            return item.id
+        stamp = self.clock.now()
+        created = QAItem(
+            id=f"qa:{key}",
+            canonical_key=key,
+            canonical_question=question,
+            status=QAStatus.ACTIVE,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        await self.qa_items.add(created)
+        return created.id
