@@ -1,5 +1,8 @@
 .git
 .venv
+.venv-workers
+python_modules
+pylock.toml
 __pycache__
 *.pyc
 .ruff_cache

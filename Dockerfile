@@ -6,12 +6,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/workspace/.venv
 
-# Node LTS is required by wrangler / pywrangler.
+# Node LTS is required by wrangler / pywrangler (wrangler 4 needs Node >= 22).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg nodejs npm \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.2 /uv /uvx /bin/
+RUN npm install -g wrangler@4
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /uvx /bin/
 
 WORKDIR /workspace
 
@@ -23,4 +27,4 @@ RUN uv sync --frozen
 
 EXPOSE 8787
 
-CMD ["uv", "run", "pywrangler", "dev", "--ip", "0.0.0.0", "--port", "8787"]
+CMD ["uv", "run", "pywrangler", "dev", "--local", "--ip", "0.0.0.0", "--port", "8787"]

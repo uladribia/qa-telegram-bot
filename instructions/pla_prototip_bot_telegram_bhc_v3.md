@@ -249,7 +249,7 @@ Per aixecar el Worker local:
 
 ```bash
 docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace \
-  knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
+  knowledge-bot:dev uv run pywrangler dev --local --ip 0.0.0.0 --port 8787
 ```
 
 El contenidor ha d'exposar el port `8787`.
@@ -472,7 +472,7 @@ El Worker local s'executa amb `docker run` directe (no hi ha Compose):
 docker build -t knowledge-bot:dev .
 
 docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace \
-  knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
+  knowledge-bot:dev uv run pywrangler dev --local --ip 0.0.0.0 --port 8787
 ```
 
 Ajustar la sintaxi exacta al CLI vigent si `pywrangler` no accepta aquests flags directament; no inventar opcions.
@@ -2929,7 +2929,7 @@ Definition of done:
 
 ```text
 docker build -t knowledge-bot:dev .
-docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
+docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace knowledge-bot:dev uv run pywrangler dev --local --ip 0.0.0.0 --port 8787
 /healthz returns 200
 FastAPI/Pydantic/Loguru smoke test passes under pywrangler
 ruff format --check passes
