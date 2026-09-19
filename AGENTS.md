@@ -52,7 +52,7 @@ execution is for the product code and its tests, not for editing the repository.
 | Type checking | `ty` |
 | Tests | `pytest` |
 | Worker runtime / deploy | Cloudflare Python Workers, `pywrangler` |
-| Dev environment | Docker + Docker Compose (dev/CI only) |
+| Dev environment | Docker (dev/CI only, no Compose) |
 
 Do not add a framework or dependency that is not in the plan without a documented
 reason. Reach for the standard library first. Prefer the existing stack.
@@ -112,9 +112,9 @@ make test     # uv run pytest
 make all      # lint then test
 ```
 
-`uv run` is the fast, canonical path. Docker
-(`docker compose run --rm app ...`) is only a fidelity check for the Worker
-runtime. Do not add a second set of commands to scripts or docs.
+`uv run` is the fast, canonical path. Docker is a fidelity check via direct
+`docker build`/`docker run` (there is no Docker Compose). Do not add a second
+set of commands to scripts or docs.
 
 A task is not done until `make all` exits 0.
 

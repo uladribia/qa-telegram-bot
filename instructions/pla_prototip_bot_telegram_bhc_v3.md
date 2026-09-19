@@ -34,7 +34,7 @@ Aquest document està escrit com a **spec d'implementació per a un agent de cod
 - **CLI d'operacions i imports:** Typer.
 - **Logging:** Loguru, amb logs estructurats a stdout i sense PII/text de missatges per defecte.
 - **Arquitectura:** Clean Architecture pragmàtica amb dependency rule explícita.
-- **Entorn de desenvolupament i CI:** Docker + Docker Compose.
+- **Entorn de desenvolupament i CI:** Docker (imatge pròpia, sense Docker Compose).
 - **Tests:** `pytest`.
 - **Evals:** `pydantic-evals` per als datasets/evaluadors offline quan aporti valor, més checks deterministes propis.
 - **AI orchestration:** NO fer de PydanticAI una dependència obligatòria de la v1. El core ha de dependre d'un port `Generator`; es pot afegir un adapter PydanticAI només si un smoke test confirma compatibilitat amb Cloudflare Python Workers/Pyodide. Per defecte, usar el binding natiu de Workers AI + Pydantic per validar output.
@@ -199,8 +199,7 @@ L'agent ha d'utilitzar aquest toolchain i no substituir-lo per alternatives equi
 
 ```text
 uv              dependències, entorn i execució
-Docker          entorn reproduïble de desenvolupament/CI
-Docker Compose  comandes locals i serveis de desenvolupament
+Docker          entorn reproduïble de desenvolupament/CI (sense Compose)
 FastAPI         HTTP/API
 Pydantic v2     DTOs, settings i validació de fronteres
 Typer           totes les CLIs de manteniment/import/evals
@@ -230,25 +229,33 @@ uv run ruff check --fix .
 
 No afegir Black, isort, Flake8, mypy o Pyright.
 
-La via preferida per a desenvolupament ha de funcionar tant directament amb `uv` com dins Docker:
+La via preferida per a desenvolupament ha de funcionar tant directament amb `uv` com dins Docker.
+No s'utilitza Docker Compose; totes les comandes de contenidor són `docker build` i `docker run` directes:
 
 ```bash
-docker compose build
-docker compose run --rm app uv run ruff format --check .
-docker compose run --rm app uv run ruff check .
-docker compose run --rm app uv run ty check
-docker compose run --rm app uv run pytest
+docker build -t knowledge-bot:dev .
+
+docker run --rm -v "$PWD":/workspace -w /workspace knowledge-bot:dev \
+  uv run ruff format --check .
+docker run --rm -v "$PWD":/workspace -w /workspace knowledge-bot:dev \
+  uv run ruff check .
+docker run --rm -v "$PWD":/workspace -w /workspace knowledge-bot:dev \
+  uv run ty check
+docker run --rm -v "$PWD":/workspace -w /workspace knowledge-bot:dev \
+  uv run pytest
 ```
 
 Per aixecar el Worker local:
 
 ```bash
-docker compose up app
+docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace \
+  knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
 ```
 
-El servei `app` ha d'exposar el port `8787`.
+El contenidor ha d'exposar el port `8787`.
 
 No usar Docker-in-Docker. No usar Cloudflare Containers en producció per aquesta v1.
+**No s'utilitza Docker Compose**: no hi ha `compose.yaml` i no s'ha d'introduir.
 
 ## PydanticAI
 
@@ -439,9 +446,11 @@ Afegir obligatòriament:
 
 ```text
 Dockerfile
-compose.yaml
 .dockerignore
 ```
+
+**No s'utilitza Docker Compose.** No hi ha `compose.yaml`; totes les comandes de
+contenidor són `docker build` i `docker run` directes.
 
 El `Dockerfile` de desenvolupament ha d'incloure:
 
@@ -457,17 +466,13 @@ El Worker s'ha de provar amb `pywrangler dev` dins del contenidor perquè això 
 
 `uvicorn` es pot usar per tests ràpids de FastAPI si convé, però **no és el test de compatibilitat del runtime**.
 
-`compose.yaml` mínim:
+El Worker local s'executa amb `docker run` directe (no hi ha Compose):
 
-```yaml
-services:
-  app:
-    build: .
-    ports:
-      - "8787:8787"
-    volumes:
-      - .:/workspace
-    command: uv run pywrangler dev --ip 0.0.0.0 --port 8787
+```bash
+docker build -t knowledge-bot:dev .
+
+docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace \
+  knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
 ```
 
 Ajustar la sintaxi exacta al CLI vigent si `pywrangler` no accepta aquests flags directament; no inventar opcions.
@@ -585,7 +590,6 @@ Implementar una estructura similar a aquesta i respectar-ne la direcció de depe
 ```text
 knowledge-bot/
 ├── Dockerfile
-├── compose.yaml
 ├── .dockerignore
 ├── .gitignore
 ├── pyproject.toml
@@ -2910,7 +2914,7 @@ Executar en aquest ordre.
 
 - iniciar projecte Python Worker;
 - `uv`;
-- `Dockerfile` + `compose.yaml`;
+- `Dockerfile` + `.dockerignore` (sense Docker Compose);
 - FastAPI + Pydantic;
 - Loguru;
 - Ruff;
@@ -2924,8 +2928,8 @@ Executar en aquest ordre.
 Definition of done:
 
 ```text
-docker compose build
-docker compose up app
+docker build -t knowledge-bot:dev .
+docker run --rm -it -p 8787:8787 -v "$PWD":/workspace -w /workspace knowledge-bot:dev uv run pywrangler dev --ip 0.0.0.0 --port 8787
 /healthz returns 200
 FastAPI/Pydantic/Loguru smoke test passes under pywrangler
 ruff format --check passes
@@ -3108,7 +3112,7 @@ El prototip està acabat quan:
 
 12. `pytest` i els evals compleixen els thresholds definits.
 
-13. `docker compose build` i `docker compose up app` funcionen des d'un checkout net.
+13. `docker build` i l'execució del Worker amb `docker run` funcionen des d'un checkout net, sense Docker Compose.
 
 14. Ruff i `ty` passen sense exclusions globals.
 
