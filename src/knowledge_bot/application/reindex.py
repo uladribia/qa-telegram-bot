@@ -63,6 +63,7 @@ class ReindexService:
                     "anchor": item.anchor,
                     "url": item.url,
                     "date": item.date,
+                    "author": item.author,
                 },
             )
             for item, vector in zip(items, embeddings, strict=False)

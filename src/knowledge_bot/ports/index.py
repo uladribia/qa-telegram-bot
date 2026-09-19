@@ -7,7 +7,11 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True, slots=True)
 class IndexableQA:
-    """An active Q&A version ready to be embedded."""
+    """An active Q&A version ready to be embedded.
+
+    ``url`` and ``author`` are mutually exclusive citations: a web snapshot
+    version carries the anchored URL, a human correction carries its author.
+    """
 
     version_id: str
     question: str
@@ -16,6 +20,7 @@ class IndexableQA:
     anchor: str | None = None
     url: str | None = None
     date: str | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

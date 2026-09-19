@@ -323,9 +323,9 @@ def _eval_answer(
         for citation in payload.get("citations") or []:
             if not isinstance(citation, dict):
                 continue
-            is_web = citation.get("label") == "Q&A"
-            if is_web:
-                url = str(citation.get("url") or "")
+            url = str(citation.get("url") or "")
+            author = citation.get("author")
+            if url:
                 report.check(
                     "#" in url, f"{question!r}: web citation lacks an anchor: {url!r}"
                 )
@@ -335,8 +335,8 @@ def _eval_answer(
                 )
             else:
                 report.check(
-                    bool(citation.get("author") and citation.get("date")),
-                    f"{question!r}: group citation lacks author or date",
+                    bool(author and citation.get("date")),
+                    f"{question!r}: citation lacks a URL and an author+date",
                 )
         for term in _terms(case.get("must_include")):
             if term.lower() not in answer.lower():

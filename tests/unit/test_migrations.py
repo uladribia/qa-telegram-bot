@@ -130,11 +130,15 @@ def test_qa_version_history_is_append_only() -> None:
         ("q1", "equipment", "?", "active", "v1", "2026-01-01", "2026-01-01"),
     )
     connection.execute(
-        "INSERT INTO qa_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, confidence, origin, created_by,"
+        " supersedes_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ("v1", "q1", "a1", 60, None, "auto_generated", None, None, "2026-01-01"),
     )
     connection.execute(
-        "INSERT INTO qa_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, confidence, origin, created_by,"
+        " supersedes_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ("v2", "q1", "a2", 100, None, "admin_approved", "admin", "v1", "2026-01-02"),
     )
     connection.execute("UPDATE qa_items SET current_version_id = 'v2' WHERE id = 'q1'")

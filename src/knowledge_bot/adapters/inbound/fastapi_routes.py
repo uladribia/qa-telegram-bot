@@ -74,7 +74,11 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         callback = normalize_callback(update)
         if callback is not None:
             status = await _handle_callback(
-                context, callback.callback_id, callback.data, callback.sender_chat_id
+                context,
+                callback.callback_id,
+                callback.data,
+                callback.sender_chat_id,
+                callback.sender_name,
             )
             return {"status": status}
         message = normalize_message(update, context.identity)
@@ -246,7 +250,9 @@ async def _handle_feedback_reply(
     feedback = await context.feedback.find_by_proposal_prompt(reply_to)
     if feedback is None:
         return None
-    proposed = await context.feedback.propose(feedback.id, message.text)
+    proposed = await context.feedback.propose(
+        feedback.id, message.text, message.sender_name
+    )
     if proposed is None:
         return None
     reporter_chat = proposed.reporter_chat_id or message.conversation_id
@@ -264,6 +270,7 @@ async def _handle_callback(
     callback_id: str,
     data: str | None,
     reporter_chat_id: str | None,
+    reporter_name: str | None = None,
 ) -> str:
     """Route an inline-button press through the correction flow.
 
@@ -272,6 +279,7 @@ async def _handle_callback(
         callback_id: The callback to acknowledge.
         data: The callback payload.
         reporter_chat_id: The private chat to prompt for the proposal.
+        reporter_name: The reporter's display name, cited as the author.
 
     Returns:
         A short status string.
@@ -286,7 +294,9 @@ async def _handle_callback(
     if action != "start" and not is_admin:
         return "ignored"
     if action == "start":
-        feedback = await context.feedback.start(target, None, reporter_chat_id)
+        feedback = await context.feedback.start(
+            target, None, reporter_chat_id, reporter_name
+        )
         if feedback is None:
             return "ignored"
         prompt_id = await context.transport.send_force_reply(
