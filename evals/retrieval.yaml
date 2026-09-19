@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: MIT
+# Retrieval eval set (spec §38). `expected_anchor` is the real anchor of the
+# seeded web Q&A that must appear in the top-k results for the query.
+# Acceptance: Recall@3 >= 0.90, Recall@5 >= 0.97.
+
+- query: "Quan podem demanar la roba?"
+  expected_anchor: qa-equipament-com-demanar
+- query: "Com es demana l'equipament?"
+  expected_anchor: qa-equipament-com-demanar
+- query: "Qui passa la llista de l'equipament?"
+  expected_anchor: qa-equipament-com-demanar
+- query: "Com sé quina talla li va?"
+  expected_anchor: qa-talles-equipament
+- query: "On puc veure les taules de mides?"
+  expected_anchor: qa-guia-talles-roba-thunder
+- query: "Quant costa l'equipament i on es demana?"
+  expected_anchor: qa-preus-comanda-roba-thunder
+- query: "Si plou entrenen?"
+  expected_anchor: qa-entrenaments-pluja
+- query: "On entrenen i juguen els partits?"
+  expected_anchor: qa-instalacions-pau-negre
+- query: "Quan són les revisions mèdiques?"
+  expected_anchor: qa-revisions-mediques
+- query: "Com miro quan caduca el certificat mèdic?"
+  expected_anchor: qa-caducitat-certificat-medic
+- query: "He d'enviar l'informe al delegat?"
+  expected_anchor: qa-informe-revisio-medica
+- query: "Per què és important el certificat mèdic?"
+  expected_anchor: qa-certificat-medic
+- query: "Per què no estic al grup de WhatsApp?"
+  expected_anchor: qa-grup-whatsapp
+- query: "Amb qui parlo si el delegat no ho sap?"
+  expected_anchor: qa-contacte-club
+- query: "Els Minis juguen lliga?"
+  expected_anchor: qa-mini-competicions
+- query: "Per què paguen fitxa federativa?"
+  expected_anchor: qa-mini-fitxa-federativa
+- query: "Com funciona el servei d'autobús?"
+  expected_anchor: qa-servei-autobus
+- query: "Es pot agafar el bus només un dia?"
+  expected_anchor: qa-bus-un-dia
+- query: "Què he de fer per inscriure el meu fill?"
+  expected_anchor: qa-inscripcio-renovacio
+- query: "Què inclou el pagament de la inscripció?"
+  expected_anchor: qa-que-inclou-pagament
+- query: "Quines edats corresponen a cada categoria?"
+  expected_anchor: qa-taula-categories-edats
+- query: "Com està organitzada l'escola?"
+  expected_anchor: qa-organitzacio-escola
+- query: "Què és això dels BALL-KIDS?"
+  expected_anchor: qa-ball-kids
+- query: "El club organitza casal d'estiu?"
+  expected_anchor: qa-casal-estiu-bhc
+- query: "Quant costa la revisió mèdica?"
+  expected_anchor: qa-revisio-medica-cost
+- query: "Han d'anar els pares a la revisió mèdica?"
+  expected_anchor: qa-acompanyament-revisio-medica
+- query: "On descarrego l'app de la Federació?"
+  expected_anchor: qa-app-federacio-descarrega
+- query: "Hi ha horari d'atenció presencial?"
+  expected_anchor: qa-despatx-atencio-pau-negre
+- query: "Per què porten faldilla les jugadores?"
+  expected_anchor: qa-faldilla-equipament
+- query: "Quins valors defensa el club?"
+  expected_anchor: qa-valors-club
+- query: "¿Cuándo hay que pedir la equipación?"
+  expected_anchor: qa-equipament-com-demanar
+- query: "¿Entrenan si llueve?"
+  expected_anchor: qa-entrenaments-pluja
+- query: "¿Dónde entrenan?"
+  expected_anchor: qa-instalacions-pau-negre

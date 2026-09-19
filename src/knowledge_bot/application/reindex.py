@@ -60,6 +60,7 @@ class ReindexService:
                     "authority": item.authority,
                     "question": item.question,
                     "text": item.answer,
+                    "anchor": item.anchor,
                     "url": item.url,
                     "date": item.date,
                 },

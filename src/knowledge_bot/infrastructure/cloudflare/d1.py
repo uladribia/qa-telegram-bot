@@ -510,7 +510,8 @@ class D1SearchIndexSource:
         """Return the active Q&A versions to index."""
         result = await self._db.prepare(
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
-            " qv.answer AS answer, qv.authority AS authority, s.canonical_url AS url,"
+            " qv.answer AS answer, qv.authority AS authority,"
+            " qi.canonical_key AS anchor, s.canonical_url AS url,"
             " qv.created_at AS created_at"
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
@@ -523,6 +524,7 @@ class D1SearchIndexSource:
                 question=str(row["question"]),
                 answer=str(row["answer"]),
                 authority=int(cast(int, row["authority"])),
+                anchor=_opt_str(row["anchor"]),
                 url=_opt_str(row["url"]),
                 date=_date_part(row["created_at"]),
             )

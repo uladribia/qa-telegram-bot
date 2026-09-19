@@ -13,6 +13,7 @@ class IndexableQA:
     question: str
     answer: str
     authority: int
+    anchor: str | None = None
     url: str | None = None
     date: str | None = None
 

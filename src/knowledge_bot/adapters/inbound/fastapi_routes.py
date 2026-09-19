@@ -104,6 +104,25 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         report = await context.reindex.reindex()
         return {"qa": report.qa, "messages": report.messages}
 
+    @app.post("/internal/retrieve")
+    async def internal_retrieve(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, dict[str, list[str]]]:
+        """Return the retrieved source ids for each query (eval support)."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        queries = payload.get("queries", []) if isinstance(payload, dict) else []
+        results: dict[str, list[str]] = {}
+        for query in queries:
+            retrieved = await context.answer.retrieval.retrieve(str(query))
+            results[str(query)] = [
+                item.anchor or item.source_id for item in retrieved.qa
+            ]
+        return {"results": results}
+
     @app.post("/internal/seed")
     async def internal_seed(
         request: Request,

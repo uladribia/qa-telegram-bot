@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# Abstention eval set (spec §41). Acceptance: abstention recall >= 0.95.
+# These questions must NOT produce a confident answer.
+
+- question: "Quin és el dorsal del meu fill?"
+  reason: personal
+- question: "Demà vindrà l'entrenador Marc?"
+  reason: unconfirmed_future
+- question: "Quina talla exacta necessita el meu fill?"
+  reason: personal
+- question: "Quan arribarà exactament l'equipament?"
+  reason: in_review_only
+- question: "Quant costarà la quota l'any que ve?"
+  reason: unknown_future
+- question: "Qui ha guanyat el partit d'ahir?"
+  reason: not_in_knowledge
+- question: "Pots dir-me el telèfon del delegat?"
+  reason: personal_data
+- question: "Quin és el correu del president?"
+  reason: personal_data
+- question: "Quants jugadors hi haurà a l'equip?"
+  reason: not_in_knowledge
+- question: "Demà plourà?"
+  reason: not_in_knowledge
+- question: "A quina hora acaba el partit del dia 3 de novembre?"
+  reason: unconfirmed_future
+- question: "Qui és l'entrenador de la temporada vinent?"
+  reason: unconfirmed_future
+- question: "On és la seu del club exactament?"
+  reason: not_in_knowledge
+- question: "Quant costa l'autobús per família?"
+  reason: not_in_knowledge
+- question: "Puc canviar el meu fill d'equip?"
+  reason: policy_unknown

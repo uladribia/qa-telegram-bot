@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: MIT
+# Factual-answer eval set (spec §39). Deterministic checks: the answer must
+# contain `must_include` and must not contain `must_not_claim`.
+
+- id: equipment_order
+  question: "Com demano l'equipament?"
+  must_include: ["provar", "talla", "llista"]
+  must_not_claim: ["es compra directament a la botiga del Barça"]
+- id: equipment_when
+  question: "Quan es demana la roba?"
+  must_include: ["temporada"]
+  must_not_claim: ["al final de temporada"]
+- id: equipment_size
+  question: "Com sé la talla?"
+  must_include: ["talla"]
+  must_not_claim: []
+- id: training_rain
+  question: "Si plou entrenen igualment?"
+  must_include: ["plou"]
+  must_not_claim: ["no entrenen mai"]
+- id: training_where
+  question: "On entrenen?"
+  must_include: ["Pau Negre"]
+  must_not_claim: []
+- id: home_matches
+  question: "On juguen els partits de casa?"
+  must_include: ["local"]
+  must_not_claim: []
+- id: medical_required
+  question: "És obligatori el certificat mèdic?"
+  must_include: ["certificat"]
+  must_not_claim: ["no cal cap certificat"]
+- id: medical_expiry
+  question: "Com miro quan caduca el certificat?"
+  must_include: ["federaci"]
+  must_not_claim: []
+- id: whatsapp_group
+  question: "Per què encara no soc al grup de WhatsApp?"
+  must_include: ["delegat"]
+  must_not_claim: []
+- id: minis_league
+  question: "Els Minis juguen lliga?"
+  must_include: ["lliga"]
+  must_not_claim: []
+- id: spanish_equipment
+  question: "¿Cuándo hay que pedir la equipación?"
+  must_include: ["temporada"]
+  must_not_claim: []
