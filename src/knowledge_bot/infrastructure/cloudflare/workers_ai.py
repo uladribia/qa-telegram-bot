@@ -10,6 +10,7 @@ import re
 from typing import Protocol, cast
 
 from knowledge_bot.contracts.ai import GenerationOutput, JudgeOutput
+from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import (
     GenerationRequest,
     GenerationResult,
@@ -24,9 +25,16 @@ Rules:
 3. If the answer is unknown, return status "insufficient".
 4. Prefer higher-authority evidence.
 5. A source marked "in_review" cannot alone establish a fact.
-6. Return only JSON matching the schema.
-7. source_ids must only contain IDs from the supplied evidence.
-8. Answer in the language of the user's question.
+6. The evidence must actually answer the question that was asked. Related but
+   non-answering evidence is not enough: return status "insufficient".
+7. Match the question's time frame and scope. If the question asks about a
+   different season, year, or future period than the evidence covers, return
+   status "insufficient". Do not carry a current fact over to another period.
+8. Never guess, never extrapolate, and never add specifics (prices, dates,
+   names, places, channels) that the evidence does not state.
+9. Return only JSON matching the schema.
+10. source_ids must only contain IDs from the supplied evidence.
+11. Answer in the language of the user's question.
 
 Return JSON:
 {"status": "answered" | "insufficient", "answer": "...", "source_ids": ["..."]}"""
@@ -38,8 +46,11 @@ Rules:
    and the answer addresses the question.
 2. "unsupported": the answer contains a factual claim absent from the evidence.
 3. "wrong": the answer contradicts the evidence.
-4. Judge only what the answer claims, not the evidence's quality.
-5. Return only JSON matching the schema.
+4. "unsupported" also covers a scope or time-frame mismatch: if the question
+   asks about a different season, year, or future period than the evidence
+   covers, the answer is not grounded.
+5. Judge only what the answer claims, not the evidence's quality.
+6. Return only JSON matching the schema.
 
 Return JSON:
 {"verdict": "grounded" | "unsupported" | "wrong", "reason": "..."}"""
@@ -75,8 +86,15 @@ class WorkersAIEmbedder:
         self._model = model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts."""
-        result = await self._ai.run(self._model, {"text": texts})
+        """Embed a batch of texts.
+
+        Raises:
+            ModelUnavailableError: When the embedding model call fails.
+        """
+        try:
+            result = await self._ai.run(self._model, {"text": texts})
+        except Exception as error:
+            raise ModelUnavailableError("embedding") from error
         data = cast("list[list[float]]", _field(result, "data"))
         return [[float(value) for value in row] for row in data]
 
@@ -124,8 +142,15 @@ class WorkersAIGenerator:
         self._ai = ai
         self._model = model
 
+    async def _run(self, messages: list[dict[str, str]]) -> object:
+        """Run the chat model, raising a domain error on failure."""
+        try:
+            return await self._ai.run(self._model, {"messages": messages})
+        except Exception as error:
+            raise ModelUnavailableError("generation") from error
+
     async def _attempt(self, messages: list[dict[str, str]]) -> GenerationOutput | None:
-        result = await self._ai.run(self._model, {"messages": messages})
+        result = await self._run(messages)
         return _parse_output(_extract_content(result))
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
@@ -151,6 +176,12 @@ class WorkersAIGenerator:
             source_ids=output.source_ids,
         )
 
+    async def _judge_attempt(
+        self, messages: list[dict[str, str]]
+    ) -> JudgeOutput | None:
+        result = await self._run(messages)
+        return _parse_judge(_extract_content(result))
+
     async def judge(
         self, question: str, answer: str, evidence: list[str]
     ) -> JudgeVerdict:
@@ -159,8 +190,15 @@ class WorkersAIGenerator:
             {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
             {"role": "user", "content": _render_judge(question, answer, evidence)},
         ]
-        result = await self._ai.run(self._model, {"messages": messages})
-        output = _parse_judge(_extract_content(result))
+        output = await self._judge_attempt(messages)
+        if output is None:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Return ONLY a valid JSON object matching the schema.",
+                }
+            )
+            output = await self._judge_attempt(messages)
         if output is None:
             return JudgeVerdict(verdict="error", reason="unparseable judge output")
         return JudgeVerdict(verdict=output.verdict, reason=output.reason)
