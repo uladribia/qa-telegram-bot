@@ -45,6 +45,7 @@ class RecordingTransport:
         self.answers: list[tuple[str, str, str]] = []
         self.edits: list[tuple[str, str, str]] = []
         self.force_replies: list[tuple[str, str]] = []
+        self.reviews: list[tuple[str, str, str]] = []
 
     async def send_message(self, conversation_id: str, text: str) -> str | None:
         """Record a message."""
@@ -69,6 +70,13 @@ class RecordingTransport:
         """Record a force-reply prompt."""
         self.force_replies.append((conversation_id, text))
         return str(len(self.force_replies))
+
+    async def send_review(
+        self, conversation_id: str, text: str, feedback_id: str
+    ) -> str | None:
+        """Record an admin review message."""
+        self.reviews.append((conversation_id, text, feedback_id))
+        return str(len(self.reviews))
 
     async def answer_callback(self, callback_id: str) -> None:
         """Record a callback acknowledgement."""

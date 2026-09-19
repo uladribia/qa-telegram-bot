@@ -100,10 +100,32 @@ def _opt_dt(value: object) -> datetime | None:
 
 
 def _date_part(value: object) -> str | None:
-    """Return the YYYY-MM-DD part of a stored timestamp, if any."""
+    """Return a DD/MM/YYYY date for a stored timestamp, if any."""
     if value is None:
         return None
-    return str(value)[:10]
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y")
+    except ValueError:
+        return str(value)[:10]
+
+
+def _datetime_part(value: object) -> str | None:
+    """Return a DD/MM/YYYY HH:MM stamp for a stored timestamp, if any."""
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return str(value)
+
+
+def _exact_url(base: object, anchor: object) -> str | None:
+    """Compose the anchor-specific URL for a web Q&A, when possible."""
+    base_text = _opt_str(base)
+    anchor_text = _opt_str(anchor)
+    if base_text and anchor_text:
+        return f"{base_text}#{anchor_text}"
+    return base_text
 
 
 def _sender_label(sender_hash: object) -> str | None:
@@ -525,7 +547,7 @@ class D1SearchIndexSource:
                 answer=str(row["answer"]),
                 authority=int(cast(int, row["authority"])),
                 anchor=_opt_str(row["anchor"]),
-                url=_opt_str(row["url"]),
+                url=_exact_url(row["url"], row["anchor"]),
                 date=_date_part(row["created_at"]),
             )
             for row in _rows(result)
@@ -544,7 +566,7 @@ class D1SearchIndexSource:
                 source_type=str(row["source_id"]),
                 authority=_message_authority(str(row["source_id"])),
                 author=_sender_label(row["sender_hash"]),
-                date=_date_part(row["sent_at"]),
+                date=_datetime_part(row["sent_at"]),
             )
             for row in _rows(result)
         ]

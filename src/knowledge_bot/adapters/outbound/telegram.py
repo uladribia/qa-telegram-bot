@@ -23,6 +23,35 @@ def feedback_keyboard(answer_id: str) -> dict[str, object]:
     }
 
 
+def review_keyboard(feedback_id: str) -> dict[str, object]:
+    """Build the admin review buttons for a correction.
+
+    Args:
+        feedback_id: The correction under review.
+
+    Returns:
+        A Telegram ``reply_markup`` payload.
+    """
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "\u2705 Aprovar",
+                    "callback_data": f"feedback:approve:{feedback_id}",
+                },
+                {
+                    "text": "\u270f\ufe0f Editar",
+                    "callback_data": f"feedback:edit:{feedback_id}",
+                },
+                {
+                    "text": "\u274c Rebutjar",
+                    "callback_data": f"feedback:reject:{feedback_id}",
+                },
+            ]
+        ]
+    }
+
+
 class TelegramTransport:
     """Send and edit messages through the Telegram Bot API."""
 
@@ -98,6 +127,29 @@ class TelegramTransport:
             {"chat_id": conversation_id, "message_id": message_id, "text": text},
         )
         return bool(response.get("ok", True))
+
+    async def send_review(
+        self, conversation_id: str, text: str, feedback_id: str
+    ) -> str | None:
+        """Send an admin review message with approve/edit/reject buttons.
+
+        Args:
+            conversation_id: The admin's private chat.
+            text: The review text.
+            feedback_id: The correction under review.
+
+        Returns:
+            The Telegram message id, if available.
+        """
+        response = await self._post(
+            "sendMessage",
+            {
+                "chat_id": conversation_id,
+                "text": text,
+                "reply_markup": review_keyboard(feedback_id),
+            },
+        )
+        return self._message_id(response)
 
     async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
         """Send a message that asks the user to reply, returning its message id."""

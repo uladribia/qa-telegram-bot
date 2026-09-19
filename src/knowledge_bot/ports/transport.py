@@ -34,6 +34,15 @@ class MessageTransport(Protocol):
         """Replace the text of a message; return whether it succeeded."""
         ...
 
+    async def send_review(
+        self,
+        conversation_id: str,
+        text: str,
+        feedback_id: str,
+    ) -> str | None:
+        """Send an admin review message with approve/edit/reject buttons."""
+        ...
+
     async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
         """Ask for a reply, returning the prompt message id for correlation."""
         ...

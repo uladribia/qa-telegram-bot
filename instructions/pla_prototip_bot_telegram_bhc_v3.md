@@ -1748,10 +1748,15 @@ Si la font és un missatge sense URL pública:
 
 ```text
 Fonts:
-• Grup importat · 18/09/2026
+• Grup · ·a10cb7 · 18/09/2026 14:29
 ```
 
-No exposar el nom de l'autor si no és necessari.
+Regla de citació (decidida):
+
+- **Web**: URL **exacta de l'entrada**, amb l'àncora (`...#qa-equipament-com-demanar`),
+  no la URL global del lloc, si l'àncora existeix. Més la data.
+- **Grup**: **autor i data amb hora** (`·<pseudònim> · DD/MM/YYYY HH:MM`).
+  L'autor és el pseudònim estable; mai el nom real.
 
 ---
 
@@ -1909,6 +1914,15 @@ Envia'm el text correcte.
 ```
 
 amb `ForceReply`.
+
+El flux de correcció passa **sempre per xats privats**, mai pel grup:
+
+1. En prémer el botó al grup, el bot demana la proposta al **DM del reporter**.
+2. En rebre-la, el bot envia la **revisió al DM de l'admin** amb botons
+   `✅ Aprovar` / `✏️ Editar` / `❌ Rebutjar`.
+3. `✏️ Editar` mostra la proposta actual i demana el text corregit; el resultat
+   torna al DM de l'admin amb els botons d'aprovar/rebutjar.
+4. En aprovar, el reporter rep un **missatge privat de gràcies**.
 
 Quan l'admin respon:
 
