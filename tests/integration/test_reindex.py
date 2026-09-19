@@ -89,15 +89,20 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
         " ('q1','equipment','Quan?','active','v1','2026-01-01','2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO qa_versions VALUES"
-        " ('v1','q1','Dimarts',90,NULL,'admin_approved',NULL,NULL,'2026-01-01')"
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, confidence, origin, created_by,"
+        " supersedes_version_id, created_at, source_url)"
+        " VALUES ('v1','q1','Dimarts',90,NULL,'web_seed',NULL,NULL,'2026-01-01',"
+        "'https://x.test/#a1')"
     )
     connection.execute(
         "INSERT INTO qa_items VALUES"
         " ('q2','old','Old?','superseded','v2','2026-01-01','2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO qa_versions VALUES"
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, confidence, origin, created_by,"
+        " supersedes_version_id, created_at) VALUES"
         " ('v2','q2','Old',30,NULL,'web_seed',NULL,NULL,'2026-01-01')"
     )
     connection.commit()
@@ -108,7 +113,32 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
     assert [item.version_id for item in qa] == ["v1"]
     assert qa[0].question == "Quan?"
     assert qa[0].authority == 90
+    assert qa[0].url == "https://x.test/#a1"
     assert [message.message_id for message in messages] == ["m1"]
     assert messages[0].source_type == "telegram"
     assert messages[0].author == "Ada"
     assert messages[0].authority == 40
+
+
+async def test_an_approved_correction_cites_its_author_not_the_web() -> None:
+    """A corrected answer is cited by its proposer and date, never a web URL."""
+    database = FakeD1Database()
+    connection = database.connection
+    connection.execute(
+        "INSERT INTO qa_items VALUES"
+        " ('q1','403af1d3b03b694e','Com es diu?','active','v2','2026-01-01',"
+        "'2026-01-02')"
+    )
+    connection.execute(
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, confidence, origin, created_by,"
+        " supersedes_version_id, created_at, author) VALUES"
+        " ('v2','q1','Vero',100,NULL,'admin_approved','Ula','v1','2026-01-02','Ula')"
+    )
+    connection.commit()
+
+    qa = await D1SearchIndexSource(database).list_qa()
+    assert len(qa) == 1
+    assert qa[0].url is None
+    assert qa[0].author == "Ula"
+    assert qa[0].date == "02/01/2026"

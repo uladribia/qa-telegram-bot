@@ -27,7 +27,10 @@
 - question: "Qui és l'entrenador de la temporada vinent?"
   reason: unconfirmed_future
 - question: "On és la seu del club exactament?"
-  reason: not_in_knowledge
+  reason: relaxed
+  # Relaxed (decided): the club office answer is correct and cited, so this is
+  # not an abstention case. Asserted as a valid answer instead, below.
+
 - question: "Quant costa l'autobús per família?"
   reason: not_in_knowledge
 - question: "Puc canviar el meu fill d'equip?"

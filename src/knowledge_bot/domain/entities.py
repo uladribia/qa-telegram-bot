@@ -92,7 +92,13 @@ class QAItem:
 
 @dataclass(frozen=True, slots=True)
 class QAVersion:
-    """An immutable answer version for a QA item."""
+    """An immutable answer version for a QA item.
+
+    ``source_url`` is set when the answer comes from the web snapshot (and is
+    the exact anchored URL). ``author`` is set when a human proposed the answer
+    through the correction flow. Exactly one of the two identifies the origin
+    of the text, so a citation never claims the wrong source.
+    """
 
     id: str
     qa_id: str
@@ -103,6 +109,8 @@ class QAVersion:
     confidence: float | None = None
     created_by: str | None = None
     supersedes_version_id: str | None = None
+    source_url: str | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,8 +154,10 @@ class Feedback:
     qa_id: str | None = None
     reporter_hash: str | None = None
     reporter_chat_id: str | None = None
+    reporter_name: str | None = None
     proposed_answer: str | None = None
     admin_edited_answer: str | None = None
     proposal_prompt_message_id: str | None = None
     edit_prompt_message_id: str | None = None
+    proposed_at: datetime | None = None
     resolved_at: datetime | None = None

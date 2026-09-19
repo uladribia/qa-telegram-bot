@@ -86,6 +86,8 @@ def render_source_line(source: Evidence) -> str:
         parts.append(source.author)
     if source.date:
         parts.append(source.date)
+    if source.author and source.url:
+        parts.append(source.author)
     return "\u2022 " + " \u00b7 ".join(parts)
 
 

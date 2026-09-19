@@ -46,3 +46,7 @@
   question: "¿Cuándo hay que pedir la equipación?"
   must_include: ["temporada"]
   must_not_claim: []
+- id: club_office
+  question: "On és la seu del club exactament?"
+  must_include: []
+  must_not_claim: []

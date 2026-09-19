@@ -133,6 +133,7 @@ class FeedbackService:
         answer_id: str,
         reporter_hash: str | None,
         reporter_chat_id: str | None = None,
+        reporter_name: str | None = None,
     ) -> Feedback | None:
         """Open a correction proposal for a bot answer.
 
@@ -140,6 +141,7 @@ class FeedbackService:
             answer_id: The bot answer the user marked wrong.
             reporter_hash: A pseudonymized reporter id.
             reporter_chat_id: The chat to prompt privately.
+            reporter_name: The reporter's display name, for the citation.
 
         Returns:
             The created feedback, or ``None`` when the answer is unknown.
@@ -155,6 +157,7 @@ class FeedbackService:
             qa_id=answer.qa_version_id,
             reporter_hash=reporter_hash,
             reporter_chat_id=reporter_chat_id,
+            reporter_name=reporter_name,
         )
         await self.feedback.add(feedback)
         return feedback
@@ -206,12 +209,19 @@ class FeedbackService:
         await self.feedback.save(updated)
         return updated
 
-    async def propose(self, feedback_id: str, proposed_answer: str) -> Feedback | None:
+    async def propose(
+        self,
+        feedback_id: str,
+        proposed_answer: str,
+        reporter_name: str | None = None,
+    ) -> Feedback | None:
         """Record the correction proposed by the reporter.
 
         Args:
             feedback_id: The feedback being answered.
             proposed_answer: The text the reporter proposes.
+            reporter_name: The proposer's display name, used as the citation
+                author once the proposal is approved.
 
         Returns:
             The updated feedback, or ``None`` when it does not exist.
@@ -219,12 +229,16 @@ class FeedbackService:
         feedback = await self.feedback.get(feedback_id)
         if feedback is None:
             return None
-        return await self._update(
+        updated = replace(
             feedback,
             status=FeedbackStatus.PENDING_ADMIN,
             proposed_answer=proposed_answer,
             admin_edited_answer=feedback.admin_edited_answer,
+            reporter_name=reporter_name or feedback.reporter_name,
+            proposed_at=self.clock.now(),
         )
+        await self.feedback.save(updated)
+        return updated
 
     async def admin_edit(self, feedback_id: str, edited_answer: str) -> Feedback | None:
         """Record the admin's edited version, still pending approval.
@@ -318,8 +332,9 @@ class FeedbackService:
             answer=answer_text,
             authority=int(Authority.ADMIN_APPROVED),
             origin=QAOrigin.ADMIN_APPROVED,
-            created_at=now,
-            created_by="admin",
+            created_at=feedback.proposed_at or now,
+            created_by=feedback.reporter_name or "admin",
+            author=feedback.reporter_name or "admin",
             supersedes_version_id=item.current_version_id,
         )
         await self.qa_versions.add(version)

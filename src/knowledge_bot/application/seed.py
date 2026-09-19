@@ -24,6 +24,21 @@ from knowledge_bot.ports.repositories import (
 WEB_SEED_SOURCE_ID = SourceType.WEB_SEED.value
 
 
+def _anchored(base: str | None, anchor: str | None) -> str | None:
+    """Return the exact anchored URL for a snapshot entry, if any.
+
+    Args:
+        base: The snapshot's base URL.
+        anchor: The entry's anchor.
+
+    Returns:
+        ``base#anchor`` when both are present, otherwise whichever exists.
+    """
+    if base and anchor:
+        return f"{base}#{anchor}"
+    return base or anchor
+
+
 def stable_id(value: str) -> str:
     """Return a short deterministic id for a value.
 
@@ -114,6 +129,7 @@ class SeedService:
                     authority=int(web_seed_authority(in_review=in_review)),
                     origin=QAOrigin.WEB_SEED,
                     created_at=entry.retrieved_at,
+                    source_url=_anchored(entry.source_url, entry.source_anchor),
                 )
             )
             created += 1

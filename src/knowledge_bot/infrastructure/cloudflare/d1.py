@@ -120,10 +120,16 @@ def _datetime_part(value: object) -> str | None:
 
 
 def _exact_url(base: object, anchor: object) -> str | None:
-    """Compose the anchor-specific URL for a web Q&A, when possible."""
+    """Compose the anchor-specific URL for a web Q&A, when possible.
+
+    The anchor is only appended when the stored URL is the web snapshot itself.
+    A correction stores no URL, and its anchor is an opaque canonical key.
+    """
     base_text = _opt_str(base)
     anchor_text = _opt_str(anchor)
-    if base_text and anchor_text:
+    if not base_text:
+        return None
+    if anchor_text and base_text.endswith("/"):
         return f"{base_text}#{anchor_text}"
     return base_text
 
@@ -533,15 +539,18 @@ class D1SearchIndexSource:
         self._db = database
 
     async def list_qa(self) -> list[IndexableQA]:
-        """Return the active Q&A versions to index."""
+        """Return the active Q&A versions to index.
+
+        Each version is cited from its own origin: a web snapshot entry keeps
+        its anchored URL, an approved correction cites its author.
+        """
         result = await self._db.prepare(
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
             " qv.answer AS answer, qv.authority AS authority,"
-            " qi.canonical_key AS anchor, s.canonical_url AS url,"
-            " qv.created_at AS created_at"
+            " qi.canonical_key AS anchor, qv.source_url AS source_url,"
+            " qv.author AS author, qv.created_at AS created_at"
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
-            " LEFT JOIN sources s ON s.id = 'web_seed'"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
         ).run()
         return [
@@ -551,8 +560,9 @@ class D1SearchIndexSource:
                 answer=str(row["answer"]),
                 authority=int(cast(int, row["authority"])),
                 anchor=_opt_str(row["anchor"]),
-                url=_exact_url(row["url"], row["anchor"]),
+                url=_exact_url(row["source_url"], row["anchor"]),
                 date=_date_part(row["created_at"]),
+                author=_opt_str(row["author"]),
             )
             for row in _rows(result)
         ]
@@ -652,7 +662,8 @@ class D1QAVersionRepository:
             self._db.prepare(
                 "INSERT INTO qa_versions"
                 " (id, qa_id, answer, authority, confidence, origin, created_by,"
-                " supersedes_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " supersedes_version_id, created_at, source_url, author)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 version.id,
@@ -664,6 +675,8 @@ class D1QAVersionRepository:
                 version.created_by,
                 version.supersedes_version_id,
                 _iso(version.created_at),
+                version.source_url,
+                version.author,
             )
             .run()
         )
@@ -750,6 +763,8 @@ def _qa_version(row: dict[str, object]) -> QAVersion:
         confidence=float(cast(float, confidence)) if confidence is not None else None,
         created_by=_opt_str(row["created_by"]),
         supersedes_version_id=_opt_str(row["supersedes_version_id"]),
+        source_url=_opt_str(row["source_url"]),
+        author=_opt_str(row["author"]),
     )
 
 
@@ -765,10 +780,11 @@ class D1FeedbackRepository:
         await (
             self._db.prepare(
                 "INSERT INTO feedback"
-                " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id, status,"
-                " proposed_answer, admin_edited_answer, proposal_prompt_message_id,"
-                " edit_prompt_message_id, created_at, resolved_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id,"
+                " reporter_name, status, proposed_answer, admin_edited_answer,"
+                " proposal_prompt_message_id, edit_prompt_message_id, created_at,"
+                " proposed_at, resolved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 feedback.id,
@@ -776,12 +792,16 @@ class D1FeedbackRepository:
                 feedback.qa_id,
                 feedback.reporter_hash,
                 feedback.reporter_chat_id,
+                feedback.reporter_name,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
                 feedback.proposal_prompt_message_id,
                 feedback.edit_prompt_message_id,
                 _iso(feedback.created_at),
+                _iso(feedback.proposed_at)
+                if feedback.proposed_at is not None
+                else None,
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
@@ -803,19 +823,24 @@ class D1FeedbackRepository:
         await (
             self._db.prepare(
                 "UPDATE feedback SET qa_id = ?, reporter_hash = ?,"
-                " reporter_chat_id = ?, status = ?, proposed_answer = ?,"
-                " admin_edited_answer = ?, proposal_prompt_message_id = ?,"
-                " edit_prompt_message_id = ?, resolved_at = ? WHERE id = ?"
+                " reporter_chat_id = ?, reporter_name = ?, status = ?,"
+                " proposed_answer = ?, admin_edited_answer = ?,"
+                " proposal_prompt_message_id = ?, edit_prompt_message_id = ?,"
+                " proposed_at = ?, resolved_at = ? WHERE id = ?"
             )
             .bind(
                 feedback.qa_id,
                 feedback.reporter_hash,
                 feedback.reporter_chat_id,
+                feedback.reporter_name,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
                 feedback.proposal_prompt_message_id,
                 feedback.edit_prompt_message_id,
+                _iso(feedback.proposed_at)
+                if feedback.proposed_at is not None
+                else None,
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
@@ -850,9 +875,11 @@ def _feedback(row: dict[str, object]) -> Feedback:
         qa_id=_opt_str(row["qa_id"]),
         reporter_hash=_opt_str(row["reporter_hash"]),
         reporter_chat_id=_opt_str(row["reporter_chat_id"]),
+        reporter_name=_opt_str(row["reporter_name"]),
         proposed_answer=_opt_str(row["proposed_answer"]),
         admin_edited_answer=_opt_str(row["admin_edited_answer"]),
         proposal_prompt_message_id=_opt_str(row["proposal_prompt_message_id"]),
         edit_prompt_message_id=_opt_str(row["edit_prompt_message_id"]),
+        proposed_at=_opt_dt(row["proposed_at"]),
         resolved_at=_opt_dt(row["resolved_at"]),
     )
