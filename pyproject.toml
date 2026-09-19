@@ -22,6 +22,7 @@ dev = [
   "pre-commit>=4.0,<5",
   "pytest>=8.4.1,<10",
   "pytest-asyncio>=1.4.0",
+  "pyyaml>=6.0.3",
   "ruff==0.15.0",
   "ty==0.0.67",
   "typer>=0.27.2",
@@ -47,6 +48,7 @@ include = [
   "pyproject.toml",
   "src/**/*.py",
   "tests/**/*.py",
+  "evals/**/*.py",
 ]
 
 [tool.ruff.lint]
@@ -98,6 +100,7 @@ convention = "google"
 include = [
   "src",
   "tests",
+  "evals",
 ]
 
 [tool.pytest.ini_options]

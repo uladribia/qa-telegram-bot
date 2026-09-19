@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+# Conflict eval set (spec §42). The evidence gate must prefer higher authority
+# and abstain when low-authority evidence conflicts without a decisive source.
+
+- id: low_authority_conflict
+  question: "Quan arriba l'equipament?"
+  evidence:
+    - authority: 30
+      text: "Encara no està confirmat."
+    - authority: 40
+      text: "Crec que arriba dilluns."
+  expected:
+    status: insufficient
+
+- id: higher_authority_wins
+  question: "Quin dia és l'entrenament?"
+  evidence:
+    - authority: 90
+      text: "L'entrenament és dimarts."
+    - authority: 40
+      text: "Em sembla que és dimecres."
+  expected:
+    use_authority: 90
+
+- id: admin_overrides_web
+  question: "Quin dia és l'entrenament?"
+  evidence:
+    - authority: 90
+      text: "L'entrenament és dimarts."
+    - authority: 100
+      text: "A partir d'ara serà dimecres."
+  expected:
+    use_authority: 100
+
+- id: in_review_alone_is_not_enough
+  question: "Quan arribarà l'equipament?"
+  evidence:
+    - authority: 30
+      text: "Pendent de confirmar."
+  expected:
+    status: insufficient

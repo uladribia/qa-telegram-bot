@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: MIT
+# Question-detection eval set (spec §37).
+# `labels` are the expected positive labels; the classifier is not run in v1
+# (the listener is off), so this set documents intent for when it is enabled.
+# Predominant language: Catalan, with some Spanish.
+
+- text: "Demà entrenen?"
+  labels: [question]
+- text: "A quina hora és l'entrenament?"
+  labels: [question]
+- text: "On es compra l'equipament?"
+  labels: [question]
+- text: "Quan hem de demanar la roba?"
+  labels: [question]
+- text: "Com miro quan caduca el certificat mèdic?"
+  labels: [question]
+- text: "Si plou entrenen igualment?"
+  labels: [question]
+- text: "On juguen els partits de casa?"
+  labels: [question]
+- text: "Quant costa la samarreta?"
+  labels: [question]
+- text: "Els Minis juguen lliga?"
+  labels: [question]
+- text: "Per què paguen fitxa federativa?"
+  labels: [question]
+- text: "Qui és el delegat de la meva secció?"
+  labels: [question]
+- text: "Cal enviar l'informe al delegat?"
+  labels: [question]
+- text: "Quina talla necessita el meu fill?"
+  labels: [question]
+- text: "Hi ha autobús per anar als partits?"
+  labels: [question]
+- text: "Quan arriba l'equipament?"
+  labels: [question]
+- text: "¿Cuándo hay que pedir la equipación?"
+  labels: [question]
+- text: "¿Entrenan si llueve?"
+  labels: [question]
+- text: "¿Dónde se compra la ropa?"
+  labels: [question]
+- text: "¿Es obligatorio el certificado médico?"
+  labels: [question]
+- text: "On puc veure el calendari?"
+  labels: [question]
+
+- text: "Recordeu que demà no hi ha entrenament"
+  labels: [knowledge_update]
+- text: "La reunió serà a les cinc"
+  labels: [knowledge_update]
+- text: "A partir d'ara els entrenaments són al Pau Negre"
+  labels: [knowledge_update]
+- text: "Han canviat el dia de partit"
+  labels: [knowledge_update]
+- text: "El delegat ha enviat la llista"
+  labels: [knowledge_update]
+- text: "Aquesta setmana entrenem dijous"
+  labels: [knowledge_update]
+- text: "He penjat el calendari al grup"
+  labels: [knowledge_update]
+- text: "La quota s'ha de pagar abans del dia 15"
+  labels: [knowledge_update]
+- text: "Ja tenim les talles disponibles"
+  labels: [knowledge_update]
+- text: "El partit s'ha ajornat"
+  labels: [knowledge_update]
+- text: "Mañana no hay entrenamiento"
+  labels: [knowledge_update]
+- text: "El entrenamiento pasa al martes"
+  labels: [knowledge_update]
+- text: "Atenció: canvi d'horari"
+  labels: [knowledge_update]
+- text: "Us recordo que cal portar casc"
+  labels: [knowledge_update]
+- text: "La Vero serà l'entrenadora dels Minis"
+  labels: [knowledge_update]
+- text: "Nova data per a la revisió mèdica"
+  labels: [knowledge_update]
+- text: "El club ha confirmat l'horari"
+  labels: [knowledge_update]
+- text: "Aviseu si no podeu venir"
+  labels: [knowledge_update]
+- text: "L'equipament arribarà la setmana que ve"
+  labels: [knowledge_update]
+- text: "He actualitzat les dades al Cluber"
+  labels: [knowledge_update]
+
+- text: "No, finalment és dijous"
+  labels: [correction]
+- text: "No, perdó, finalment és dijous"
+  labels: [knowledge_update, correction]
+- text: "Han canviat l'hora"
+  labels: [correction]
+- text: "Això no és correcte, és a les sis"
+  labels: [correction]
+- text: "No, la llista la passa l'entrenador"
+  labels: [correction]
+- text: "T'has equivocat, és dimecres"
+  labels: [correction]
+- text: "Doncs a mi em van dir una altra cosa"
+  labels: [correction]
+- text: "En realitat no és obligatori"
+  labels: [correction]
+- text: "Correcció: el partit és a les deu"
+  labels: [correction]
+- text: "No és el Pau Negre, és el Can Salvi"
+  labels: [correction]
+- text: "Eso no es así, es el martes"
+  labels: [correction]
+- text: "No, ya no entrenan los lunes"
+  labels: [correction]
+- text: "Rectifico: la reunió és divendres"
+  labels: [correction]
+- text: "No és cert, la quota és una altra"
+  labels: [correction]
+- text: "Al final no era dijous"
+  labels: [correction]
+- text: "Equivocat, és a la tarda"
+  labels: [correction]
+- text: "No, aquest any és diferent"
+  labels: [correction]
+- text: "Cambio: finalmente es el miércoles"
+  labels: [correction]
+- text: "No home no, és el número 7"
+  labels: [correction]
+- text: "Ho sento, em vaig equivocar, és dimarts"
+  labels: [correction]
+
+- text: "Gràcies!"
+  labels: [chitchat]
+- text: "Perfecte"
+  labels: [chitchat]
+- text: "😂"
+  labels: [chitchat]
+- text: "Molt bé!"
+  labels: [chitchat]
+- text: "D'acord"
+  labels: [chitchat]
+- text: "Bon dia a tothom"
+  labels: [chitchat]
+- text: "Felicitats!"
+  labels: [chitchat]
+- text: "Genial, merci"
+  labels: [chitchat]
+- text: "Jo hi seré"
+  labels: [chitchat]
+- text: "Nosaltres també"
+  labels: [chitchat]
+- text: "Anims!"
+  labels: [chitchat]
+- text: "🙌"
+  labels: [chitchat]
+- text: "Bona idea"
+  labels: [chitchat]
+- text: "Vale, gracias"
+  labels: [chitchat]
+- text: "jajaja"
+  labels: [chitchat]
+- text: "Ens veiem demà"
+  labels: [chitchat]
+- text: "Petons"
+  labels: [chitchat]
+- text: "Que vagi bé"
+  labels: [chitchat]
+- text: "Sí, sí"
+  labels: [chitchat]
+- text: "Ok!"
+  labels: [chitchat]
