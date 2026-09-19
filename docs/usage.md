@@ -31,6 +31,16 @@ Anything else is ignored. Unaddressed group chatter is not answered. (There is a
 off-by-default switch, `BACKGROUND_LISTENER_ENABLED`, that stores group traffic as
 knowledge without answering it. See [knowledge-base.md](knowledge-base.md).)
 
+### Direct messages
+
+A bot username is public, so direct messages are **restricted**: only the admin and
+the users listed in `ALLOWED_TELEGRAM_USER_IDS` get an answer there. Anyone else is
+ignored silently.
+
+The one exception is the correction flow: if the bot has just asked someone for a
+correction, their reply is accepted even if they are not on the list — they never
+have to be allowlisted to propose a fix.
+
 ---
 
 ## Typical flow: asking a question
@@ -89,6 +99,8 @@ Who may do what:
 - **Only the admin** (`ADMIN_TELEGRAM_USER_ID`) can approve, edit or reject. This
   is enforced server-side: a confirmation from anyone else is ignored, not just
   hidden.
+- Reporting needs no allowlisting: the proposal is a reply to a prompt the bot
+  sent, so it is accepted regardless of `ALLOWED_TELEGRAM_USER_IDS`.
 - Approving does **not** overwrite anything. It adds a new version; the old one is
   kept, and the web Q&A is never modified.
 

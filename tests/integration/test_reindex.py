@@ -133,12 +133,13 @@ async def test_an_approved_correction_cites_its_author_not_the_web() -> None:
         "INSERT INTO qa_versions"
         " (id, qa_id, answer, authority, confidence, origin, created_by,"
         " supersedes_version_id, created_at, author) VALUES"
-        " ('v2','q1','Vero',100,NULL,'admin_approved','Ula','v1','2026-01-02','Ula')"
+        " ('v2','q1','Resposta corregida',100,NULL,'admin_approved','Ada','v1',"
+        "'2026-01-02','Ada')"
     )
     connection.commit()
 
     qa = await D1SearchIndexSource(database).list_qa()
     assert len(qa) == 1
     assert qa[0].url is None
-    assert qa[0].author == "Ula"
+    assert qa[0].author == "Ada"
     assert qa[0].date == "02/01/2026"

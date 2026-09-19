@@ -222,3 +222,29 @@ def test_review_text_includes_current_and_proposed() -> None:
 def test_button_label_is_the_expected_catalan() -> None:
     """The button label matches the plan."""
     assert FEEDBACK_BUTTON == "\u26a0\ufe0f Est\u00e0 malament?"
+
+
+def test_a_group_member_who_is_not_allowlisted_can_still_propose() -> None:
+    """The DM gate must not close the correction flow it was built around.
+
+    A reporter is not on ALLOWED_TELEGRAM_USER_IDS; their proposal is accepted
+    because it replies to a prompt the bot itself sent them.
+    """
+    context, _ = build_test_context()
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    client.post(
+        "/telegram/webhook",
+        json=_callback("feedback:start:ans:-100:10", from_id=555),
+        headers=SECRET_HEADER,
+    )
+    response = client.post(
+        "/telegram/webhook",
+        json=_reply("Resposta nova.", reply_to=1),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "proposed"}
+    feedback = asyncio.run(context.feedback.get("fb:ans:-100:10"))
+    assert feedback is not None
+    assert feedback.status is FeedbackStatus.PENDING_ADMIN
+    assert feedback.proposed_answer == "Resposta nova."

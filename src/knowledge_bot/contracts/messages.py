@@ -23,7 +23,14 @@ class AttachmentRef(BaseModel):
 
 
 class NormalizedMessage(BaseModel):
-    """Channel-independent message produced by every inbound adapter."""
+    """Channel-independent message produced by every inbound adapter.
+
+    ``is_sender_allowed`` is false for a private message from someone who is
+    neither the admin nor on the allowed list. Such a message may only continue
+    if it replies to a prompt the bot itself sent; otherwise it is dropped
+    before storage. Public bot usernames are discoverable, so an open DM would
+    otherwise let anyone spend the shared free AI quota.
+    """
 
     id: str
     source_type: Literal["telegram", "whatsapp", "web"]
@@ -39,5 +46,6 @@ class NormalizedMessage(BaseModel):
     mentions_bot: bool = False
     is_reply_to_bot: bool = False
     is_direct_message: bool = False
+    is_sender_allowed: bool = True
     attachments: list[AttachmentRef] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
