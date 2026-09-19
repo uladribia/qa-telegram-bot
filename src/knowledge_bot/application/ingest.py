@@ -42,7 +42,7 @@ class MessageIngestor:
     messages: MessageRepository
     attachments: AttachmentRepository
 
-    def ingest(self, message: NormalizedMessage) -> IngestResult:
+    async def ingest(self, message: NormalizedMessage) -> IngestResult:
         """Persist a normalized message and its attachments.
 
         Args:
@@ -53,8 +53,8 @@ class MessageIngestor:
         """
         source_type = _CONTRACT_SOURCES[message.source_type]
         source_id = source_type.value
-        if self.sources.get(source_id) is None:
-            self.sources.add(
+        if await self.sources.get(source_id) is None:
+            await self.sources.add(
                 Source(
                     id=source_id,
                     source_type=source_type,
@@ -64,8 +64,8 @@ class MessageIngestor:
                     is_mutable=True,
                 )
             )
-        if self.conversations.get(message.conversation_id) is None:
-            self.conversations.add(
+        if await self.conversations.get(message.conversation_id) is None:
+            await self.conversations.add(
                 Conversation(
                     id=message.conversation_id,
                     source_id=source_id,
@@ -73,7 +73,7 @@ class MessageIngestor:
                     external_id=message.conversation_id,
                 )
             )
-        created = self.messages.add(
+        created = await self.messages.add(
             Message(
                 id=message.id,
                 source_id=source_id,
@@ -91,7 +91,7 @@ class MessageIngestor:
         if not created:
             return IngestResult(message_id=message.id, created=False)
         for index, reference in enumerate(message.attachments):
-            self.attachments.add(
+            await self.attachments.add(
                 Attachment(
                     id=f"{message.id}:{index}",
                     message_id=message.id,

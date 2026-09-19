@@ -37,6 +37,8 @@ execution is for the product code and its tests, not for editing the repository.
 - **v1 processes no media.** Attachments are metadata only.
 - **Never commit secrets.** `.env` stays ignored; `.env.example` documents keys.
 - **Never commit directly to `main`.** Always work on a branch (see §9).
+- **No backwards compatibility.** This is a personal prototype, not a published
+  library. Break things freely (see §4.1).
 
 ## 2. Stack (locked)
 
@@ -100,6 +102,16 @@ Rules:
 - `async` for all I/O. No blocking calls in request paths.
 - Raise domain/application exceptions; adapters translate them to transport
   responses. `logger.exception` only at boundaries.
+
+## 4.1 No backwards compatibility
+
+This is a personal prototype, not a published library. Do not add
+backwards-compatibility shims, deprecation paths, dual-support branches, feature
+flags for old behaviour, or multi-format parsers for old data. When something
+changes, change it everywhere: update call sites, tests, and docs in the same
+change. Breaking the schema, the CLI, the config, or the HTTP contract is fine —
+reset test data rather than writing compatibility migrations. No "legacy" code
+paths, no "v1/v2" branches in one function.
 
 ## 5. Quality gates
 

@@ -11,11 +11,11 @@ class InMemoryRecapStateRepository:
         """Create an empty repository."""
         self._last_sent: dict[str, datetime] = {}
 
-    def get_last_sent_at(self, conversation_id: str) -> datetime | None:
+    async def get_last_sent_at(self, conversation_id: str) -> datetime | None:
         """Return when the last recap was sent, if ever."""
         return self._last_sent.get(conversation_id)
 
-    def set_last_sent_at(self, conversation_id: str, sent_at: datetime) -> None:
+    async def set_last_sent_at(self, conversation_id: str, sent_at: datetime) -> None:
         """Record when a recap was sent."""
         self._last_sent[conversation_id] = sent_at
 
