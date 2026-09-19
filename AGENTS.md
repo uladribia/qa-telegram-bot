@@ -10,8 +10,20 @@ never silently pick one.
 
 ---
 
+## 0. Harness tools (strict)
+
+Use the harness tools for all file and repository work: `read` to inspect files,
+`edit` for targeted changes, `write` for new or fully rewritten files, and
+`bash`/`grep`/`find` for search and commands. Never shell out to Python (or any
+other language) to read, write, patch, move, or reformat files: no
+`python -c "open(...)"`, no heredoc patch scripts, no ad-hoc rewriting scripts.
+Use the right standard tool for the job (`ruff`, `git`, `gh`, `make`). Python
+execution is for the product code and its tests, not for editing the repository.
+
 ## 1. Non-negotiables
 
+- **Use the harness tools for all file operations** (see §0). Never edit files
+  via Python or shell scripts.
 - **Zero cost.** Only the models listed in `ALLOWED_AI_MODELS` may be called.
   No paid fallback, no alternative provider. On quota exhaustion, degrade safely
   and never lose the inbound event.
@@ -152,6 +164,10 @@ A task is not done until `make all` exits 0.
   `:bug: Fix webhook idempotency`,
   `:white_check_mark: Add correction-flow test`,
   `:memo: Document logging rules`.
+- Every merge to `main` must carry the documentation it needs. Documentation must
+  never diverge from the code on a final merge: if behaviour, commands,
+  configuration, or architecture changed, update the affected docs (README,
+  docstrings, plan notes) in the same branch before merging.
 - Integrate by merging the branch into `main` (`--no-ff`). A formal PR is optional.
   Never force-push `main`.
 - Use the `gh` CLI for repository operations. The repository is private.
@@ -165,6 +181,7 @@ After every change:
 2. If it fails, fix the root cause and re-run. Never disable, skip, or weaken a check.
 3. Repeat at most 3 times. If it still fails, stop and report exactly what you tried
    and the error output.
+4. Confirm the docs reflect the change before merging to `main`.
 
 Never mark work complete while the gate is red.
 
