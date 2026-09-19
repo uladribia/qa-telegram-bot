@@ -204,6 +204,15 @@ Rules:
   never diverge from the code on a final merge: if behaviour, commands,
   configuration, or architecture changed, update the affected docs (README,
   `docs/`, docstrings, plan notes) in the same branch before merging.
+- **`docs/` is part of the merge, not an afterthought.** Before merging into
+  `main`, walk the change against the `docs/` index and update every file it
+  touches: `setup.md` (deploy, resources, config, secrets, routes), `usage.md`
+  (what a user types and sees, the flows), `knowledge-base.md` (sources, seeding,
+  corrections, reindexing), `operations.md` (quota, logs, troubleshooting,
+  maintenance), `development.md` (layout, gates, tests, traps). A new command,
+  setting, route, or failure mode is not finished until it appears there. If a
+  change genuinely touches no doc, say so in the merge and why — silence is not
+  evidence. Stale `docs/` is a merge blocker, not a follow-up.
 - Integrate by merging the branch into `main` (`--no-ff`). A formal PR is optional.
   Never force-push `main`.
 - Use the `gh` CLI for repository operations. The repository is private.
