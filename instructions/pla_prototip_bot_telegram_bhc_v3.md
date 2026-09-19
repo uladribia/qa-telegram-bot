@@ -1755,8 +1755,15 @@ Regla de citació (decidida):
 
 - **Web**: URL **exacta de l'entrada**, amb l'àncora (`...#qa-equipament-com-demanar`),
   no la URL global del lloc, si l'àncora existeix. Més la data.
-- **Grup**: **autor i data amb hora** (`·<pseudònim> · DD/MM/YYYY HH:MM`).
-  L'autor és el pseudònim estable; mai el nom real.
+- **Grup**: **autor i data amb hora** (nom visible de l'autor · DD/MM/YYYY HH:MM).
+- **Correcció aprovada**: **autor de la proposta i data de la proposta**
+  (no la URL web: el text ja no és el del web).
+
+La procedència viu a la versió, no a una constant global. `qa_versions.source_url`
+és la URL exacta de l'entrada web; `qa_versions.author` és qui va proposar la
+correcció. Exactament una de les dues identifica l'origen, així una citació mai
+pot reclamar la font equivocada. La data de la correcció és el moment de la
+proposta (`feedback.proposed_at`), no el de l'aprovació.
 
 ---
 
