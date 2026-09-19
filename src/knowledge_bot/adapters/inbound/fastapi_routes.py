@@ -28,6 +28,7 @@ from knowledge_bot.application.intake import IntakeAction, decide_intake
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
+from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
@@ -79,6 +80,52 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if message is None:
             return {"status": "ignored"}
         return {"status": await _handle_message(context, message)}
+
+    @app.post("/internal/eval/answer")
+    async def internal_eval_answer(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, object]:
+        """Answer a question without sending it, for live answer evals.
+
+        Returns the decided mode, the rendered answer, the citations, and an
+        optional judge verdict. No message ever reaches Telegram.
+        """
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        question = str(payload.get("question", ""))
+        preview = await context.answer.dry_run(question)
+        outcome = preview.outcome
+        verdict: dict[str, str] | None = None
+        if payload.get("judge") and outcome.mode is not AnswerMode.ABSTENTION:
+            judged = await context.answer.judge(
+                question,
+                outcome.answer,
+                [item.text for item in preview.evidence],
+            )
+            verdict = {"verdict": judged.verdict, "reason": judged.reason}
+        return {
+            "question": question,
+            "mode": outcome.mode.value,
+            "answer": outcome.answer,
+            "text": outcome.text,
+            "source_ids": outcome.source_ids,
+            "evidence_ids": [item.source_id for item in preview.evidence],
+            "citations": [
+                {
+                    "source_id": item.source_id,
+                    "label": item.label,
+                    "url": item.url,
+                    "author": item.author,
+                    "date": item.date,
+                }
+                for item in preview.evidence
+                if item.source_id in outcome.source_ids
+            ],
+            "judge": verdict,
+        }
 
     @app.post("/internal/recap")
     async def internal_recap(

@@ -32,10 +32,24 @@ class GenerationResult:
     source_ids: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class JudgeVerdict:
+    """An answer-quality verdict produced by the judge model."""
+
+    verdict: str
+    reason: str = ""
+
+
 @runtime_checkable
 class Generator(Protocol):
     """Produces grounded answers from retrieved evidence."""
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
         """Generate an answer, or report insufficient evidence."""
+        ...
+
+    async def judge(
+        self, question: str, answer: str, evidence: list[str]
+    ) -> JudgeVerdict:
+        """Judge whether an answer is fully supported by its evidence."""
         ...
