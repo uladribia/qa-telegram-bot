@@ -114,6 +114,7 @@ def build_test_context(
         seed=SeedService(
             qa_items=InMemoryQAItemRepository(),
             qa_versions=InMemoryQAVersionRepository(),
+            sources=InMemorySourceRepository(),
             ingestor=ingestor,
             clock=clock,
         ),
