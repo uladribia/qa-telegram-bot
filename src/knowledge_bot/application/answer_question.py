@@ -21,7 +21,12 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest, Generator
+from knowledge_bot.ports.generator import (
+    EvidenceItem,
+    GenerationRequest,
+    Generator,
+    JudgeVerdict,
+)
 from knowledge_bot.ports.repositories import BotAnswerRepository
 from knowledge_bot.ports.transport import MessageTransport
 
@@ -98,6 +103,14 @@ def _abstain() -> AnswerOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class AnswerPreview:
+    """A decided answer plus the evidence it was decided from."""
+
+    outcome: AnswerOutcome
+    evidence: list[Evidence]
+
+
+@dataclass(frozen=True, slots=True)
 class AnswerService:
     """Decide, persist, and send an answer to an addressed message."""
 
@@ -164,6 +177,35 @@ class AnswerService:
             source_ids=result.source_ids,
             text=_render(result.answer, cited),
         )
+
+    async def dry_run(self, question: str) -> AnswerPreview:
+        """Decide an answer without persisting or sending it (eval only).
+
+        Args:
+            question: The bare question to answer.
+
+        Returns:
+            The decided outcome plus the retrieved evidence behind it.
+        """
+        cleaned = clean_question(question)
+        retrieved = await self.retrieval.retrieve(cleaned)
+        outcome = await self.decide(cleaned, retrieved)
+        return AnswerPreview(outcome=outcome, evidence=retrieved.all())
+
+    async def judge(
+        self, question: str, answer: str, evidence: list[str]
+    ) -> JudgeVerdict:
+        """Judge whether an answer is grounded in its evidence (eval only).
+
+        Args:
+            question: The question that was asked.
+            answer: The answer the bot produced.
+            evidence: The evidence texts handed to the generator.
+
+        Returns:
+            The judge's verdict.
+        """
+        return await self.generator.judge(question, answer, evidence)
 
     async def answer(self, message: NormalizedMessage) -> BotAnswer | None:
         """Answer an addressed message and send it.

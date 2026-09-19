@@ -9,8 +9,12 @@ import json
 import re
 from typing import Protocol, cast
 
-from knowledge_bot.contracts.ai import GenerationOutput
-from knowledge_bot.ports.generator import GenerationRequest, GenerationResult
+from knowledge_bot.contracts.ai import GenerationOutput, JudgeOutput
+from knowledge_bot.ports.generator import (
+    GenerationRequest,
+    GenerationResult,
+    JudgeVerdict,
+)
 
 _SYSTEM_PROMPT = """You answer questions using ONLY the evidence below.
 
@@ -26,6 +30,19 @@ Rules:
 
 Return JSON:
 {"status": "answered" | "insufficient", "answer": "...", "source_ids": ["..."]}"""
+
+_JUDGE_SYSTEM_PROMPT = """You audit an assistant's answer against its evidence.
+
+Rules:
+1. "grounded": every factual claim in the answer is supported by the evidence,
+   and the answer addresses the question.
+2. "unsupported": the answer contains a factual claim absent from the evidence.
+3. "wrong": the answer contradicts the evidence.
+4. Judge only what the answer claims, not the evidence's quality.
+5. Return only JSON matching the schema.
+
+Return JSON:
+{"verdict": "grounded" | "unsupported" | "wrong", "reason": "..."}"""
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -133,6 +150,35 @@ class WorkersAIGenerator:
             answer=output.answer,
             source_ids=output.source_ids,
         )
+
+    async def judge(
+        self, question: str, answer: str, evidence: list[str]
+    ) -> JudgeVerdict:
+        """Judge whether an answer is fully supported by its evidence."""
+        messages = [
+            {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+            {"role": "user", "content": _render_judge(question, answer, evidence)},
+        ]
+        result = await self._ai.run(self._model, {"messages": messages})
+        output = _parse_judge(_extract_content(result))
+        if output is None:
+            return JudgeVerdict(verdict="error", reason="unparseable judge output")
+        return JudgeVerdict(verdict=output.verdict, reason=output.reason)
+
+
+def _parse_judge(content: str) -> JudgeOutput | None:
+    match = _JSON_OBJECT.search(content)
+    if match is None:
+        return None
+    try:
+        return JudgeOutput.model_validate_json(match.group(0))
+    except ValueError:
+        return None
+
+
+def _render_judge(question: str, answer: str, evidence: list[str]) -> str:
+    evidence_text = "\n".join(evidence) if evidence else "(no evidence)"
+    return f"QUESTION:\n{question}\n\nANSWER:\n{answer}\n\nEVIDENCE:\n{evidence_text}"
 
 
 def dumps(value: object) -> str:

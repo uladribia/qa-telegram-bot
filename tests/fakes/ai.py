@@ -3,7 +3,11 @@
 
 import math
 
-from knowledge_bot.ports.generator import GenerationRequest, GenerationResult
+from knowledge_bot.ports.generator import (
+    GenerationRequest,
+    GenerationResult,
+    JudgeVerdict,
+)
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
@@ -87,11 +91,20 @@ class FakeGenerator:
             result if result is not None else GenerationResult(status="insufficient")
         )
         self.requests: list[GenerationRequest] = []
+        self.verdict = JudgeVerdict(verdict="grounded")
+        self.judgements: list[tuple[str, str, list[str]]] = []
 
     async def generate(self, request: GenerationRequest) -> GenerationResult:
         """Record the request and return the fixed result."""
         self.requests.append(request)
         return self.result
+
+    async def judge(
+        self, question: str, answer: str, evidence: list[str]
+    ) -> JudgeVerdict:
+        """Record the judgement and return the fixed verdict."""
+        self.judgements.append((question, answer, evidence))
+        return self.verdict
 
 
 class FakeSearchIndexSource:

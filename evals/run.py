@@ -53,6 +53,7 @@ class EvalReport:
     total: int = 0
     passed: int = 0
     failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -72,6 +73,10 @@ class EvalReport:
         else:
             self.failures.append(message)
 
+    def warn(self, message: str) -> None:
+        """Record an advisory finding that never fails the suite."""
+        self.warnings.append(message)
+
     def render(self) -> str:
         """Render a short Markdown report."""
         status = "PASS" if self.ok else "FAIL"
@@ -79,6 +84,7 @@ class EvalReport:
             f"### {self.name}: {status} — {self.passed}/{self.total} ({self.rate:.0%})"
         ]
         lines.extend(f"  - {failure}" for failure in self.failures[:8])
+        lines.extend(f"  ~ {warning}" for warning in self.warnings[:5])
         return "\n".join(lines)
 
 
@@ -274,9 +280,106 @@ def eval_live_retrieval(base_url: str) -> EvalReport:
     return report
 
 
+def _terms(value: object) -> list[str]:
+    """Return a case field as a list of strings."""
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _eval_answer(
+    base_url: str, case: dict[str, object], report: EvalReport, *, judged: bool
+) -> None:
+    """Ask one question live and assert on the rendered answer."""
+    question = str(case["question"])
+    try:
+        response = httpx.post(
+            f"{base_url}/internal/eval/answer",
+            headers=_internal_headers(),
+            json={"question": question, "judge": judged},
+            timeout=600.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPError as error:
+        report.check(False, f"{question!r}: request failed: {error}")
+        return
+    if not isinstance(payload, dict):
+        report.check(False, f"{question!r}: malformed response")
+        return
+    mode = str(payload.get("mode"))
+    answer = str(payload.get("answer", ""))
+    expected_mode = case.get("expected_mode")
+    if expected_mode is not None:
+        report.check(
+            mode == str(expected_mode),
+            f"{question!r}: mode {mode!r} != {expected_mode!r}",
+        )
+    if mode != "abstention":
+        ids = _terms(payload.get("source_ids"))
+        stray = [sid for sid in ids if sid not in _terms(payload.get("evidence_ids"))]
+        report.check(not stray, f"{question!r}: unsupported sources cited: {stray}")
+        report.check(bool(ids), f"{question!r}: an answer must cite a source")
+        for citation in payload.get("citations") or []:
+            if not isinstance(citation, dict):
+                continue
+            is_web = citation.get("label") == "Q&A"
+            if is_web:
+                url = str(citation.get("url") or "")
+                report.check(
+                    "#" in url, f"{question!r}: web citation lacks an anchor: {url!r}"
+                )
+                report.check(
+                    bool(citation.get("date")),
+                    f"{question!r}: web citation lacks a date",
+                )
+            else:
+                report.check(
+                    bool(citation.get("author") and citation.get("date")),
+                    f"{question!r}: group citation lacks author or date",
+                )
+        for term in _terms(case.get("must_include")):
+            if term.lower() not in answer.lower():
+                report.warn(f"{question!r}: missing term {term!r} (advisory)")
+        for claim in _terms(case.get("must_not_claim")):
+            report.check(
+                claim.lower() not in answer.lower(),
+                f"{question!r}: answer claims {claim!r}",
+            )
+    verdict = payload.get("judge")
+    if judged and mode != "abstention" and isinstance(verdict, dict):
+        report.check(
+            verdict.get("verdict") == "grounded",
+            f"{question!r}: judge said {verdict.get('verdict')!r}: "
+            f"{verdict.get('reason')}",
+        )
+
+
+def eval_live_answers(base_url: str) -> EvalReport:
+    """Check that live answers are correct, sourced, and grounded (spec §46)."""
+    report = EvalReport(name="answers/live")
+    for case in load_cases("answers.yaml"):
+        _eval_answer(base_url, case, report, judged=True)
+    return report
+
+
+def eval_live_abstention(base_url: str) -> EvalReport:
+    """Check that unknown questions abstain instead of inventing (spec §41)."""
+    report = EvalReport(name="abstention/live")
+    for case in load_cases("abstention.yaml"):
+        _eval_answer(
+            base_url, {**case, "expected_mode": "abstention"}, report, judged=False
+        )
+    return report
+
+
 def run_live(base_url: str) -> list[EvalReport]:
     """Run every live eval."""
-    return [eval_live_retrieval(base_url)]
+    return [
+        eval_live_retrieval(base_url),
+        eval_live_answers(base_url),
+        eval_live_abstention(base_url),
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:

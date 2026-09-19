@@ -12,3 +12,10 @@ class GenerationOutput(BaseModel):
     status: Literal["answered", "insufficient"]
     answer: str = ""
     source_ids: list[str] = Field(default_factory=list)
+
+
+class JudgeOutput(BaseModel):
+    """The JSON shape the answer-quality judge must return (spec §46)."""
+
+    verdict: Literal["grounded", "unsupported", "wrong"]
+    reason: str = ""
