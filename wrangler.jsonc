@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "knowledge-bot",
+  "name": "bhc-qa-testbot",
   "main": "src/entry.py",
   "compatibility_date": "2026-09-19",
   "compatibility_flags": ["python_workers"],
