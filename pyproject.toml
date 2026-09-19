@@ -6,14 +6,22 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
 authors = [{ name = "Ula" }]
-dependencies = []
+dependencies = [
+    "fastapi>=0.141.1",
+    "loguru>=0.7.3",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+]
 
 [dependency-groups]
 dev = [
+  "httpx>=0.28.1",
   "pre-commit>=4.0,<5",
   "pytest>=8.4.1,<10",
   "ruff==0.15.0",
   "ty==0.0.67",
+  "workers-py>=1.17.3",
+  "workers-runtime-sdk>=1.9.0",
 ]
 
 [build-system]

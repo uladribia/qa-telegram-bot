@@ -12,10 +12,15 @@ importers and future channels feed the same core.
 | Command | Purpose |
 |---|---|
 | `uv sync` | Install dependencies |
+| `uv run pywrangler sync` | Vendor dependencies for the Worker runtime |
+| `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
 | `make format` | Format and auto-fix |
 | `make lint` | Format check, lint, type check |
 | `make test` | Run tests |
 | `make all` | Lint and test (the quality gate) |
+| `docker build -t knowledge-bot:dev .` | Build the dev image |
+
+Routes: `GET /healthz`, `GET /smoke/deps` (temporary).
 
 ## Built with coding agents
 

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "knowledge-bot",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-09-19",
+  "compatibility_flags": ["python_workers"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "knowledge-bot",
+      "database_id": "7def825a-771b-4885-9c84-07357281ece8"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "knowledge-v1"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "EMBEDDING_MODEL": "@cf/google/embeddinggemma-300m",
+    "GENERATION_MODEL": "@cf/zai-org/glm-4.7-flash"
+  }
+}
