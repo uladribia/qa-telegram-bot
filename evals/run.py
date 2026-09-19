@@ -239,21 +239,32 @@ def _internal_headers() -> dict[str, str]:
     return {"X-Internal-Key": Settings().internal_admin_key}
 
 
-def eval_live_retrieval(base_url: str) -> EvalReport:
+def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
     """Measure retrieval recall against the deployed index.
 
-    Uses the deployed reindex and the real embeddings via a query probe: the
-    eval asks the Worker to answer each retrieval query and checks that the
-    cited sources include the expected anchor's version id.
+    The eval asks the Worker to retrieve for each query and checks that the
+    expected anchor's version id comes back. Reindexing is opt-in: it re-embeds
+    every record, which is the largest single draw on the Workers AI quota and
+    is not what this eval measures.
+
+    Args:
+        base_url: The deployed Worker base URL.
+        reindex: When true, rebuild the index and wait for it to settle first.
+
+    Returns:
+        The eval report.
     """
     report = EvalReport(name="retrieval/recall@5")
     cases = load_cases("retrieval.yaml")
     try:
-        httpx.post(
-            f"{base_url}/internal/reindex", headers=_internal_headers(), timeout=600.0
-        )
-        # Vectorize indexing is eventually consistent: let the upserts settle.
-        time.sleep(60)
+        if reindex:
+            httpx.post(
+                f"{base_url}/internal/reindex",
+                headers=_internal_headers(),
+                timeout=600.0,
+            )
+            # Vectorize indexing is eventually consistent: let upserts settle.
+            time.sleep(60)
         probe = httpx.post(
             f"{base_url}/internal/retrieve",
             headers=_internal_headers(),
@@ -373,10 +384,10 @@ def eval_live_abstention(base_url: str) -> EvalReport:
     return report
 
 
-def run_live(base_url: str) -> list[EvalReport]:
+def run_live(base_url: str, *, reindex: bool = False) -> list[EvalReport]:
     """Run every live eval."""
     return [
-        eval_live_retrieval(base_url),
+        eval_live_retrieval(base_url, reindex=reindex),
         eval_live_answers(base_url),
         eval_live_abstention(base_url),
     ]
@@ -394,9 +405,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run knowledge-bot evals.")
     parser.add_argument("mode", choices=["offline", "live"])
     parser.add_argument("--base-url", default="")
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="Rebuild the vector index first (opt-in: burns the AI quota)",
+    )
     args = parser.parse_args(argv)
 
-    reports = run_offline() if args.mode == "offline" else run_live(args.base_url)
+    reports = (
+        run_offline()
+        if args.mode == "offline"
+        else run_live(args.base_url, reindex=args.reindex)
+    )
     print(f"# {args.mode.capitalize()} evals\n")
     for report in reports:
         print(report.render())
