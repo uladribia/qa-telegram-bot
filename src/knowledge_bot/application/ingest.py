@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: MIT
+"""Ingest use case: persist a normalized message and its attachments.
+
+Ingestion is idempotent: re-processing the same inbound event (Telegram may
+retry webhooks) must not duplicate state.
+"""
+
+from dataclasses import dataclass
+
+from knowledge_bot.contracts.messages import NormalizedMessage
+from knowledge_bot.domain.entities import Attachment, Conversation, Message, Source
+from knowledge_bot.domain.enums import SourceType
+from knowledge_bot.domain.policies import source_authority
+from knowledge_bot.ports.repositories import (
+    AttachmentRepository,
+    ConversationRepository,
+    MessageRepository,
+    SourceRepository,
+)
+
+_CONTRACT_SOURCES: dict[str, SourceType] = {
+    "telegram": SourceType.TELEGRAM,
+    "whatsapp": SourceType.WHATSAPP_IMPORT,
+    "web": SourceType.WEB_SEED,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class IngestResult:
+    """Outcome of ingesting one message."""
+
+    message_id: str
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MessageIngestor:
+    """Persist normalized messages without duplicating them."""
+
+    sources: SourceRepository
+    conversations: ConversationRepository
+    messages: MessageRepository
+    attachments: AttachmentRepository
+
+    def ingest(self, message: NormalizedMessage) -> IngestResult:
+        """Persist a normalized message and its attachments.
+
+        Args:
+            message: The normalized inbound message.
+
+        Returns:
+            The stored message id and whether it was newly created.
+        """
+        source_type = _CONTRACT_SOURCES[message.source_type]
+        source_id = source_type.value
+        if self.sources.get(source_id) is None:
+            self.sources.add(
+                Source(
+                    id=source_id,
+                    source_type=source_type,
+                    authority=int(source_authority(source_type)),
+                    created_at=message.timestamp,
+                    title=source_type.value,
+                    is_mutable=True,
+                )
+            )
+        if self.conversations.get(message.conversation_id) is None:
+            self.conversations.add(
+                Conversation(
+                    id=message.conversation_id,
+                    source_id=source_id,
+                    created_at=message.timestamp,
+                    external_id=message.conversation_id,
+                )
+            )
+        created = self.messages.add(
+            Message(
+                id=message.id,
+                source_id=source_id,
+                conversation_id=message.conversation_id,
+                content_type=message.content_type,
+                sent_at=message.timestamp,
+                created_at=message.timestamp,
+                sender_is_admin=message.sender_is_admin,
+                external_id=message.source_message_id,
+                sender_hash=message.sender_id,
+                text=message.text,
+                reply_to_message_id=message.reply_to_message_id,
+            )
+        )
+        if not created:
+            return IngestResult(message_id=message.id, created=False)
+        for index, reference in enumerate(message.attachments):
+            self.attachments.add(
+                Attachment(
+                    id=f"{message.id}:{index}",
+                    message_id=message.id,
+                    kind=reference.kind,
+                    processing_status=reference.processing_status,
+                    created_at=message.timestamp,
+                    external_file_id=reference.external_id,
+                    file_name=reference.file_name,
+                    mime_type=reference.mime_type,
+                    width=reference.width,
+                    height=reference.height,
+                    size_bytes=reference.size_bytes,
+                )
+            )
+        return IngestResult(message_id=message.id, created=True)
