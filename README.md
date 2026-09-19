@@ -16,3 +16,11 @@ importers and future channels feed the same core.
 | `make lint` | Format check, lint, type check |
 | `make test` | Run tests |
 | `make all` | Lint and test (the quality gate) |
+
+## Built with coding agents
+
+This repository is mostly written by coding agents. The work was driven with the
+**`pi`** coding-agent harness, with thanks to its creators, and powered by the
+**GLM** and **DeepSeek** models. The implementation plan was written by a human and
+agent output is reviewed before it lands, but treat this code as a prototype built
+with AI assistance rather than hand-crafted, battle-hardened software.
