@@ -4,6 +4,7 @@
 import math
 
 from knowledge_bot.ports.generator import GenerationRequest, GenerationResult
+from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
 
@@ -91,3 +92,24 @@ class FakeGenerator:
         """Record the request and return the fixed result."""
         self.requests.append(request)
         return self.result
+
+
+class FakeSearchIndexSource:
+    """A search-index source with fixed records."""
+
+    def __init__(
+        self,
+        qa: list[IndexableQA] | None = None,
+        messages: list[IndexableMessage] | None = None,
+    ) -> None:
+        """Create a source with the given records."""
+        self.qa = qa or []
+        self.messages = messages or []
+
+    async def list_qa(self) -> list[IndexableQA]:
+        """Return the fixed Q&A records."""
+        return list(self.qa)
+
+    async def list_messages(self) -> list[IndexableMessage]:
+        """Return the fixed message records."""
+        return list(self.messages)

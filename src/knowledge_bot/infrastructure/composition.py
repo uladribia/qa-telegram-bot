@@ -9,6 +9,7 @@ from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -18,6 +19,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1Database,
     D1MessageRepository,
     D1RecapStateRepository,
+    D1SearchIndexSource,
     D1SourceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
@@ -50,6 +52,7 @@ class AppContext:
     ingestor: MessageIngestor
     answer: AnswerService
     recap: RecapService
+    reindex: ReindexService
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -108,6 +111,8 @@ def build_context(env: WorkerEnv) -> AppContext:
     answers = D1BotAnswerRepository(database)
     transport = TelegramTransport(WorkersHttpClient(), settings.telegram_bot_token)
     clock = SystemClock()
+    embedder = WorkersAIEmbedder(env.AI, settings.embedding_model)
+    vectors = VectorizeStore(env.VECTORIZE)
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -124,8 +129,8 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
-                embedder=WorkersAIEmbedder(env.AI, settings.embedding_model),
-                vectors=VectorizeStore(env.VECTORIZE),
+                embedder=embedder,
+                vectors=vectors,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),
@@ -144,5 +149,10 @@ def build_context(env: WorkerEnv) -> AppContext:
             enabled=settings.recap_enabled,
             interval_hours=settings.recap_interval_hours,
             language=settings.recap_language,
+        ),
+        reindex=ReindexService(
+            source=D1SearchIndexSource(database),
+            embedder=embedder,
+            vectors=vectors,
         ),
     )

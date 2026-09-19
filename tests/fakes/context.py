@@ -7,10 +7,16 @@ from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
-from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
+from tests.fakes.ai import (
+    FakeEmbedder,
+    FakeGenerator,
+    FakeSearchIndexSource,
+    FakeVectorStore,
+)
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
@@ -48,6 +54,8 @@ def build_test_context(
     answers = InMemoryBotAnswerRepository()
     transport = RecordingTransport()
     clock = FrozenClock(DEFAULT_NOW)
+    embedder = FakeEmbedder()
+    vectors = FakeVectorStore()
     ingestor = MessageIngestor(
         sources=InMemorySourceRepository(),
         conversations=InMemoryConversationRepository(),
@@ -55,7 +63,7 @@ def build_test_context(
         attachments=InMemoryAttachmentRepository(),
     )
     answer = AnswerService(
-        retrieval=RetrievalService(embedder=FakeEmbedder(), vectors=FakeVectorStore()),
+        retrieval=RetrievalService(embedder=embedder, vectors=vectors),
         generator=FakeGenerator(),
         answers=answers,
         transport=transport,
@@ -92,5 +100,10 @@ def build_test_context(
         ingestor=ingestor,
         answer=answer,
         recap=recap,
+        reindex=ReindexService(
+            source=FakeSearchIndexSource(),
+            embedder=embedder,
+            vectors=vectors,
+        ),
     )
     return context, transport
