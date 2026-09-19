@@ -13,6 +13,9 @@ dependencies = [
     "pydantic-settings>=2.15.0",
 ]
 
+[project.scripts]
+kb = "knowledge_bot.cli:app"
+
 [dependency-groups]
 dev = [
   "httpx>=0.28.1",
@@ -21,6 +24,7 @@ dev = [
   "pytest-asyncio>=1.4.0",
   "ruff==0.15.0",
   "ty==0.0.67",
+  "typer>=0.27.2",
   "workers-py>=1.17.3",
   "workers-runtime-sdk>=1.9.0",
 ]

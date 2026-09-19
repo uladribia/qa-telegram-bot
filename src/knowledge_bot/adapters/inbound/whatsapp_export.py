@@ -18,9 +18,17 @@ from datetime import datetime
 from knowledge_bot.contracts.messages import AttachmentRef, NormalizedMessage
 from knowledge_bot.domain.enums import ContentType
 
-_ANDROID_HEADER = re.compile(r"^(\d{2}/\d{2}/\d{2}), (\d{2}:\d{2}) - (.*)$")
-_IOS_HEADER = re.compile(r"^\[(\d{2}/\d{2}/\d{2}), (\d{2}:\d{2}:\d{2})\](?:\s+(.*))?$")
-_LOOKS_LIKE_HEADER = re.compile(r"^\[?\d{2}/\d{2}/\d{2}")
+# Android: ``19/09/26, 09:32 - Nom: Missatge``
+_ANDROID_HEADER = re.compile(
+    r"^(\d{1,2}/\d{1,2}/\d{2,4}), "
+    r"(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[APap]\.?[Mm]\.?)?) - (.*)$"
+)
+# iOS: ``[9/3/26, 2:29:14 PM] Nom: Missatge`` (the author is optional: system lines).
+_IOS_HEADER = re.compile(
+    r"^\[(\d{1,2}/\d{1,2}/\d{2,4}), "
+    r"(\d{1,2}:\d{2}(?::\d{2})?\s*(?:[APap]\.?[Mm]\.?)?)\]\s*(?:-\s*)?(.*)$"
+)
+_LOOKS_LIKE_HEADER = re.compile(r"^\[?\d{1,2}/\d{1,2}/\d{2,4}")
 
 _MEDIA_PLACEHOLDER = re.compile(
     r"<[^>]*(?:multimedia|m[eè]dia|adjunt|attachment)[^>]*>"
@@ -103,9 +111,20 @@ class _Pending:
 
 
 def _parse_timestamp(date: str, time: str) -> datetime | None:
-    for pattern in ("%d/%m/%y %H:%M:%S", "%d/%m/%y %H:%M"):
+    cleaned = time.replace(".", "").replace("\u202f", " ").strip()
+    patterns = (
+        "%d/%m/%y %H:%M:%S",
+        "%d/%m/%y %H:%M",
+        "%d/%m/%y %I:%M:%S %p",
+        "%d/%m/%y %I:%M %p",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y %I:%M:%S %p",
+        "%d/%m/%Y %I:%M %p",
+    )
+    for pattern in patterns:
         try:
-            return datetime.strptime(f"{date} {time}", pattern)
+            return datetime.strptime(f"{date} {cleaned}", pattern)
         except ValueError:
             continue
     return None

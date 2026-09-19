@@ -10,6 +10,10 @@ ANDROID = "19/09/26, 09:32 - Ada: Hola!\n19/09/26, 09:33 - Bob: Quan entrenen?\n
 
 IOS = "[19/09/26, 09:32:12] Ada: Hola!\n[19/09/26, 09:32:20] Bob: Adeu\n"
 
+IOS_12H = "[9/3/26, 2:29:14 PM] Ada: Hola!\n[9/3/26, 2:29:34 PM] Bob: Adeu\n"
+
+IOS_SYSTEM = "[9/3/26, 2:29:14 PM] - Ada ha afegit Tu\n[9/3/26, 2:29:34 PM] Ada: Hola\n"
+
 
 def test_android_format_is_parsed() -> None:
     """Android ``date, time - Author: text`` lines are parsed."""
@@ -29,6 +33,23 @@ def test_ios_format_is_parsed() -> None:
     assert result.stats.messages == 2
     assert result.messages[1].text == "Adeu"
     assert result.messages[0].timestamp == datetime(2026, 9, 19, 9, 32, 12)
+
+
+def test_ios_12_hour_format_with_single_digit_date_is_parsed() -> None:
+    """The iOS export format with 1-digit dates and AM/PM is parsed."""
+    result = parse_export(IOS_12H)
+    assert result.stats.messages == 2
+    assert result.stats.parse_failures == 0
+    assert result.messages[0].timestamp == datetime(2026, 3, 9, 14, 29, 14)
+    assert result.messages[0].text == "Hola!"
+
+
+def test_ios_system_line_with_dash_is_not_a_message() -> None:
+    """An author-less iOS system line is counted, not emitted."""
+    result = parse_export(IOS_SYSTEM)
+    assert result.stats.system_messages == 1
+    assert result.stats.messages == 1
+    assert result.stats.parse_failures == 0
 
 
 def test_multiline_message_is_joined() -> None:

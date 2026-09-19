@@ -31,9 +31,10 @@ pylock.toml
 *.sqlite
 *.sqlite3
 
-# Raw and generated data (may contain personal data)
+# Data artifacts are generated locally and never committed.
 data/raw/*
 !data/raw/.gitkeep
+data/seed/
 
 # IDE / OS
 .idea/

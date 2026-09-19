@@ -14,12 +14,18 @@ from knowledge_bot.domain.entities import (
     BotAnswer,
     Conversation,
     Message,
+    QAEvidence,
+    QAItem,
+    QAVersion,
     Source,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
+    EvidenceType,
     ProcessingStatus,
+    QAOrigin,
+    QAStatus,
     SourceType,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
@@ -517,3 +523,180 @@ class D1SearchIndexSource:
             )
             for row in _rows(result)
         ]
+
+
+class D1QAItemRepository:
+    """D1 implementation of ``QAItemRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, item: QAItem) -> None:
+        """Persist a new Q&A item."""
+        await (
+            self._db.prepare(
+                "INSERT INTO qa_items"
+                " (id, canonical_key, canonical_question, status, current_version_id,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                item.id,
+                item.canonical_key,
+                item.canonical_question,
+                item.status.value,
+                item.current_version_id,
+                _iso(item.created_at),
+                _iso(item.updated_at),
+            )
+            .run()
+        )
+
+    async def get(self, qa_id: str) -> QAItem | None:
+        """Return a Q&A item by id, if present."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM qa_items WHERE id = ?")
+            .bind(qa_id)
+            .first()
+        )
+        return _qa_item(row) if row is not None else None
+
+    async def get_by_canonical_key(self, canonical_key: str) -> QAItem | None:
+        """Return a Q&A item by canonical key, if present."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM qa_items WHERE canonical_key = ?")
+            .bind(canonical_key)
+            .first()
+        )
+        return _qa_item(row) if row is not None else None
+
+    async def save(self, item: QAItem) -> None:
+        """Persist changes to an existing Q&A item."""
+        await (
+            self._db.prepare(
+                "UPDATE qa_items SET canonical_question = ?, status = ?,"
+                " current_version_id = ?, updated_at = ? WHERE id = ?"
+            )
+            .bind(
+                item.canonical_question,
+                item.status.value,
+                item.current_version_id,
+                _iso(item.updated_at),
+                item.id,
+            )
+            .run()
+        )
+
+
+class D1QAVersionRepository:
+    """D1 implementation of ``QAVersionRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, version: QAVersion) -> None:
+        """Persist a new Q&A version."""
+        await (
+            self._db.prepare(
+                "INSERT INTO qa_versions"
+                " (id, qa_id, answer, authority, confidence, origin, created_by,"
+                " supersedes_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                version.id,
+                version.qa_id,
+                version.answer,
+                version.authority,
+                version.confidence,
+                version.origin.value,
+                version.created_by,
+                version.supersedes_version_id,
+                _iso(version.created_at),
+            )
+            .run()
+        )
+
+    async def get(self, version_id: str) -> QAVersion | None:
+        """Return a Q&A version by id, if present."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM qa_versions WHERE id = ?")
+            .bind(version_id)
+            .first()
+        )
+        return _qa_version(row) if row is not None else None
+
+    async def list_for_qa(self, qa_id: str) -> list[QAVersion]:
+        """Return all versions of a Q&A item."""
+        result = (
+            await self._db.prepare("SELECT * FROM qa_versions WHERE qa_id = ?")
+            .bind(qa_id)
+            .run()
+        )
+        return [_qa_version(row) for row in _rows(result)]
+
+
+class D1QAEvidenceRepository:
+    """D1 implementation of ``QAEvidenceRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, evidence: QAEvidence) -> None:
+        """Persist an evidence link."""
+        await (
+            self._db.prepare(
+                "INSERT OR REPLACE INTO qa_evidence"
+                " (qa_version_id, evidence_type, evidence_id) VALUES (?, ?, ?)"
+            )
+            .bind(
+                evidence.qa_version_id,
+                evidence.evidence_type.value,
+                evidence.evidence_id,
+            )
+            .run()
+        )
+
+    async def list_for_version(self, version_id: str) -> list[QAEvidence]:
+        """Return the evidence linked to a Q&A version."""
+        result = (
+            await self._db.prepare("SELECT * FROM qa_evidence WHERE qa_version_id = ?")
+            .bind(version_id)
+            .run()
+        )
+        return [
+            QAEvidence(
+                qa_version_id=str(row["qa_version_id"]),
+                evidence_type=EvidenceType(str(row["evidence_type"])),
+                evidence_id=str(row["evidence_id"]),
+            )
+            for row in _rows(result)
+        ]
+
+
+def _qa_item(row: dict[str, object]) -> QAItem:
+    return QAItem(
+        id=str(row["id"]),
+        canonical_key=str(row["canonical_key"]),
+        canonical_question=str(row["canonical_question"]),
+        status=QAStatus(str(row["status"])),
+        created_at=_dt(row["created_at"]),
+        updated_at=_dt(row["updated_at"]),
+        current_version_id=_opt_str(row["current_version_id"]),
+    )
+
+
+def _qa_version(row: dict[str, object]) -> QAVersion:
+    confidence = row["confidence"]
+    return QAVersion(
+        id=str(row["id"]),
+        qa_id=str(row["qa_id"]),
+        answer=str(row["answer"]),
+        authority=int(cast(int, row["authority"])),
+        origin=QAOrigin(str(row["origin"])),
+        created_at=_dt(row["created_at"]),
+        confidence=float(cast(float, confidence)) if confidence is not None else None,
+        created_by=_opt_str(row["created_by"]),
+        supersedes_version_id=_opt_str(row["supersedes_version_id"]),
+    )
