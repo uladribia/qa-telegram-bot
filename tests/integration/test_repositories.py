@@ -6,17 +6,19 @@ included) must satisfy, and they run entirely in process.
 """
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from knowledge_bot.domain.entities import Message, QAItem, QAVersion
-from knowledge_bot.domain.enums import ContentType, QAOrigin, QAStatus
+from knowledge_bot.domain.entities import BotAnswer, Message, QAItem, QAVersion
+from knowledge_bot.domain.enums import AnswerMode, ContentType, QAOrigin, QAStatus
 from knowledge_bot.ports.repositories import (
+    BotAnswerRepository,
     MessageRepository,
     QAItemRepository,
     QAVersionRepository,
     SourceRepository,
 )
 from tests.fakes.repositories import (
+    InMemoryBotAnswerRepository,
     InMemoryMessageRepository,
     InMemoryQAItemRepository,
     InMemoryQAVersionRepository,
@@ -44,6 +46,7 @@ def test_in_memory_repositories_satisfy_their_ports() -> None:
     assert isinstance(InMemoryMessageRepository(), MessageRepository)
     assert isinstance(InMemoryQAItemRepository(), QAItemRepository)
     assert isinstance(InMemoryQAVersionRepository(), QAVersionRepository)
+    assert isinstance(InMemoryBotAnswerRepository(), BotAnswerRepository)
 
 
 def test_message_add_is_idempotent_by_external_id() -> None:
@@ -110,3 +113,24 @@ def test_qa_versioning_supersedes_without_deleting_history() -> None:
     superseded = versions.get("v2")
     assert superseded is not None
     assert superseded.supersedes_version_id == "v1"
+
+
+def test_bot_answers_can_be_listed_in_a_window() -> None:
+    """Answer listing is half-open on the end of the window."""
+    repository = InMemoryBotAnswerRepository()
+    repository.add(_bot_answer("a1", minutes=0))
+    repository.add(_bot_answer("a2", minutes=60))
+    repository.add(_bot_answer("a3", minutes=120))
+    window = repository.list_between(NOW, NOW + timedelta(minutes=90))
+    assert [answer.id for answer in window] == ["a1", "a2"]
+
+
+def _bot_answer(answer_id: str, *, minutes: int) -> BotAnswer:
+    return BotAnswer(
+        id=answer_id,
+        conversation_id="c1",
+        question="com?",
+        answer="aixi",
+        answer_mode=AnswerMode.DIRECT_QA,
+        created_at=NOW + timedelta(minutes=minutes),
+    )

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     embedding_model: str = "@cf/google/embeddinggemma-300m"
     generation_model: str = "@cf/zai-org/glm-4.7-flash"
 
+    recap_enabled: bool = True
+    recap_interval_hours: int = 24
+
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
         """Reject any model outside the zero-cost allowlist."""
