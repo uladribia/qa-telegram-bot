@@ -42,7 +42,33 @@ class RecordingTransport:
     def __init__(self) -> None:
         """Create an empty transport."""
         self.messages: list[tuple[str, str]] = []
+        self.answers: list[tuple[str, str, str]] = []
+        self.edits: list[tuple[str, str, str]] = []
+        self.force_replies: list[tuple[str, str]] = []
 
-    async def send_message(self, conversation_id: str, text: str) -> None:
+    async def send_message(self, conversation_id: str, text: str) -> str | None:
         """Record a message."""
         self.messages.append((conversation_id, text))
+        return str(len(self.messages))
+
+    async def send_answer(
+        self, conversation_id: str, text: str, answer_id: str
+    ) -> str | None:
+        """Record an answer with its feedback button target."""
+        self.answers.append((conversation_id, text, answer_id))
+        return str(len(self.answers))
+
+    async def edit_message(
+        self, conversation_id: str, message_id: str, text: str
+    ) -> bool:
+        """Record an edit."""
+        self.edits.append((conversation_id, message_id, text))
+        return True
+
+    async def send_force_reply(self, conversation_id: str, text: str) -> None:
+        """Record a force-reply prompt."""
+        self.force_replies.append((conversation_id, text))
+
+    async def answer_callback(self, callback_id: str) -> None:
+        """Record a callback acknowledgement."""
+        return

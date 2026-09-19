@@ -90,10 +90,12 @@ async def test_direct_qa_answer_is_sent_and_persisted() -> None:
     assert record.answer_mode is AnswerMode.DIRECT_QA
     assert record.question == "quan entrenen?"
     assert generator.requests == []
-    conversation_id, text = transport.messages[0]
+    conversation_id, text, answer_id = transport.answers[0]
     assert conversation_id == "-100"
     assert text.startswith("Els dimarts.")
     assert "Fonts:" in text
+    assert answer_id == "ans:m1"
+    assert record.telegram_bot_message_id is not None
     stored = await answers.get("ans:m1")
     assert stored is not None
     assert json.loads(stored.sources_json) == ["qa1"]
@@ -111,7 +113,7 @@ async def test_synthesis_uses_generator_and_citations() -> None:
     assert record is not None
     assert record.answer_mode is AnswerMode.SYNTHESIS
     assert len(generator.requests) == 1
-    assert transport.messages[0][1].startswith("Sí, els dimarts.")
+    assert transport.answers[0][1].startswith("Sí, els dimarts.")
 
 
 async def test_no_knowledge_abstains_and_sends_the_abstention() -> None:
@@ -121,7 +123,7 @@ async def test_no_knowledge_abstains_and_sends_the_abstention() -> None:
     assert record is not None
     assert record.answer_mode is AnswerMode.ABSTENTION
     assert record.answer == ABSTENTION_TEXT
-    assert transport.messages[0][1] == ABSTENTION_TEXT
+    assert transport.answers[0][1] == ABSTENTION_TEXT
     assert generator.requests == []
     assert await answers.get("ans:m1") is not None
 
@@ -130,4 +132,4 @@ async def test_empty_question_is_not_answered() -> None:
     """A bare /ask with no question produces no answer and no message."""
     service, _, transport, _ = await _service([])
     assert await service.answer(_message("/ask")) is None
-    assert transport.messages == []
+    assert transport.answers == []

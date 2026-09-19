@@ -173,5 +173,21 @@ class AnswerService:
             sources_json=json.dumps(outcome.source_ids),
         )
         await self.answers.add(record)
-        await self.transport.send_message(message.conversation_id, outcome.text)
-        return record
+        message_id = await self.transport.send_answer(
+            message.conversation_id, outcome.text, record.id
+        )
+        if message_id is None:
+            return record
+        stored = BotAnswer(
+            id=record.id,
+            conversation_id=record.conversation_id,
+            question=record.question,
+            answer=record.answer,
+            answer_mode=record.answer_mode,
+            created_at=record.created_at,
+            user_message_id=record.user_message_id,
+            telegram_bot_message_id=message_id,
+            sources_json=record.sources_json,
+        )
+        await self.answers.add(stored)
+        return stored

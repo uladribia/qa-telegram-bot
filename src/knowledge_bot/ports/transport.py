@@ -10,8 +10,26 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class MessageTransport(Protocol):
-    """Sends messages to a conversation."""
+    """Sends and edits messages in a conversation."""
 
-    async def send_message(self, conversation_id: str, text: str) -> None:
-        """Send a text message to a conversation."""
+    async def send_message(self, conversation_id: str, text: str) -> str | None:
+        """Send a text message and return the platform message id, if any."""
+        ...
+
+    async def send_answer(
+        self,
+        conversation_id: str,
+        text: str,
+        answer_id: str,
+    ) -> str | None:
+        """Send an answer carrying the correction affordance for an answer id."""
+        ...
+
+    async def edit_message(
+        self,
+        conversation_id: str,
+        message_id: str,
+        text: str,
+    ) -> bool:
+        """Replace the text of a message; return whether it succeeded."""
         ...
