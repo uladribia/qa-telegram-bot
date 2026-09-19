@@ -35,3 +35,6 @@ data/raw/*
 .idea/
 .vscode/
 .DS_Store
+*.swp
+*.swo
+*.sw?  # vim/editor swap files (may contain secrets)
