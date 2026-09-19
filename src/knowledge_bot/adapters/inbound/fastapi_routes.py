@@ -15,6 +15,8 @@ from knowledge_bot.adapters.inbound.telegram import (
     normalize_message,
 )
 from knowledge_bot.application.intake import IntakeAction, decide_intake
+from knowledge_bot.contracts.messages import NormalizedMessage
+from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
@@ -92,5 +94,26 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         report = await context.reindex.reindex()
         return {"qa": report.qa, "messages": report.messages}
+
+    @app.post("/internal/seed")
+    async def internal_seed(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int]:
+        """Seed Q&A entries and imported messages into D1."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="invalid payload")
+        qa_entries = [SeedQA.model_validate(item) for item in payload.get("qa") or []]
+        messages = [
+            NormalizedMessage.model_validate(item)
+            for item in payload.get("messages") or []
+        ]
+        created, skipped = await context.seed.seed_qa(qa_entries)
+        message_count = await context.seed.seed_messages(messages)
+        return {"qa": created, "qa_skipped": skipped, "messages": message_count}
 
     return app

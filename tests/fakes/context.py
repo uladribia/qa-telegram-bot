@@ -9,6 +9,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
@@ -22,6 +23,8 @@ from tests.fakes.repositories import (
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
     InMemoryMessageRepository,
+    InMemoryQAItemRepository,
+    InMemoryQAVersionRepository,
     InMemorySourceRepository,
 )
 from tests.fakes.support import (
@@ -104,6 +107,12 @@ def build_test_context(
             source=FakeSearchIndexSource(),
             embedder=embedder,
             vectors=vectors,
+        ),
+        seed=SeedService(
+            qa_items=InMemoryQAItemRepository(),
+            qa_versions=InMemoryQAVersionRepository(),
+            ingestor=ingestor,
+            clock=clock,
         ),
     )
     return context, transport

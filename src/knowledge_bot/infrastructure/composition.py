@@ -11,6 +11,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AttachmentRepository,
@@ -18,6 +19,8 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ConversationRepository,
     D1Database,
     D1MessageRepository,
+    D1QAItemRepository,
+    D1QAVersionRepository,
     D1RecapStateRepository,
     D1SearchIndexSource,
     D1SourceRepository,
@@ -53,6 +56,7 @@ class AppContext:
     answer: AnswerService
     recap: RecapService
     reindex: ReindexService
+    seed: SeedService
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -154,5 +158,16 @@ def build_context(env: WorkerEnv) -> AppContext:
             source=D1SearchIndexSource(database),
             embedder=embedder,
             vectors=vectors,
+        ),
+        seed=SeedService(
+            qa_items=D1QAItemRepository(database),
+            qa_versions=D1QAVersionRepository(database),
+            ingestor=MessageIngestor(
+                sources=D1SourceRepository(database),
+                conversations=D1ConversationRepository(database),
+                messages=D1MessageRepository(database),
+                attachments=D1AttachmentRepository(database),
+            ),
+            clock=clock,
         ),
     )
