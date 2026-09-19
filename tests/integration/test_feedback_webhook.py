@@ -112,8 +112,8 @@ def test_proposal_goes_to_the_admin_dm_and_acks_the_reporter() -> None:
     )
     assert response.json() == {"status": "proposed"}
     assert ("555", PROPOSAL_ACK) in transport.messages
-    admin_messages = [text for chat, text in transport.messages if chat == "1"]
-    assert any("Correcci\u00f3 proposada" in text for text in admin_messages)
+    admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
+    assert any("Correcci\u00f3 proposada" in text for text in admin_reviews)
 
 
 def test_approve_creates_a_version_and_thanks_the_reporter() -> None:

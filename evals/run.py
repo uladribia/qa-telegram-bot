@@ -262,11 +262,14 @@ def eval_live_retrieval(base_url: str) -> EvalReport:
     results = payload.get("results", {}) if isinstance(payload, dict) else {}
     for case in cases:
         query = str(case["query"])
-        expected = str(case["expected_anchor"])
+        accepted = {str(case["expected_anchor"])}
+        extras = case.get("also_accepts")
+        if isinstance(extras, list):
+            accepted.update(str(item) for item in extras)
         anchors = results.get(query, [])
         report.check(
-            expected in anchors,
-            f"miss: {query!r} -> {expected} not in {anchors}",
+            any(anchor in anchors for anchor in accepted),
+            f"miss: {query!r} -> {sorted(accepted)} not in {anchors}",
         )
     return report
 

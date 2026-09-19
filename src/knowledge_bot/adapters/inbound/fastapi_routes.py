@@ -179,7 +179,9 @@ async def _handle_feedback_reply(
         await context.feedback.admin_edit(feedback.id, message.text)
         review = await context.feedback.correction_request(feedback.id)
         if review is not None:
-            await context.transport.send_message(admin_id, render_review(review))
+            await context.transport.send_review(
+                admin_id, render_review(review), feedback.id
+            )
         return "admin_edited"
     feedback = await context.feedback.find_by_proposal_prompt(reply_to)
     if feedback is None:
@@ -191,7 +193,9 @@ async def _handle_feedback_reply(
     await context.transport.send_message(reporter_chat, PROPOSAL_ACK)
     review = await context.feedback.correction_request(proposed.id)
     if review is not None:
-        await context.transport.send_message(admin_id, render_review(review))
+        await context.transport.send_review(
+            admin_id, render_review(review), proposed.id
+        )
     return "proposed"
 
 
@@ -242,7 +246,11 @@ async def _handle_callback(
         await context.transport.answer_callback(callback_id)
         return "feedback_approved"
     if action == "edit":
-        prompt_id = await context.transport.send_force_reply(admin_id, EDIT_PROMPT)
+        review = await context.feedback.correction_request(target)
+        if review is None:
+            return "ignored"
+        prompt = f"{EDIT_PROMPT}\n\nProposta actual:\n{review.proposed_answer}"
+        prompt_id = await context.transport.send_force_reply(admin_id, prompt)
         if prompt_id is not None:
             await context.feedback.set_edit_prompt(target, prompt_id)
         await context.transport.answer_callback(callback_id)

@@ -13,6 +13,7 @@
   expected_anchor: qa-talles-equipament
 - query: "On puc veure les taules de mides?"
   expected_anchor: qa-guia-talles-roba-thunder
+  also_accepts: [qa-talles-equipament]
 - query: "Quant costa l'equipament i on es demana?"
   expected_anchor: qa-preus-comanda-roba-thunder
 - query: "Si plou entrenen?"
@@ -41,6 +42,7 @@
   expected_anchor: qa-bus-un-dia
 - query: "Què he de fer per inscriure el meu fill?"
   expected_anchor: qa-inscripcio-renovacio
+  also_accepts: [qa-que-inclou-pagament]
 - query: "Què inclou el pagament de la inscripció?"
   expected_anchor: qa-que-inclou-pagament
 - query: "Quines edats corresponen a cada categoria?"
