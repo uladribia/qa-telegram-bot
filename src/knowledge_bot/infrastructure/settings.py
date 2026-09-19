@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     recap_enabled: bool = True
     recap_interval_hours: int = 24
+    recap_language: str = "ca"
 
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":

@@ -86,3 +86,27 @@ def test_render_recap_handles_empty_window() -> None:
     recap = build_recap([], window_start=START, window_end=END)
     assert isinstance(recap, Recap)
     assert "No hi ha preguntes" in render_recap(recap)
+
+
+def test_render_recap_defaults_to_catalan() -> None:
+    """The default language is Catalan."""
+    recap = build_recap([], window_start=START, window_end=END)
+    assert render_recap(recap) == render_recap(recap, language="ca")
+
+
+def test_render_recap_supports_spanish() -> None:
+    """The recap language is configurable."""
+    recap = build_recap(
+        [_answer("a1", "Qui?", "")],
+        window_start=START,
+        window_end=END,
+    )
+    spanish = render_recap(recap, language="es")
+    assert "Resumen de preguntas" in spanish
+    assert "Resum de preguntes" not in spanish
+
+
+def test_render_recap_unknown_language_falls_back_to_catalan() -> None:
+    """An unknown language code falls back to Catalan."""
+    recap = build_recap([], window_start=START, window_end=END)
+    assert render_recap(recap, language="fr") == render_recap(recap, language="ca")
