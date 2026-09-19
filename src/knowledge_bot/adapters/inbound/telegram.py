@@ -175,6 +175,7 @@ def normalize_callback(update: TelegramUpdate) -> NormalizedCallback | None:
         callback_id=query.id,
         data=query.data,
         sender_id=pseudonymize(str(query.from_user.id)),
+        sender_chat_id=str(query.from_user.id),
         conversation_id=str(message.chat.id) if message else None,
         message_id=str(message.message_id) if message else None,
     )

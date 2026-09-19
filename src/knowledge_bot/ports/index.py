@@ -13,6 +13,8 @@ class IndexableQA:
     question: str
     answer: str
     authority: int
+    url: str | None = None
+    date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +25,8 @@ class IndexableMessage:
     text: str
     source_type: str
     authority: int
+    author: str | None = None
+    date: str | None = None
 
 
 @runtime_checkable

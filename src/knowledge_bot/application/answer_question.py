@@ -57,17 +57,34 @@ class AnswerOutcome:
     text: str
 
 
+def render_source_line(source: Evidence) -> str:
+    """Render one source line, showing URL or author as appropriate.
+
+    Web sources cite their URL; group sources cite the author. Both add the date.
+
+    Args:
+        source: The cited evidence.
+
+    Returns:
+        A single bullet line.
+    """
+    parts: list[str] = [source.label]
+    if source.question is not None:
+        parts.append(source.question)
+    if source.url:
+        parts.append(source.url)
+    elif source.author:
+        parts.append(source.author)
+    if source.date:
+        parts.append(source.date)
+    return "\u2022 " + " \u00b7 ".join(parts)
+
+
 def _render(answer: str, sources: list[Evidence]) -> str:
     if not sources:
         return answer
     lines = [answer, "", "Fonts:"]
-    for source in sources:
-        detail = (
-            source.label
-            if source.question is None
-            else f"{source.label} · {source.question}"
-        )
-        lines.append(f"\u2022 {detail}")
+    lines.extend(render_source_line(source) for source in sources)
     return "\n".join(lines)
 
 

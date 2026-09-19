@@ -99,9 +99,9 @@ class TelegramTransport:
         )
         return bool(response.get("ok", True))
 
-    async def send_force_reply(self, conversation_id: str, text: str) -> None:
-        """Send a message that asks the user to reply."""
-        await self._post(
+    async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
+        """Send a message that asks the user to reply, returning its message id."""
+        response = await self._post(
             "sendMessage",
             {
                 "chat_id": conversation_id,
@@ -109,6 +109,7 @@ class TelegramTransport:
                 "reply_markup": {"force_reply": True, "selective": True},
             },
         )
+        return self._message_id(response)
 
     async def answer_callback(self, callback_id: str) -> None:
         """Acknowledge an inline-button press."""

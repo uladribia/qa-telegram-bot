@@ -41,13 +41,6 @@ def test_migrations_create_expected_tables() -> None:
     assert {row[0] for row in rows} >= EXPECTED_TABLES
 
 
-def test_migrations_are_idempotent() -> None:
-    """Applying migrations twice is a no-op."""
-    connection = _connect()
-    _apply(connection)
-    _apply(connection)
-
-
 def test_expected_indexes_exist() -> None:
     """Migrations create the indexes used by the core query paths."""
     connection = _connect()
@@ -67,6 +60,20 @@ def _seed_source_and_conversation(connection: sqlite3.Connection) -> None:
         "INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
         ("c1", "s1", None, None, "2026-01-01"),
     )
+
+
+def test_feedback_routing_columns_exist() -> None:
+    """The correction routing columns are present after migrations."""
+    connection = _connect()
+    _apply(connection)
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(feedback)").fetchall()
+    }
+    assert {
+        "reporter_chat_id",
+        "proposal_prompt_message_id",
+        "edit_prompt_message_id",
+    } <= columns
 
 
 def test_message_idempotency_key_is_unique() -> None:

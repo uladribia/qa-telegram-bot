@@ -99,6 +99,20 @@ def _opt_dt(value: object) -> datetime | None:
     return None if value is None else _dt(value)
 
 
+def _date_part(value: object) -> str | None:
+    """Return the YYYY-MM-DD part of a stored timestamp, if any."""
+    if value is None:
+        return None
+    return str(value)[:10]
+
+
+def _sender_label(sender_hash: object) -> str | None:
+    """Return a short, non-identifying sender label for citations."""
+    if sender_hash is None:
+        return None
+    return f"\u00b7{str(sender_hash)[:6]}"
+
+
 class D1SourceRepository:
     """D1 implementation of ``SourceRepository``."""
 
@@ -496,8 +510,11 @@ class D1SearchIndexSource:
         """Return the active Q&A versions to index."""
         result = await self._db.prepare(
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
-            " qv.answer AS answer, qv.authority AS authority"
-            " FROM qa_versions qv JOIN qa_items qi ON qi.id = qv.qa_id"
+            " qv.answer AS answer, qv.authority AS authority, s.canonical_url AS url,"
+            " qv.created_at AS created_at"
+            " FROM qa_versions qv"
+            " JOIN qa_items qi ON qi.id = qv.qa_id"
+            " LEFT JOIN sources s ON s.id = 'web_seed'"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
         ).run()
         return [
@@ -506,6 +523,8 @@ class D1SearchIndexSource:
                 question=str(row["question"]),
                 answer=str(row["answer"]),
                 authority=int(cast(int, row["authority"])),
+                url=_opt_str(row["url"]),
+                date=_date_part(row["created_at"]),
             )
             for row in _rows(result)
         ]
@@ -513,7 +532,7 @@ class D1SearchIndexSource:
     async def list_messages(self) -> list[IndexableMessage]:
         """Return the messages with text to index."""
         result = await self._db.prepare(
-            "SELECT id, source_id, text FROM messages"
+            "SELECT id, source_id, text, sender_hash, sent_at FROM messages"
             " WHERE text IS NOT NULL AND text != ''"
         ).run()
         return [
@@ -522,6 +541,8 @@ class D1SearchIndexSource:
                 text=str(row["text"]),
                 source_type=str(row["source_id"]),
                 authority=_message_authority(str(row["source_id"])),
+                author=_sender_label(row["sender_hash"]),
+                date=_date_part(row["sent_at"]),
             )
             for row in _rows(result)
         ]
@@ -716,18 +737,22 @@ class D1FeedbackRepository:
         await (
             self._db.prepare(
                 "INSERT INTO feedback"
-                " (id, bot_answer_id, qa_id, reporter_hash, status, proposed_answer,"
-                " admin_edited_answer, created_at, resolved_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id, status,"
+                " proposed_answer, admin_edited_answer, proposal_prompt_message_id,"
+                " edit_prompt_message_id, created_at, resolved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 feedback.id,
                 feedback.bot_answer_id,
                 feedback.qa_id,
                 feedback.reporter_hash,
+                feedback.reporter_chat_id,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
+                feedback.proposal_prompt_message_id,
+                feedback.edit_prompt_message_id,
                 _iso(feedback.created_at),
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
@@ -749,16 +774,20 @@ class D1FeedbackRepository:
         """Persist changes to an existing correction proposal."""
         await (
             self._db.prepare(
-                "UPDATE feedback SET qa_id = ?, reporter_hash = ?, status = ?,"
-                " proposed_answer = ?, admin_edited_answer = ?, resolved_at = ?"
-                " WHERE id = ?"
+                "UPDATE feedback SET qa_id = ?, reporter_hash = ?,"
+                " reporter_chat_id = ?, status = ?, proposed_answer = ?,"
+                " admin_edited_answer = ?, proposal_prompt_message_id = ?,"
+                " edit_prompt_message_id = ?, resolved_at = ? WHERE id = ?"
             )
             .bind(
                 feedback.qa_id,
                 feedback.reporter_hash,
+                feedback.reporter_chat_id,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
+                feedback.proposal_prompt_message_id,
+                feedback.edit_prompt_message_id,
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
@@ -766,6 +795,22 @@ class D1FeedbackRepository:
             )
             .run()
         )
+
+    async def find_by_proposal_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting a proposal reply to a prompt message."""
+        return await self._find("proposal_prompt_message_id", message_id)
+
+    async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting an admin edit reply to a prompt message."""
+        return await self._find("edit_prompt_message_id", message_id)
+
+    async def _find(self, column: str, message_id: str) -> Feedback | None:
+        row = _row(
+            await self._db.prepare(f"SELECT * FROM feedback WHERE {column} = ?")
+            .bind(message_id)
+            .first()
+        )
+        return _feedback(row) if row is not None else None
 
 
 def _feedback(row: dict[str, object]) -> Feedback:
@@ -776,7 +821,10 @@ def _feedback(row: dict[str, object]) -> Feedback:
         created_at=_dt(row["created_at"]),
         qa_id=_opt_str(row["qa_id"]),
         reporter_hash=_opt_str(row["reporter_hash"]),
+        reporter_chat_id=_opt_str(row["reporter_chat_id"]),
         proposed_answer=_opt_str(row["proposed_answer"]),
         admin_edited_answer=_opt_str(row["admin_edited_answer"]),
+        proposal_prompt_message_id=_opt_str(row["proposal_prompt_message_id"]),
+        edit_prompt_message_id=_opt_str(row["edit_prompt_message_id"]),
         resolved_at=_opt_dt(row["resolved_at"]),
     )

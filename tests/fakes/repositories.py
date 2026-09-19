@@ -245,3 +245,17 @@ class InMemoryFeedbackRepository:
             message = f"unknown feedback: {feedback.id}"
             raise KeyError(message)
         self._items[feedback.id] = feedback
+
+    async def find_by_proposal_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting a proposal reply to a prompt message."""
+        for feedback in self._items.values():
+            if feedback.proposal_prompt_message_id == message_id:
+                return feedback
+        return None
+
+    async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting an admin edit reply to a prompt message."""
+        for feedback in self._items.values():
+            if feedback.edit_prompt_message_id == message_id:
+                return feedback
+        return None
