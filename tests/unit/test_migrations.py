@@ -81,12 +81,19 @@ def test_message_idempotency_key_is_unique() -> None:
     connection = _connect()
     _apply(connection)
     _seed_source_and_conversation(connection)
-    sql = "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    sql = (
+        "INSERT INTO messages"
+        " (id, source_id, conversation_id, external_id, sender_hash, sender_name,"
+        " sender_is_admin, sent_at, text, content_type, reply_to_message_id,"
+        " created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
     first = (
         "m1",
         "s1",
         "c1",
         "ext-1",
+        None,
         None,
         0,
         "2026-01-01",
@@ -101,6 +108,7 @@ def test_message_idempotency_key_is_unique() -> None:
         "s1",
         "c1",
         "ext-1",
+        None,
         None,
         0,
         "2026-01-01",

@@ -1917,12 +1917,17 @@ amb `ForceReply`.
 
 El flux de correcció passa **sempre per xats privats**, mai pel grup:
 
-1. En prémer el botó al grup, el bot demana la proposta al **DM del reporter**.
+1. **Qualsevol membre del grup** pot prémer `⚠️ Està malament?` i proposar una
+   correcció. El bot demana la proposta al **DM del reporter**.
 2. En rebre-la, el bot envia la **revisió al DM de l'admin** amb botons
    `✅ Aprovar` / `✏️ Editar` / `❌ Rebutjar`.
 3. `✏️ Editar` mostra la proposta actual i demana el text corregit; el resultat
    torna al DM de l'admin amb els botons d'aprovar/rebutjar.
-4. En aprovar, el reporter rep un **missatge privat de gràcies**.
+4. **Només l'admin** pot confirmar (aprovar/editar/rebutjar). L'adaptador rebutja
+   qualsevol callback de confirmació que no vingui de `ADMIN_TELEGRAM_USER_ID`.
+5. En aprovar, el reporter rep un **missatge privat de gràcies**.
+
+AGENTS: el codi no pot exposar el nom de l'autor a cap log.
 
 Quan l'admin respon:
 
@@ -2175,20 +2180,18 @@ Ara mateix no puc consultar la base de coneixement. Torna-ho a provar més tard.
 
 Tot i que el prototip sigui poc sensible:
 
-- no guardar nom complet de Telegram;
-- no guardar username;
+- **excepció decidida:** es guarda el **nom visible de l'autor** (`messages.sender_name`)
+  i, per a l'export de WhatsApp, el nom tal com apareix a l'export. És necessari per
+  citar la font del grup (`• Grup · <autor> · <data hora>`). El nom només s'usa per
+  a la citació: **mai** es logueja ni s'envia a cap model;
 - no guardar avatar;
-- no guardar número de telèfon;
-- pseudonimitzar sender amb hash;
+- el hash pseudònim (`sender_hash`) es conserva igualment com a identificador estable;
 - conservar `ADMIN_TELEGRAM_USER_ID` només com secret/config;
 - no enviar dades a serveis AI diferents de Workers AI;
 - no processar imatges.
 
-Per l'export de WhatsApp:
-
-```text
-sender_name -> stable hash
-```
+Nota: si l'export de WhatsApp no té el contacte desat, l'autor és el número de telèfon
+(tal com apareix a l'export).
 
 excepte si s'ha configurat explícitament com a trusted/admin sender.
 

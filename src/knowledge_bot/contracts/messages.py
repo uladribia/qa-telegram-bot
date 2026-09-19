@@ -33,6 +33,7 @@ class NormalizedMessage(BaseModel):
     content_type: ContentType
     source_message_id: str | None = None
     sender_id: str | None = None
+    sender_name: str | None = None
     text: str | None = None
     reply_to_message_id: str | None = None
     mentions_bot: bool = False

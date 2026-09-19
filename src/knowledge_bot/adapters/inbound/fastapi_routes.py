@@ -221,6 +221,10 @@ async def _handle_callback(
     if action is None or target is None:
         return "ignored"
     admin_id = context.settings.admin_telegram_user_id
+    is_admin = reporter_chat_id == admin_id
+    # Proposing a correction is open to any group user; confirming it is not.
+    if action != "start" and not is_admin:
+        return "ignored"
     if action == "start":
         feedback = await context.feedback.start(target, None, reporter_chat_id)
         if feedback is None:

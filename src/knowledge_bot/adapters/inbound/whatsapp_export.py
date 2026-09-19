@@ -221,6 +221,7 @@ def _to_message(
         content_type=content_type,
         source_message_id=message_id,
         sender_id=sender_hash,
+        sender_name=author or None,
         text=text,
         attachments=attachments,
     )

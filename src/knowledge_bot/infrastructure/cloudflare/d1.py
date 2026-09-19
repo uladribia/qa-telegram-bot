@@ -128,11 +128,13 @@ def _exact_url(base: object, anchor: object) -> str | None:
     return base_text
 
 
-def _sender_label(sender_hash: object) -> str | None:
-    """Return a short, non-identifying sender label for citations."""
-    if sender_hash is None:
-        return None
-    return f"\u00b7{str(sender_hash)[:6]}"
+def _sender_label(sender_name: object, sender_hash: object) -> str | None:
+    """Return the display name for a citation, falling back to a pseudonym."""
+    if sender_name:
+        return str(sender_name)
+    if sender_hash:
+        return f"\u00b7{str(sender_hash)[:6]}"
+    return None
 
 
 class D1SourceRepository:
@@ -284,9 +286,9 @@ class D1MessageRepository:
             self._db.prepare(
                 "INSERT INTO messages"
                 " (id, source_id, conversation_id, external_id, sender_hash,"
-                " sender_is_admin,"
-                " sent_at, text, content_type, reply_to_message_id, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " sender_name, sender_is_admin, sent_at, text, content_type,"
+                " reply_to_message_id, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 message.id,
@@ -294,6 +296,7 @@ class D1MessageRepository:
                 message.conversation_id,
                 message.external_id,
                 message.sender_hash,
+                message.sender_name,
                 int(message.sender_is_admin),
                 _iso(message.sent_at),
                 message.text,
@@ -469,6 +472,7 @@ def _message(row: dict[str, object]) -> Message:
         sender_is_admin=bool(row["sender_is_admin"]),
         external_id=_opt_str(row["external_id"]),
         sender_hash=_opt_str(row["sender_hash"]),
+        sender_name=_opt_str(row["sender_name"]),
         text=_opt_str(row["text"]),
         reply_to_message_id=_opt_str(row["reply_to_message_id"]),
     )
@@ -556,8 +560,8 @@ class D1SearchIndexSource:
     async def list_messages(self) -> list[IndexableMessage]:
         """Return the messages with text to index."""
         result = await self._db.prepare(
-            "SELECT id, source_id, text, sender_hash, sent_at FROM messages"
-            " WHERE text IS NOT NULL AND text != ''"
+            "SELECT id, source_id, text, sender_hash, sender_name, sent_at"
+            " FROM messages WHERE text IS NOT NULL AND text != ''"
         ).run()
         return [
             IndexableMessage(
@@ -565,7 +569,7 @@ class D1SearchIndexSource:
                 text=str(row["text"]),
                 source_type=str(row["source_id"]),
                 authority=_message_authority(str(row["source_id"])),
-                author=_sender_label(row["sender_hash"]),
+                author=_sender_label(row["sender_name"], row["sender_hash"]),
                 date=_datetime_part(row["sent_at"]),
             )
             for row in _rows(result)

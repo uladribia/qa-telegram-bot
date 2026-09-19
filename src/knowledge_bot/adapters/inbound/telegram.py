@@ -42,6 +42,28 @@ def pseudonymize(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def _display_name(sender: object) -> str | None:
+    """Return a human display name for a Telegram sender, if any.
+
+    Args:
+        sender: The Telegram user, if any.
+
+    Returns:
+        The first and last name, or the ``@username``, or ``None``.
+    """
+    if sender is None:
+        return None
+    parts = [
+        getattr(sender, "first_name", None),
+        getattr(sender, "last_name", None),
+    ]
+    name = " ".join(str(part) for part in parts if part).strip()
+    if name:
+        return name
+    username = getattr(sender, "username", None)
+    return f"@{username}" if username else None
+
+
 def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
     """Constant-time comparison of the Telegram webhook secret header.
 
@@ -129,6 +151,7 @@ def normalize_message(
     content_type, attachment = _attachment_for(message)
     text = message.text if message.text is not None else message.caption
     sender = message.from_user
+    sender_name = _display_name(sender)
     reply = message.reply_to_message
     bot_username = (identity.bot_username or "").lower()
     mentions_bot = bool(bot_username) and f"@{bot_username}" in (text or "").lower()
@@ -148,6 +171,7 @@ def normalize_message(
         content_type=content_type,
         source_message_id=external_id,
         sender_id=pseudonymize(str(sender.id)) if sender else None,
+        sender_name=sender_name,
         text=text,
         reply_to_message_id=str(reply.message_id) if reply else None,
         mentions_bot=mentions_bot,
