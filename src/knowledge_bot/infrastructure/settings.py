@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     recap_interval_hours: int = 24
     recap_language: str = "ca"
 
+    background_listener_enabled: bool = False
+
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
         """Reject any model outside the zero-cost allowlist."""

@@ -1241,6 +1241,15 @@ rejected
 
 ---
 
+## recap_state
+
+```text
+conversation_id
+last_sent_at
+```
+
+---
+
 # 10. Autoritat de les fonts
 
 No assumir que qualsevol missatge del grup és cert.
@@ -1452,9 +1461,18 @@ sense tocar el core.
 
 ---
 
-# 13. Ingesta de tots els missatges
+# 13. Ingesta de missatges
 
-Cada missatge textual:
+Per defecte el bot **no escolta** el grup: només processa els missatges que
+l'adrecen (menció, resposta al bot, DM o `/ask`). Aquests sempre s'ingereixen i es
+responen.
+
+El **background listener** és opcional i està **desactivat per defecte**
+(`BACKGROUND_LISTENER_ENABLED=false`). Quan s'activa, també s'ingereixen tots els
+missatges no adreçats (per construir la base de coneixement), però **no es
+responen mai**.
+
+Pipeline per cada missatge textual acceptat:
 
 ```text
 Telegram
@@ -1465,6 +1483,8 @@ verify allowed chat
    ↓
 normalize
    ↓
+intake decision (ignore / ingest / answer)
+   ↓
 persist D1
    ↓
 embedding
@@ -1473,8 +1493,6 @@ Vectorize
    ↓
 classify
 ```
-
-Encara que sigui chitchat, es pot guardar.
 
 Per reduir soroll en retrieval, Vectorize metadata ha de permetre filtrar o penalitzar `chitchat`.
 
@@ -1965,23 +1983,21 @@ RECAP_INTERVAL_HOURS=24
 RECAP_LANGUAGE=ca
 ```
 
-## Disparador (restricció real)
+## Disparador: oportunitat (decidit)
 
 Els Python Workers de Cloudflare **només exposen el handler `fetch`**: el SDK de
 Python no ofereix `scheduled`, i la documentació no documenta cron per a Python.
 Per tant, el resum no es pot programar amb un Cron Trigger dins el mateix Worker.
 
-Opcions:
+Decisió: **disparador oportunista**. A cada update acceptat, abans o després de
+processar el missatge, es comprova `is_recap_due(...)` i, si toca, es publica el
+resum. Un sol Worker, gratuït i event-driven.
 
-1. **Oportunista (recomanada)**: en rebre un update, comprovar `is_recap_due(...)`
-i, si toca, publicar el resum. Un sol Worker, gratuït i event-driven.
-2. **Programador extern**: un servei crida `POST /internal/recap` amb
-`X-Internal-Key`. Cobreix grups inactius.
-3. **Worker JS company** amb Cron Trigger i service binding cap al Worker Python.
-Tercer desplegable; evitar si no és necessari.
+Estat: taula `recap_state(conversation_id, last_sent_at)` per no enviar-lo més
+d'un cop per interval.
 
-La v1 implementa el constructor del resum i la política `is_recap_due`; el
-mecanisme de disparador es decideix abans de desplegar.
+(Opcional futur: un programador extern pot cridar `POST /internal/recap` amb
+`X-Internal-Key` per cobrir dies sense activitat.)
 
 ---
 
@@ -2075,6 +2091,8 @@ CONFLICT_MARGIN=...
 RECAP_ENABLED=true
 RECAP_INTERVAL_HOURS=24
 RECAP_LANGUAGE=ca
+
+BACKGROUND_LISTENER_ENABLED=false
 ```
 
 Els thresholds han de quedar configurables.
@@ -2204,6 +2222,15 @@ test_disallowed_chat_is_ignored
 test_invalid_webhook_secret_is_rejected
 ```
 
+## Intake
+
+```text
+test_addressed_messages_are_answered
+test_unaddressed_is_ignored_by_default
+test_unaddressed_is_ingested_when_listening
+test_addressed_is_answered_even_when_listening
+```
+
 ## Recap
 
 ```text
@@ -2212,6 +2239,10 @@ test_recap_marks_abstentions_as_unanswered
 test_recap_orders_by_time
 test_recap_due_policy
 test_recap_disabled
+test_recap_is_sent_when_never_sent_before
+test_recap_is_not_sent_twice_within_the_interval
+test_recap_is_sent_again_after_the_interval
+test_recap_language_is_configurable
 ```
 
 ## Retrieval
