@@ -39,6 +39,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIGenerator,
 )
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.transport import MessageTransport
 
 
 class WorkerEnv(Protocol):
@@ -61,6 +62,7 @@ class AppContext:
     reindex: ReindexService
     seed: SeedService
     feedback: FeedbackService
+    transport: MessageTransport
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -182,4 +184,5 @@ def build_context(env: WorkerEnv) -> AppContext:
             evidence=D1QAEvidenceRepository(database),
             clock=clock,
         ),
+        transport=transport,
     )

@@ -125,5 +125,6 @@ def build_test_context(
             evidence=InMemoryQAEvidenceRepository(),
             clock=clock,
         ),
+        transport=transport,
     )
     return context, transport
