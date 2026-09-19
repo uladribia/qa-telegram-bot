@@ -75,7 +75,10 @@ A data 2026-09-19:
 - Import de la base Q&A existent.
 - Import d'un export de WhatsApp.
 - Embeddings de Q&A i missatges.
-- Detecció de preguntes.
+- Detecció de preguntes (per a indexació i ranking).
+- Resposta a preguntes **només quan el bot és adreçat explícitament** (menció, resposta
+al bot, missatge directe o `/ask`). Una pregunta sense adreçar no genera resposta.
+- Resum periòdic configurable de preguntes i respostes (vegeu §26.1).
 - Recuperació semàntica.
 - Respostes RAG compactes.
 - Referències a les fonts.
@@ -1405,17 +1408,26 @@ Per cada missatge:
 
 **No anomenar aquests scores "probabilitats".**
 
-## Overrides deterministes
+## Detecció de preguntes vs. decisió de respondre
 
-Considerar pregunta sempre que:
+El classificador detecta preguntes per **indexar i prioritzar** missatges, però la
+decisió de respondre és independent i explícita.
+
+El bot respon **només** quan el missatge l'adreça:
 
 ```text
-message starts with /ask
+/@botname ...            (menció al bot)
+resposta a un missatge del bot
+missatge directe (DM) al bot
+/ask ...   o   /ask@botname ...
 ```
 
-o sigui una frase textual clara amb `?` i longitud mínima.
+Una pregunta sense cap d'aquests senyals **no** genera resposta; es pot recollir
+al resum periòdic (§26.1).
 
-Això evita perdre preguntes si el classificador falla.
+Això evita que el bot interrompi converses normals del grup. El detector semàntic
+continua existint per classificar i ordenar el coneixement, no per desencadenar
+respostes.
 
 ## Future replacement
 
@@ -1480,6 +1492,9 @@ Telegram webhook
      |
      v
 normalize + persist
+     |
+     v
+trigger gate (adreçat al bot?)
      |
      v
 question detector
@@ -1930,6 +1945,45 @@ No fer rollback del Q&A perquè l'edició visual falli.
 
 ---
 
+# 26.1. Resum periòdic de preguntes
+
+Per evitar omplir el xat i perquè les preguntes no respostes no es perdin, el bot
+publica un resum periòdic al grup.
+
+## Contingut
+
+- Preguntes fetes durant la finestra i la resposta donada.
+- Preguntes **sense resposta** (abstenció) marcades com a pendents.
+- Per a les preguntes pendents, el resum ha d'intentar donar-hi resposta (un cop
+existeixi el pipeline de resposta); mentrestant es mostren com a pendents.
+
+## Configuració
+
+```text
+RECAP_ENABLED=true
+RECAP_INTERVAL_HOURS=24
+```
+
+## Disparador (restricció real)
+
+Els Python Workers de Cloudflare **només exposen el handler `fetch`**: el SDK de
+Python no ofereix `scheduled`, i la documentació no documenta cron per a Python.
+Per tant, el resum no es pot programar amb un Cron Trigger dins el mateix Worker.
+
+Opcions:
+
+1. **Oportunista (recomanada)**: en rebre un update, comprovar `is_recap_due(...)`
+i, si toca, publicar el resum. Un sol Worker, gratuït i event-driven.
+2. **Programador extern**: un servei crida `POST /internal/recap` amb
+`X-Internal-Key`. Cobreix grups inactius.
+3. **Worker JS company** amb Cron Trigger i service binding cap al Worker Python.
+Tercer desplegable; evitar si no és necessari.
+
+La v1 implementa el constructor del resum i la política `is_recap_due`; el
+mecanisme de disparador es decideix abans de desplegar.
+
+---
+
 # 27. Telegram Adapter
 
 ## Inbound
@@ -2016,6 +2070,9 @@ GENERATION_MODEL=@cf/zai-org/glm-4.7-flash
 QUESTION_THRESHOLD=...
 DIRECT_QA_THRESHOLD=...
 CONFLICT_MARGIN=...
+
+RECAP_ENABLED=true
+RECAP_INTERVAL_HOURS=24
 ```
 
 Els thresholds han de quedar configurables.
@@ -2131,8 +2188,28 @@ test_question
 test_statement
 test_correction
 test_chitchat
-test_question_override_slash_ask
-test_question_override_question_mark
+```
+
+## Trigger
+
+```text
+test_bare_question_is_not_addressed
+test_mention_triggers_reply
+test_reply_to_bot_triggers_reply
+test_direct_message_triggers_reply
+test_slash_ask_triggers_reply
+test_disallowed_chat_is_ignored
+test_invalid_webhook_secret_is_rejected
+```
+
+## Recap
+
+```text
+test_recap_lists_questions_and_answers
+test_recap_marks_abstentions_as_unanswered
+test_recap_orders_by_time
+test_recap_due_policy
+test_recap_disabled
 ```
 
 ## Retrieval
@@ -2200,8 +2277,11 @@ A: El club avisa a inici de temporada, els infants es proven
 ## Telegram event
 
 ```text
-"Quan hem de demanar la roba?"
+"@bot Quan hem de demanar la roba?"   (o /ask ...)
 ```
+
+Afegir també un cas negatiu: una pregunta sense adreçar no ha de generar cap
+resposta (només persistència).
 
 ## Test
 
@@ -3079,9 +3159,9 @@ El codi públic del core, ports, DTOs i serveis ha d'estar tipat. Evitar `Any` l
 
 El prototip està acabat quan:
 
-1. jo puc escriure al grup:
+1. jo puc escriure al grup adreçant el bot:
    ```text
-   Quan s'ha de demanar l'equipament?
+   @bhc_qa_testbot Quan s'ha de demanar l'equipament?
    ```
 
 2. el bot respon amb informació correcta i una font.
@@ -3119,6 +3199,8 @@ El prototip està acabat quan:
 15. Els logs de producció són estructurats i no contenen text cru dels missatges ni PII.
 
 16. Els tests d'arquitectura garanteixen que domain/application no depenen de Telegram, FastAPI ni Cloudflare.
+
+17. Una pregunta sense adreçar el bot no genera resposta, i el resum periòdic es publica quan toca.
 
 ---
 

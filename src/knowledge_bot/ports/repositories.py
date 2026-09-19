@@ -5,6 +5,7 @@ Implemented by infrastructure adapters (D1 in production) and by the in-memory
 fakes used in tests. ``add`` on the message repository is the idempotency gate.
 """
 
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from knowledge_bot.domain.entities import (
@@ -145,6 +146,10 @@ class BotAnswerRepository(Protocol):
 
     def get(self, answer_id: str) -> BotAnswer | None:
         """Return a bot answer by id, if present."""
+        ...
+
+    def list_between(self, start: datetime, end: datetime) -> list[BotAnswer]:
+        """Return the answers created in ``[start, end)``."""
         ...
 
 

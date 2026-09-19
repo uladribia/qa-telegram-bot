@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 """In-memory repository fakes for tests (no database, no network)."""
 
+from datetime import datetime
+
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
@@ -208,6 +210,10 @@ class InMemoryBotAnswerRepository:
     def get(self, answer_id: str) -> BotAnswer | None:
         """Return a bot answer by id, if present."""
         return self._items.get(answer_id)
+
+    def list_between(self, start: datetime, end: datetime) -> list[BotAnswer]:
+        """Return the answers created in ``[start, end)``."""
+        return [item for item in self._items.values() if start <= item.created_at < end]
 
 
 class InMemoryFeedbackRepository:
