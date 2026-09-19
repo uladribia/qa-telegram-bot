@@ -168,3 +168,16 @@ class FeedbackRepository(Protocol):
     def save(self, feedback: Feedback) -> None:
         """Persist changes to an existing correction proposal."""
         ...
+
+
+@runtime_checkable
+class RecapStateRepository(Protocol):
+    """Persistence for the last time a recap was sent per conversation."""
+
+    def get_last_sent_at(self, conversation_id: str) -> datetime | None:
+        """Return when the last recap was sent, if ever."""
+        ...
+
+    def set_last_sent_at(self, conversation_id: str, sent_at: datetime) -> None:
+        """Record when a recap was sent."""
+        ...

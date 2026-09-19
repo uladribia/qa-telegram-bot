@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "qa_evidence",
     "bot_answers",
     "feedback",
+    "recap_state",
 }
 
 
