@@ -16,8 +16,11 @@ importers and future channels feed the same core.
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
 | `make format` | Format and auto-fix |
 | `make lint` | Format check, lint, type check |
-| `make test` | Run tests |
-| `make all` | Lint and test (the quality gate) |
+| `make test` | Fast tier: unit + architecture tests |
+| `make test-integration` | In-process flows with in-memory fakes |
+| `make test-all` | Every test tier |
+| `make smoke` | Build the dev image and check the running Worker |
+| `make all` | Lint plus the fast test tier |
 | `docker build -t knowledge-bot:dev .` | Build the dev image |
 
 Routes: `GET /healthz`, `GET /smoke/deps` (temporary).

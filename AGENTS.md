@@ -106,32 +106,56 @@ Rules:
 Always use these commands; do not invent ad-hoc equivalents:
 
 ```bash
-make format   # uv run ruff format . && uv run ruff check --fix .
-make lint     # uv run ruff format --check . && uv run ruff check . && uv run ty check
-make test     # uv run pytest
-make all      # lint then test
+make format           # uv run ruff format . && uv run ruff check --fix .
+make lint             # uv run ruff format --check . && uv run ruff check . && uv run ty check
+make test             # fast tier: unit + architecture, no external services
+make test-integration # in-process flows with in-memory fakes
+make test-all         # every test tier
+make smoke            # build the dev image, run the Worker, check /healthz
+make all              # lint then the fast test tier
 ```
+
+Pick the smallest command that covers the change:
+
+| Change | Run |
+|---|---|
+| Pure logic, docs, config | `make test` |
+| Use case, flow, or adapter behaviour | `make test-integration` |
+| `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke` |
+| Before merging to `main` | `make lint` plus the smallest tier that covers the change |
+
+Do not run `make smoke` on every change: it builds and boots the Worker and takes
+minutes. Reserve it for milestone boundaries and runtime-affecting changes.
 
 `uv run` is the fast, canonical path. Docker is a fidelity check via direct
 `docker build`/`docker run` (there is no Docker Compose). Do not add a second
 set of commands to scripts or docs.
 
-A task is not done until `make all` exits 0.
+A task is not done until the smallest relevant tier passes and `make lint` exits 0.
 
 ## 6. Testing
 
-- Layout: `tests/unit/`, `tests/integration/`, `tests/architecture/`.
+Tiers are directory-based and marked automatically by `tests/conftest.py`:
+
+- `tests/unit/` — pure logic, no I/O, no network. Keep the whole tier fast.
+- `tests/architecture/` — import-boundary checks (stdlib AST). Fast.
+- `tests/integration/` — full use-case flows wired to in-memory fakes. No network.
+- `tests/smoke/` — reserved for runtime checks; the actual runtime gate is `make smoke`.
+
+Rules:
+
 - One test file per module under test, named after that module.
-- Unit tests cover pure logic with no I/O. Integration tests cover full use-case
-  flows using in-memory repositories and fake ports (embedder, vector store,
-  generator, transport). Architecture tests assert the import boundaries of §3
-  (stdlib AST is enough; no heavy tooling).
-- Never call real Telegram, Cloudflare, or models from tests.
+- **Never** call real Telegram, Cloudflare, D1, Vectorize, or models from unit or
+  integration tests. Mock or fake external services. Fakes live in `tests/fakes/`
+  (in-memory repositories, fake embedder/vector store/generator/transport).
+- Keep the fast tier genuinely fast: no sleeps, no network, no subprocesses, no
+  Docker. If a test needs any of those, it belongs in `integration` or `smoke`.
+- Prefer deterministic assertions over timing- or ordering-dependent ones.
 - Answer quality is verified by **evals**, not unit tests. Eval thresholds in the
   plan are acceptance criteria. Keep the distinction: tests prove the code works;
   evals prove the answers are good.
-- Determinism and idempotency matter: processing the same inbound event twice must
-  not duplicate state.
+- Idempotency matters: processing the same inbound event twice must not duplicate
+  state. Cover it in integration tests for each ingest path.
 
 ## 7. Configuration, secrets, cost
 

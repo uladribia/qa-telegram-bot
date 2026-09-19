@@ -97,3 +97,10 @@ include = [
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "--strict-markers"
+pythonpath = ["."]
+markers = [
+  "unit: fast tests with no external dependencies",
+  "architecture: import-boundary checks (fast)",
+  "integration: in-process flows with in-memory fakes",
+  "smoke: Worker/Docker runtime checks (slow, milestone boundaries)",
+]
