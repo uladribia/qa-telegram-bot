@@ -1,6 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""FastAPI application factory and HTTP routes."""
+"""FastAPI application factory and HTTP routes.
 
+The Worker bindings are only available per request (in ``request.scope["env"]``),
+so the app resolves its context through a callable rather than at import time.
+"""
+
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -15,18 +20,19 @@ from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
 
-configure_logging()
+ContextResolver = Callable[[Request], AppContext]
 
 
-def create_app(context: AppContext) -> FastAPI:
+def create_app(resolve_context: ContextResolver) -> FastAPI:
     """Build the FastAPI application.
 
     Args:
-        context: The wired application context.
+        resolve_context: Returns the application context for a request.
 
     Returns:
         The configured FastAPI app.
     """
+    configure_logging()
     app = FastAPI(title="knowledge-bot")
 
     @app.get("/healthz")
@@ -42,6 +48,7 @@ def create_app(context: AppContext) -> FastAPI:
         ] = None,
     ) -> dict[str, str]:
         """Receive Telegram updates, ingest them, and answer when addressed."""
+        context = resolve_context(request)
         if not is_valid_webhook_secret(
             secret, context.settings.telegram_webhook_secret
         ):
@@ -62,9 +69,11 @@ def create_app(context: AppContext) -> FastAPI:
 
     @app.post("/internal/recap")
     async def internal_recap(
+        request: Request,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Force the opportunistic recap check from an external scheduler."""
+        context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.recap.maybe_send(context.settings.allowed_telegram_chat_id)

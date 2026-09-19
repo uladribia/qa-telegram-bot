@@ -10,6 +10,6 @@ from tests.fakes.context import build_test_context
 def test_healthz_returns_ok() -> None:
     """The health endpoint reports the Worker is alive."""
     context, _ = build_test_context()
-    response = TestClient(create_app(context)).get("/healthz")
+    response = TestClient(create_app(lambda request: context)).get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
