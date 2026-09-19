@@ -74,6 +74,11 @@ def _text(env: WorkerEnv, name: str, default: str = "") -> str:
     return default if value is None else str(value)
 
 
+def _ids(value: str) -> frozenset[str]:
+    """Parse a comma-separated id list into a set of stripped ids."""
+    return frozenset(part.strip() for part in value.split(",") if part.strip())
+
+
 def _flag(env: WorkerEnv, name: str, default: bool = False) -> bool:
     value = getattr(env, name, None)
     if value is None:
@@ -108,6 +113,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         telegram_bot_token=_text(env, "TELEGRAM_BOT_TOKEN"),
         telegram_webhook_secret=_text(env, "TELEGRAM_WEBHOOK_SECRET"),
         allowed_telegram_chat_id=_text(env, "ALLOWED_TELEGRAM_CHAT_ID"),
+        allowed_telegram_user_ids=_text(env, "ALLOWED_TELEGRAM_USER_IDS"),
         admin_telegram_user_id=_text(env, "ADMIN_TELEGRAM_USER_ID"),
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
         telegram_bot_username=_text(env, "TELEGRAM_BOT_USERNAME"),
@@ -151,6 +157,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             admin_user_id=settings.admin_telegram_user_id,
             bot_id=settings.telegram_bot_id,
             bot_username=settings.telegram_bot_username,
+            allowed_user_ids=_ids(settings.allowed_telegram_user_ids),
         ),
         ingestor=MessageIngestor(
             sources=D1SourceRepository(database),

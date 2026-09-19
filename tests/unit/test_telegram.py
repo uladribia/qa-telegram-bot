@@ -12,10 +12,10 @@ from knowledge_bot.adapters.inbound.telegram import (
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.enums import ContentType
 
-ALLOWED_CHAT = "-5428209312"
+ALLOWED_CHAT = "-1001234567890"
 IDENTITY = TelegramIdentity(
     allowed_chat_id=ALLOWED_CHAT,
-    admin_user_id="101605540",
+    admin_user_id="100000001",
     bot_id="999",
     bot_username="bhc_qa_testbot",
 )
@@ -128,7 +128,7 @@ def test_direct_message_is_marked_and_allowed() -> None:
 
 def test_admin_sender_is_flagged() -> None:
     """The configured admin user id flags the sender as admin."""
-    message = _message(**{"from": {"id": 101605540, "is_bot": False}})
+    message = _message(**{"from": {"id": 100000001, "is_bot": False}})
     normalized = normalize_message(_update(message), IDENTITY)
     assert normalized is not None
     assert normalized.sender_is_admin is True

@@ -262,6 +262,16 @@ async def _require_evaluation_budget(context: AppContext) -> None:
 
 async def _handle_message(context: AppContext, message: NormalizedMessage) -> str:
     """Route a normalized message: feedback replies first, then intake."""
+    if (
+        message.is_direct_message
+        and not message.is_sender_allowed
+        and not await _is_known_correction_reply(context, message)
+    ):
+        # A stranger's DM. Only a reply to a prompt the bot itself sent is
+        # processed; anything else is dropped before storage. A public bot
+        # username is discoverable, so an open DM would let anyone spend the
+        # shared free AI quota and buzz the admin with fake corrections.
+        return "ignored"
     if message.reply_to_message_id is not None:
         handled = await _handle_feedback_reply(context, message)
         if handled:
@@ -277,6 +287,26 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         await context.answer.answer(message)
     await context.recap.maybe_send(message.conversation_id)
     return action.value
+
+
+async def _is_known_correction_reply(
+    context: AppContext, message: NormalizedMessage
+) -> bool:
+    """Return whether a message answers a correction prompt we sent.
+
+    Args:
+        context: The application context.
+        message: The inbound private message.
+
+    Returns:
+        ``True`` when the message replies to a proposal or edit prompt.
+    """
+    reply_to = message.reply_to_message_id
+    if reply_to is None:
+        return False
+    if await context.feedback.find_by_proposal_prompt(reply_to) is not None:
+        return True
+    return await context.feedback.find_by_edit_prompt(reply_to) is not None
 
 
 async def _handle_feedback_reply(

@@ -118,3 +118,44 @@ def test_internal_recap_requires_the_key() -> None:
         client.post("/internal/recap", headers={"X-Internal-Key": "wrong"}).status_code
         == 401
     )
+
+
+def test_a_strangers_dm_is_ignored_and_never_stored() -> None:
+    """A public bot username must not open a free-for-all DM channel.
+
+    Anyone who finds the bot could otherwise spend the shared free AI quota and
+    send the admin fake correction reviews.
+    """
+    context, transport = build_test_context()
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update(
+            "quan entrenen?",
+            message_id=77,
+            chat_id=999,
+            chat_type="private",
+            from_id=999,
+        ),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ignored"}
+    assert _stored(context, "999:77") is None
+    assert transport.messages == []
+
+
+def test_an_allowed_user_may_dm_the_bot() -> None:
+    """Users on the allowlist can start a private conversation."""
+    context, _ = build_test_context(allowed_user_ids=frozenset({"777"}))
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update(
+            "quan entrenen?",
+            message_id=78,
+            chat_id=777,
+            chat_type="private",
+            from_id=777,
+        ),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "answer"}
+    assert _stored(context, "777:78") is not None

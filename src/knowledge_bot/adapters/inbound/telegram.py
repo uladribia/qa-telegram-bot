@@ -22,12 +22,32 @@ from knowledge_bot.infrastructure.security import secrets_match
 
 @dataclass(frozen=True, slots=True)
 class TelegramIdentity:
-    """Identifiers the adapter needs to route and address messages."""
+    """Identifiers the adapter needs to route and address messages.
+
+    ``allowed_user_ids`` lists the people who may open a private chat with the
+    bot. The admin is always allowed implicitly.
+    """
 
     allowed_chat_id: str | None = None
     admin_user_id: str | None = None
     bot_id: str | None = None
     bot_username: str | None = None
+    allowed_user_ids: frozenset[str] = frozenset()
+
+    def allows_sender(self, user_id: str | None) -> bool:
+        """Return whether a user may start a private conversation.
+
+        Args:
+            user_id: The raw Telegram user id, if known.
+
+        Returns:
+            ``True`` for the admin and for anyone on the allowed list.
+        """
+        if user_id is None:
+            return False
+        if self.admin_user_id and user_id == self.admin_user_id:
+            return True
+        return user_id in self.allowed_user_ids
 
 
 def pseudonymize(value: str) -> str:
@@ -177,6 +197,7 @@ def normalize_message(
         mentions_bot=mentions_bot,
         is_reply_to_bot=is_reply_to_bot,
         is_direct_message=chat.type == "private",
+        is_sender_allowed=identity.allows_sender(str(sender.id) if sender else None),
         attachments=[attachment] if attachment else [],
         metadata={"chat_type": chat.type, "update_id": update.update_id},
     )

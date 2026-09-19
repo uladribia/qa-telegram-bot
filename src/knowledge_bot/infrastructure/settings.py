@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     telegram_bot_id: str = ""
     telegram_bot_username: str = ""
     allowed_telegram_chat_id: str = ""
+    allowed_telegram_user_ids: str = ""
     admin_telegram_user_id: str = ""
     internal_admin_key: str = ""
 

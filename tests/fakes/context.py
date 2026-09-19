@@ -50,6 +50,7 @@ def build_test_context(
     background_listener_enabled: bool = False,
     recap_enabled: bool = False,
     spent_neurons: float = 0.0,
+    allowed_user_ids: frozenset[str] = frozenset(),
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
 
@@ -58,6 +59,7 @@ def build_test_context(
         recap_enabled: Whether the recap service may send.
         spent_neurons: Estimated AI spend to pre-load for today, to exercise
             the quota guard.
+        allowed_user_ids: Extra users who may open a private chat.
 
     Returns:
         The context and the recording transport used by the recap/answer services.
@@ -104,6 +106,7 @@ def build_test_context(
         admin_user_id="1",
         bot_id=BOT_ID,
         bot_username=BOT_USERNAME,
+        allowed_user_ids=allowed_user_ids,
     )
     context = AppContext(
         settings=settings,

@@ -98,6 +98,7 @@ npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 npx wrangler secret put INTERNAL_ADMIN_KEY
 npx wrangler secret put ALLOWED_TELEGRAM_CHAT_ID
 npx wrangler secret put ADMIN_TELEGRAM_USER_ID
+npx wrangler secret put ALLOWED_TELEGRAM_USER_IDS   # optional; comma-separated
 ```
 
 Generate a webhook secret rather than inventing one:
@@ -106,11 +107,19 @@ Generate a webhook secret rather than inventing one:
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Every key is documented in [`.env.example`](../.env.example). The two that bite
+Every key is documented in [`.env.example`](../.env.example). The ones that bite
 if wrong:
 
 - `ALLOWED_TELEGRAM_CHAT_ID` — must include the leading `-` for a group.
 - `ADMIN_TELEGRAM_USER_ID` — only this user can approve corrections.
+- `ALLOWED_TELEGRAM_USER_IDS` — who may open a **private chat** with the bot.
+  The admin is always allowed. Leave it empty and only the admin can DM.
+
+**Do not leave DMs open.** A Telegram bot username is public and discoverable, so
+an unrestricted DM would let any stranger spend your shared free AI quota and send
+the admin fake correction reviews. The bot ignores a DM from anyone who is neither
+the admin nor on the allowlist — unless it replies to a prompt the bot itself
+sent, which is how a group member proposes a correction.
 
 Models are restricted to the zero-cost allowlist in code
 (`ALLOWED_AI_MODELS`). Setting anything else raises a configuration error at

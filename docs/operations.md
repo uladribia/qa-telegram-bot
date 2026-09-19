@@ -90,6 +90,7 @@ binding work — a completely dead AI binding still returns 200.
 | A reindex just ran but results look stale | Vectorize eventual consistency — wait ~60s. |
 | Webhook returns 401 | `TELEGRAM_WEBHOOK_SECRET` and the registered secret disagree. |
 | A correction is ignored | The confirmer is not `ADMIN_TELEGRAM_USER_ID`. |
+| A stranger's DM gets no reply | Working as intended: only the admin and `ALLOWED_TELEGRAM_USER_IDS` may DM. |
 | Citations show a phone number | The WhatsApp export had no saved contact name. |
 
 ---
