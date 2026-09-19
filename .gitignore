@@ -1,0 +1,37 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tool caches
+.ruff_cache/
+.ty/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Cloudflare / wrangler
+.wrangler/
+*.sqlite
+*.sqlite3
+
+# Raw and generated data (may contain personal data)
+data/raw/*
+!data/raw/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
