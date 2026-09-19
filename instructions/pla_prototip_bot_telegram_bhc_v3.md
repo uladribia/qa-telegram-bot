@@ -599,6 +599,14 @@ knowledge-bot/
 ├── uv.lock
 ├── wrangler.jsonc
 ├── README.md
+├── AGENTS.md
+│
+├── docs/
+│   ├── setup.md
+│   ├── usage.md
+│   ├── knowledge-base.md
+│   ├── operations.md
+│   └── development.md
 │
 ├── migrations/
 │   ├── 0001_initial.sql
@@ -677,6 +685,10 @@ knowledge-bot/
     ├── conflicts.yaml
     └── corrections.yaml
 ```
+
+`docs/` és la documentació operativa (desplegar, usar, mantenir, desenvolupar).
+És també el material que el bot ha de poder llegir per explicar-se a si mateix
+(§53.2).
 
 Afegir tests d'arquitectura simples que detectin imports prohibits entre capes. No cal introduir una llibreria pesada: es pot inspeccionar l'AST/import graph amb Python estàndard.
 
@@ -3274,6 +3286,109 @@ El prototip està acabat quan:
 16. Els tests d'arquitectura garanteixen que domain/application no depenen de Telegram, FastAPI ni Cloudflare.
 
 17. Una pregunta sense adreçar el bot no genera resposta, i el resum periòdic es publica quan toca.
+
+---
+
+# 53.1. Estat actual de la implementació
+
+Darrera actualització: 2026-09-19. Aquest apartat és la font de veritat sobre què
+està fet i què no; la resta del pla descriu el destí, no l'estat.
+
+## Fet i verificat
+
+- **M1** esquelet, `uv`, Docker, FastAPI, Loguru, Ruff, `ty`, `/healthz`. `make smoke` verd.
+- **M2** domini, migracions `0001`–`0007`, repositoris D1, idempotència, fakes en memòria.
+- **M3** ingesta Telegram: webhook, secret, xat permès, normalització, mitjans com a metadades.
+- **M4** snapshot web: 36 Q&A, 2 `in_review`, 9 seccions.
+- **M5** import WhatsApp: 75 missatges, 0 fallades (dates iOS i AM/PM).
+- **M6** embeddings, Vectorize, reindex, retrieval.
+- **M8** flow de resposta: evidence gate, Q&A directa, síntesi GLM, validació de fonts.
+- **M9** flow de correcció: botó, DM del reporter, revisió a l'admin, aprovar/editar/rebutjar, versionat.
+- **M11** desplegament real, secrets, webhook, seed, evals.
+- **Guard de cost** (`ai_budget`): estima els neurons del dia i refusa evals/reindex
+  abans d'esgotar la quota. Una pregunta d'usuari mai és refusada (degrada a error temporal).
+- **Citacions amb procedència real**: web → URL exacta amb àncora; grup → autor i data;
+  correcció → autor de la proposta i data de la proposta. La procedència viu a la versió.
+
+Gates: **87 unitaris + 56 integració** verds, offline evals 4/4, `ruff` i `ty` nets.
+
+## Pendent (decidit, no fet)
+
+- **M7 classificador** (§12): no hi ha mòdul ni calibratge. `evals/classifier.yaml`
+  existeix sense res a provar. Es va ajornar perquè el listener està apagat i el bot
+  només respon quan se l'adreça. És un milestone del pla, per tant està pendent.
+- **M3 pendents**: `/chatid` i `/whoami` no implementats.
+- **§26 actualitzar la resposta enviada**: `edit_message` existeix al port de transport
+  però **no es crida mai**. Després d'aprovar, el missatge original del grup continua
+  mostrant la resposta antiga.
+- **§43 eval de correccions**: falta `evals/corrections.yaml` (6 casos, 100%).
+- **§42 eval de conflictes**: `evals/conflicts.yaml` existeix però **no està connectat**
+  a `run_offline()`.
+- **Logs de producció**: `configure_logging()` es crida sense arguments, així que la
+  sortida no és JSON. A més **no hi ha cap crida `logger.*`** al codi d'aplicació: la
+  privacitat es compleix de manera trivial, però falta l'observabilitat del §3.5.
+
+## Bloquejat o no verificat
+
+- **Llindars dels evals en viu (§46)**: `abstention/live` va quedar a **92%** amb
+  objectiu ≥ 95% quan es va esgotar la quota.
+- **El jutge condicional** (dues crides, només per a casos que passen els controls
+  deterministes) **no s'ha provat mai en viu**.
+- **Reindex pendent** per publicar la correcció de citacions a Vectorize.
+
+## Fora d'abast a propòsit
+
+§50 (API web fase 2) i §51 (adaptadors futurs): el pla diu preparar-los, no construir-los.
+
+---
+
+# 53.2. Tasca pendent: el bot que s'explica a si mateix
+
+**Objectiu.** Quan algú pregunta què fa el bot, com funciona o com es corregeix una
+resposta, el bot ha de respondre **amb les seves pròpies paraules i en la llengua de
+la pregunta**, de manera entenedora, **extret del seu propi material documental**.
+
+No és un assistent general: ha d'explicar el seu propi funcionament, no opinar.
+
+## Per què
+
+Avui, si algú pregunta "què saps fer?", el bot abstenirà o respondrà amb una Q&A del
+club que no hi té res a veure. La documentació existeix (`README.md`, `docs/*.md`),
+però el bot no la pot llegir.
+
+## Enfocament proposat
+
+1. **Indexar la documentació com una procedència més**, amb un `kind` propi
+   (p. ex. `doc_section`) per secció, no el fitxer sencer.
+2. Metadata per secció: `path` (`docs/usage.md`), `heading`, `text`, `date` (del git).
+3. **Citació**: `• Docs · <títol de la secció> · docs/usage.md` (sense URL pública;
+   si algun dia hi ha web, l'URL exacta).
+4. **Reutilitzar el pipeline existent**: retrieval + evidence gate + generació. Sense
+   cap model nou ni cap camí especial: el bot respon en la llengua de la pregunta, com ja fa.
+5. **Ordre d'autoritat**: per a preguntes **factuals del club**, les Q&A del club
+   manen sobre la documentació. La documentació només respon sobre el propi bot.
+6. **Abstenir si no està documentat**: si la secció no existeix, ha de dir que no ho sap.
+   Mai inventar-se capacitats que no té.
+
+## Restriccions
+
+- Cost 0 €: només els models permesos, sense fallback.
+- La documentació és al git; l'índex és derivat i reconstruïble amb `make reindex`.
+- No exposar detalls interns innecessaris (noms de taules, secrets, claus).
+- No usar la documentació com a evidència per a fets del club.
+
+## Criteris d'acceptació (evals)
+
+- "Què saps fer?" → explica el flow (respon, cita, i es pot corregir) amb una font de `docs/`.
+- La mateixa pregunta en castellà → respon en castellà.
+- "Com corregeixo una resposta equivocada?" → descriu el flow de correcció per DM.
+- Una capacitat que **no** existeix (p. ex. "processes fotos?") → abstenció o negació clara.
+- Cap resposta d'aquesta suite pot citar una font que no sigui de `docs/`.
+
+## Nota de manteniment
+
+Aquesta tasca i la documentació de `docs/` estan lligades: si el bot ha d'explicar el
+seu flow, `docs/usage.md` ha de descriure'l correctament. Actualitzar-les juntes.
 
 ---
 

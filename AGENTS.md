@@ -203,7 +203,7 @@ Rules:
 - Every merge to `main` must carry the documentation it needs. Documentation must
   never diverge from the code on a final merge: if behaviour, commands,
   configuration, or architecture changed, update the affected docs (README,
-  docstrings, plan notes) in the same branch before merging.
+  `docs/`, docstrings, plan notes) in the same branch before merging.
 - Integrate by merging the branch into `main` (`--no-ff`). A formal PR is optional.
   Never force-push `main`.
 - Use the `gh` CLI for repository operations. The repository is private.
