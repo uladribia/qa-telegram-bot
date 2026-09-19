@@ -13,6 +13,21 @@ from datetime import datetime
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 
+DEFAULT_RECAP_LANGUAGE = "ca"
+
+_RECAP_TEXTS: dict[str, dict[str, str]] = {
+    "ca": {
+        "header": "Resum de preguntes ({start} - {end})",
+        "empty": "No hi ha preguntes en aquest període.",
+        "pending": "(sense resposta encara)",
+    },
+    "es": {
+        "header": "Resumen de preguntas ({start} - {end})",
+        "empty": "No hay preguntas en este período.",
+        "pending": "(sin respuesta todavía)",
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RecapEntry:
@@ -66,25 +81,29 @@ def build_recap(
     return Recap(entries=entries, window_start=window_start, window_end=window_end)
 
 
-def render_recap(recap: Recap) -> str:
+def render_recap(recap: Recap, *, language: str = DEFAULT_RECAP_LANGUAGE) -> str:
     """Render a recap as Telegram-friendly text.
 
     Args:
         recap: The recap to render.
+        language: Language code for the fixed strings; unknown codes fall back
+            to Catalan.
 
     Returns:
         A short text block listing each question and its answer, marking the
         ones that remain unanswered.
     """
-    header = (
-        f"Resum de preguntes ({recap.window_start:%d/%m} - {recap.window_end:%d/%m})"
+    texts = _RECAP_TEXTS.get(language, _RECAP_TEXTS[DEFAULT_RECAP_LANGUAGE])
+    header = texts["header"].format(
+        start=f"{recap.window_start:%d/%m}",
+        end=f"{recap.window_end:%d/%m}",
     )
     if not recap.entries:
-        return f"{header}\nNo hi ha preguntes en aquest període."
+        return f"{header}\n{texts['empty']}"
     lines = [header]
     for entry in recap.entries:
         if entry.answered:
             lines.append(f"\u2022 {entry.question}\n  \u2192 {entry.answer}")
         else:
-            lines.append(f"\u2022 {entry.question}\n  \u2192 (sense resposta encara)")
+            lines.append(f"\u2022 {entry.question}\n  \u2192 {texts['pending']}")
     return "\n".join(lines)

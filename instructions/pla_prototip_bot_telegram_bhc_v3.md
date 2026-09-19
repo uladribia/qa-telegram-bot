@@ -1962,6 +1962,7 @@ existeixi el pipeline de resposta); mentrestant es mostren com a pendents.
 ```text
 RECAP_ENABLED=true
 RECAP_INTERVAL_HOURS=24
+RECAP_LANGUAGE=ca
 ```
 
 ## Disparador (restricció real)
@@ -2073,6 +2074,7 @@ CONFLICT_MARGIN=...
 
 RECAP_ENABLED=true
 RECAP_INTERVAL_HOURS=24
+RECAP_LANGUAGE=ca
 ```
 
 Els thresholds han de quedar configurables.
