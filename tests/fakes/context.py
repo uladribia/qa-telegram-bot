@@ -4,10 +4,13 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
+from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
+from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
@@ -40,20 +43,29 @@ def build_test_context(
         recap_enabled: Whether the recap service may send.
 
     Returns:
-        The context and the recording transport used by the recap service.
+        The context and the recording transport used by the recap/answer services.
     """
+    answers = InMemoryBotAnswerRepository()
+    transport = RecordingTransport()
+    clock = FrozenClock(DEFAULT_NOW)
     ingestor = MessageIngestor(
         sources=InMemorySourceRepository(),
         conversations=InMemoryConversationRepository(),
         messages=InMemoryMessageRepository(),
         attachments=InMemoryAttachmentRepository(),
     )
-    transport = RecordingTransport()
+    answer = AnswerService(
+        retrieval=RetrievalService(embedder=FakeEmbedder(), vectors=FakeVectorStore()),
+        generator=FakeGenerator(),
+        answers=answers,
+        transport=transport,
+        clock=clock,
+    )
     recap = RecapService(
-        answers=InMemoryBotAnswerRepository(),
+        answers=answers,
         state=InMemoryRecapStateRepository(),
         transport=transport,
-        clock=FrozenClock(DEFAULT_NOW),
+        clock=clock,
         enabled=recap_enabled,
         interval_hours=24,
         language="ca",
@@ -75,6 +87,10 @@ def build_test_context(
         bot_username=BOT_USERNAME,
     )
     context = AppContext(
-        settings=settings, identity=identity, ingestor=ingestor, recap=recap
+        settings=settings,
+        identity=identity,
+        ingestor=ingestor,
+        answer=answer,
+        recap=recap,
     )
     return context, transport

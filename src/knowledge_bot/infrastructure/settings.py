@@ -36,6 +36,11 @@ class Settings(BaseSettings):
 
     background_listener_enabled: bool = False
 
+    direct_qa_threshold: float = 0.7
+    synthesis_threshold: float = 0.3
+    qa_top_k: int = 5
+    message_top_k: int = 8
+
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
         """Reject any model outside the zero-cost allowlist."""

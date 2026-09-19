@@ -84,6 +84,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/knowledge_bot/cli.py" = ["B008"]
+# The Vectorize binding method mirrors the JS API name.
+"src/knowledge_bot/infrastructure/cloudflare/vectorize.py" = ["N802"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
