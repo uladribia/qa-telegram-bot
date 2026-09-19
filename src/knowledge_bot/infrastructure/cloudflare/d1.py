@@ -22,6 +22,7 @@ from knowledge_bot.domain.enums import (
     ProcessingStatus,
     SourceType,
 )
+from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 
 
 class D1Result(Protocol):
@@ -462,3 +463,57 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
         qa_version_id=_opt_str(row["qa_version_id"]),
         sources_json=str(row["sources_json"]),
     )
+
+
+_MESSAGE_AUTHORITY: dict[str, int] = {
+    "telegram": 40,
+    "whatsapp_import": 50,
+    "web_seed": 90,
+    "admin": 100,
+}
+
+
+def _message_authority(source_type: str) -> int:
+    return _MESSAGE_AUTHORITY.get(source_type, 0)
+
+
+class D1SearchIndexSource:
+    """D1 implementation of ``SearchIndexSource`` for reindexing."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def list_qa(self) -> list[IndexableQA]:
+        """Return the active Q&A versions to index."""
+        result = await self._db.prepare(
+            "SELECT qv.id AS version_id, qi.canonical_question AS question,"
+            " qv.answer AS answer, qv.authority AS authority"
+            " FROM qa_versions qv JOIN qa_items qi ON qi.id = qv.qa_id"
+            " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
+        ).run()
+        return [
+            IndexableQA(
+                version_id=str(row["version_id"]),
+                question=str(row["question"]),
+                answer=str(row["answer"]),
+                authority=int(cast(int, row["authority"])),
+            )
+            for row in _rows(result)
+        ]
+
+    async def list_messages(self) -> list[IndexableMessage]:
+        """Return the messages with text to index."""
+        result = await self._db.prepare(
+            "SELECT id, source_id, text FROM messages"
+            " WHERE text IS NOT NULL AND text != ''"
+        ).run()
+        return [
+            IndexableMessage(
+                message_id=str(row["id"]),
+                text=str(row["text"]),
+                source_type=str(row["source_id"]),
+                authority=_message_authority(str(row["source_id"])),
+            )
+            for row in _rows(result)
+        ]

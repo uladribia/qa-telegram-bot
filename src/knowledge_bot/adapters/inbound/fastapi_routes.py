@@ -81,4 +81,16 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         sent = await context.recap.maybe_send(context.settings.allowed_telegram_chat_id)
         return {"status": "sent" if sent else "skipped"}
 
+    @app.post("/internal/reindex")
+    async def internal_reindex(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int]:
+        """Rebuild the derived vector store from D1."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        report = await context.reindex.reindex()
+        return {"qa": report.qa, "messages": report.messages}
+
     return app
