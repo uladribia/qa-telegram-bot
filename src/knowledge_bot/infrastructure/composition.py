@@ -6,8 +6,10 @@ from typing import Protocol
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramTransport
+from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
+from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AttachmentRepository,
@@ -19,7 +21,24 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SourceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
+from knowledge_bot.infrastructure.cloudflare.vectorize import (
+    VectorizeIndex,
+    VectorizeStore,
+)
+from knowledge_bot.infrastructure.cloudflare.workers_ai import (
+    AiRunner,
+    WorkersAIEmbedder,
+    WorkersAIGenerator,
+)
 from knowledge_bot.infrastructure.settings import Settings
+
+
+class WorkerEnv(Protocol):
+    """The Cloudflare ``env`` object: bindings plus optional string variables."""
+
+    DB: D1Database
+    AI: AiRunner
+    VECTORIZE: VectorizeIndex
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,13 +48,8 @@ class AppContext:
     settings: Settings
     identity: TelegramIdentity
     ingestor: MessageIngestor
+    answer: AnswerService
     recap: RecapService
-
-
-class WorkerEnv(Protocol):
-    """The Cloudflare ``env`` object: bindings plus optional string variables."""
-
-    DB: D1Database
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -53,6 +67,13 @@ def _flag(env: WorkerEnv, name: str, default: bool = False) -> bool:
 def _int(env: WorkerEnv, name: str, default: int) -> int:
     try:
         return int(_text(env, name, str(default)))
+    except ValueError:
+        return default
+
+
+def _float(env: WorkerEnv, name: str, default: float) -> float:
+    try:
+        return float(_text(env, name, str(default)))
     except ValueError:
         return default
 
@@ -78,8 +99,15 @@ def build_context(env: WorkerEnv) -> AppContext:
         recap_interval_hours=_int(env, "RECAP_INTERVAL_HOURS", 24),
         recap_language=_text(env, "RECAP_LANGUAGE", "ca") or "ca",
         background_listener_enabled=_flag(env, "BACKGROUND_LISTENER_ENABLED", False),
+        direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
+        synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
+        qa_top_k=_int(env, "QA_TOP_K", 5),
+        message_top_k=_int(env, "MESSAGE_TOP_K", 8),
     )
     database = env.DB
+    answers = D1BotAnswerRepository(database)
+    transport = TelegramTransport(WorkersHttpClient(), settings.telegram_bot_token)
+    clock = SystemClock()
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -94,13 +122,25 @@ def build_context(env: WorkerEnv) -> AppContext:
             messages=D1MessageRepository(database),
             attachments=D1AttachmentRepository(database),
         ),
-        recap=RecapService(
-            answers=D1BotAnswerRepository(database),
-            state=D1RecapStateRepository(database),
-            transport=TelegramTransport(
-                WorkersHttpClient(), settings.telegram_bot_token
+        answer=AnswerService(
+            retrieval=RetrievalService(
+                embedder=WorkersAIEmbedder(env.AI, settings.embedding_model),
+                vectors=VectorizeStore(env.VECTORIZE),
+                qa_top_k=settings.qa_top_k,
+                message_top_k=settings.message_top_k,
             ),
-            clock=SystemClock(),
+            generator=WorkersAIGenerator(env.AI, settings.generation_model),
+            answers=answers,
+            transport=transport,
+            clock=clock,
+            direct_qa_threshold=settings.direct_qa_threshold,
+            synthesis_threshold=settings.synthesis_threshold,
+        ),
+        recap=RecapService(
+            answers=answers,
+            state=D1RecapStateRepository(database),
+            transport=transport,
+            clock=clock,
             enabled=settings.recap_enabled,
             interval_hours=settings.recap_interval_hours,
             language=settings.recap_language,

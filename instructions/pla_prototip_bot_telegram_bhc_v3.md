@@ -1347,6 +1347,19 @@ o:
 
 No crear un índex separat per cada canal.
 
+## Metadata indexes (obligatori)
+
+Vectorize **no filtra per metadata sense un metadata index**. Cal crear-ne un per
+cada propietat filtrada:
+
+```bash
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name kind --type string
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name status --type string
+```
+
+Sense això, les consultes amb `filter` retornen zero resultats. El `kind`
+distingeix `qa_version` de `message`; el `status` filtra els Q&A actius.
+
 ---
 
 # 12. Classificador de missatges
@@ -2086,6 +2099,9 @@ GENERATION_MODEL=@cf/zai-org/glm-4.7-flash
 
 QUESTION_THRESHOLD=...
 DIRECT_QA_THRESHOLD=...
+SYNTHESIS_THRESHOLD=...
+QA_TOP_K=...
+MESSAGE_TOP_K=...
 CONFLICT_MARGIN=...
 
 RECAP_ENABLED=true

@@ -63,7 +63,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         )
         if action is IntakeAction.IGNORE:
             return {"status": "ignored"}
-        await context.ingestor.ingest(message)
+        result = await context.ingestor.ingest(message)
+        if action is IntakeAction.ANSWER and result.created:
+            await context.answer.answer(message)
         await context.recap.maybe_send(message.conversation_id)
         return {"status": action.value}
 

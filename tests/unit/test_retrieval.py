@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+"""Tests for the retrieval service (fakes with real cosine similarity)."""
+
+from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.ports.vector_store import VectorRecord
+from tests.fakes.ai import FakeEmbedder, FakeVectorStore
+
+
+async def test_retrieval_filters_status_and_ranks_by_similarity() -> None:
+    """Only active Q&A is retrieved, and results are ranked by similarity."""
+    store = FakeVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="qa1",
+                values=[1.0, 0.0],
+                metadata={
+                    "kind": "qa_version",
+                    "status": "active",
+                    "text": "resposta",
+                    "authority": 90,
+                    "question": "Quan?",
+                },
+            ),
+            VectorRecord(
+                id="qa-draft",
+                values=[1.0, 0.0],
+                metadata={
+                    "kind": "qa_version",
+                    "status": "under_review",
+                    "text": "esborrany",
+                    "authority": 30,
+                },
+            ),
+            VectorRecord(
+                id="m1",
+                values=[1.0, 0.0],
+                metadata={"kind": "message", "text": "important", "authority": 40},
+            ),
+            VectorRecord(
+                id="m2",
+                values=[0.0, 1.0],
+                metadata={"kind": "message", "text": "irrelevant", "authority": 40},
+            ),
+        ]
+    )
+    service = RetrievalService(
+        embedder=FakeEmbedder([1.0, 0.0]),
+        vectors=store,
+        qa_top_k=5,
+        message_top_k=5,
+    )
+    retrieved = await service.retrieve("pregunta")
+    assert [item.source_id for item in retrieved.qa] == ["qa1"]
+    assert retrieved.qa[0].similarity == 1.0
+    assert retrieved.qa[0].question == "Quan?"
+    assert [item.source_id for item in retrieved.messages] == ["m1", "m2"]
+    assert retrieved.messages[0].label == "Grup"
