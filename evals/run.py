@@ -273,7 +273,7 @@ def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
         )
         probe.raise_for_status()
     except httpx.HTTPError as error:
-        report.check(False, f"live retrieval probe failed: {error}")
+        report.check(False, f"live retrieval probe failed: {_explain(error)}")
         return report
     payload = probe.json()
     results = payload.get("results", {}) if isinstance(payload, dict) else {}
@@ -291,6 +291,19 @@ def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
     return report
 
 
+def _explain(error: httpx.HTTPError) -> str:
+    """Return a readable reason for a failed eval request."""
+    response = getattr(error, "response", None)
+    if response is not None:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = None
+        if detail:
+            return str(detail)
+    return str(error)
+
+
 def _terms(value: object) -> list[str]:
     """Return a case field as a list of strings."""
     if not isinstance(value, list):
@@ -301,19 +314,24 @@ def _terms(value: object) -> list[str]:
 def _eval_answer(
     base_url: str, case: dict[str, object], report: EvalReport, *, judged: bool
 ) -> None:
-    """Ask one question live and assert on the rendered answer."""
+    """Ask one question live and assert on the rendered answer.
+
+    The judge is a second, conditional call: it only runs for cases whose
+    deterministic checks all passed, which halves its share of the AI quota.
+    """
     question = str(case["question"])
+    failed_before = len(report.failures)
     try:
         response = httpx.post(
             f"{base_url}/internal/eval/answer",
             headers=_internal_headers(),
-            json={"question": question, "judge": judged},
+            json={"question": question},
             timeout=600.0,
         )
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as error:
-        report.check(False, f"{question!r}: request failed: {error}")
+        report.check(False, f"{question!r}: {_explain(error)}")
         return
     if not isinstance(payload, dict):
         report.check(False, f"{question!r}: malformed response")
@@ -326,14 +344,15 @@ def _eval_answer(
             mode == str(expected_mode),
             f"{question!r}: mode {mode!r} != {expected_mode!r}",
         )
+    citations = [
+        item for item in payload.get("citations") or [] if isinstance(item, dict)
+    ]
     if mode != "abstention":
         ids = _terms(payload.get("source_ids"))
         stray = [sid for sid in ids if sid not in _terms(payload.get("evidence_ids"))]
         report.check(not stray, f"{question!r}: unsupported sources cited: {stray}")
         report.check(bool(ids), f"{question!r}: an answer must cite a source")
-        for citation in payload.get("citations") or []:
-            if not isinstance(citation, dict):
-                continue
+        for citation in citations:
             url = str(citation.get("url") or "")
             author = citation.get("author")
             if url:
@@ -357,13 +376,38 @@ def _eval_answer(
                 claim.lower() not in answer.lower(),
                 f"{question!r}: answer claims {claim!r}",
             )
-    verdict = payload.get("judge")
-    if judged and mode != "abstention" and isinstance(verdict, dict):
-        report.check(
-            verdict.get("verdict") == "grounded",
-            f"{question!r}: judge said {verdict.get('verdict')!r}: "
-            f"{verdict.get('reason')}",
+    if not judged or mode != "synthesis":
+        return
+    # Judge only what already passed every deterministic check.
+    if len(report.failures) != failed_before:
+        return
+    verdict = _judge(base_url, question, answer, citations)
+    if verdict is None:
+        report.check(False, f"{question!r}: judge request failed")
+        return
+    report.check(
+        verdict.get("verdict") == "grounded",
+        f"{question!r}: judge said {verdict.get('verdict')!r}: {verdict.get('reason')}",
+    )
+
+
+def _judge(
+    base_url: str, question: str, answer: str, citations: list[dict[str, object]]
+) -> dict[str, object] | None:
+    """Ask the judge about an answer, giving it only the cited evidence."""
+    evidence = [str(item.get("text", "")) for item in citations]
+    try:
+        response = httpx.post(
+            f"{base_url}/internal/eval/judge",
+            headers=_internal_headers(),
+            json={"question": question, "answer": answer, "evidence": evidence},
+            timeout=600.0,
         )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def eval_live_answers(base_url: str) -> EvalReport:

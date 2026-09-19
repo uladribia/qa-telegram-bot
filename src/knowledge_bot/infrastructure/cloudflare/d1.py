@@ -6,7 +6,7 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol, cast
 
 from knowledge_bot.domain.entities import (
@@ -766,6 +766,43 @@ def _qa_version(row: dict[str, object]) -> QAVersion:
         source_url=_opt_str(row["source_url"]),
         author=_opt_str(row["author"]),
     )
+
+
+class D1AiUsageRepository:
+    """D1 implementation of ``AiUsageRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, day: str, neurons: float, calls: int) -> None:
+        """Add an estimate to a day's running total."""
+        await (
+            self._db.prepare(
+                "INSERT INTO ai_budget (day, neurons, calls, updated_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(day) DO UPDATE SET"
+                " neurons = neurons + excluded.neurons,"
+                " calls = calls + excluded.calls,"
+                " updated_at = excluded.updated_at"
+            )
+            .bind(day, neurons, calls, _iso(self._now()))
+            .run()
+        )
+
+    def _now(self) -> datetime:
+        return datetime.now(UTC)
+
+    async def get(self, day: str) -> tuple[float, int]:
+        """Return the day's ``(neurons, calls)`` so far."""
+        row = _row(
+            await self._db.prepare("SELECT neurons, calls FROM ai_budget WHERE day = ?")
+            .bind(day)
+            .first()
+        )
+        if row is None:
+            return (0.0, 0)
+        return (float(cast(float, row["neurons"])), int(cast(int, row["calls"])))
 
 
 class D1FeedbackRepository:
