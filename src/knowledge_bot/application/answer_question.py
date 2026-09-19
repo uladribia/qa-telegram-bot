@@ -20,6 +20,7 @@ from knowledge_bot.application.retrieval import (
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.generator import (
     EvidenceItem,
@@ -31,6 +32,9 @@ from knowledge_bot.ports.repositories import BotAnswerRepository
 from knowledge_bot.ports.transport import MessageTransport
 
 ABSTENTION_TEXT = "No tinc prou informació fiable per respondre-ho."
+UNAVAILABLE_TEXT = (
+    "Ara mateix no puc consultar la informació. Torna-ho a provar en una estona."
+)
 
 
 def clean_question(text: str | None) -> str:
@@ -219,8 +223,16 @@ class AnswerService:
         question = clean_question(message.text)
         if not question:
             return None
-        retrieved = await self.retrieval.retrieve(question)
-        outcome = await self.decide(question, retrieved)
+        try:
+            retrieved = await self.retrieval.retrieve(question)
+            outcome = await self.decide(question, retrieved)
+        except ModelUnavailableError:
+            outcome = AnswerOutcome(
+                answer=UNAVAILABLE_TEXT,
+                mode=AnswerMode.UNAVAILABLE,
+                source_ids=[],
+                text=UNAVAILABLE_TEXT,
+            )
         record = BotAnswer(
             id=f"ans:{message.id}",
             conversation_id=message.conversation_id,

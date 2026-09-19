@@ -29,6 +29,7 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
@@ -96,7 +97,19 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         payload = await request.json()
         question = str(payload.get("question", ""))
-        preview = await context.answer.dry_run(question)
+        try:
+            preview = await context.answer.dry_run(question)
+        except ModelUnavailableError:
+            return {
+                "question": question,
+                "mode": AnswerMode.UNAVAILABLE.value,
+                "answer": "model unavailable",
+                "text": "",
+                "source_ids": [],
+                "evidence_ids": [],
+                "citations": [],
+                "judge": None,
+            }
         outcome = preview.outcome
         verdict: dict[str, str] | None = None
         if payload.get("judge") and outcome.mode is not AnswerMode.ABSTENTION:

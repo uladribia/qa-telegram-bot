@@ -71,3 +71,4 @@ class AnswerMode(StrEnum):
     DIRECT_QA = "direct_qa"
     SYNTHESIS = "synthesis"
     ABSTENTION = "abstention"
+    UNAVAILABLE = "unavailable"

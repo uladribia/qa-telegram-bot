@@ -3,6 +3,7 @@
 
 import math
 
+from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import (
     GenerationRequest,
     GenerationResult,
@@ -19,9 +20,12 @@ class FakeEmbedder:
         """Create an embedder with a fixed output vector."""
         self.vector = vector if vector is not None else [1.0, 0.0]
         self.calls: list[list[str]] = []
+        self.fail = False
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Return the fixed vector once per input text."""
+        if self.fail:
+            raise ModelUnavailableError("embedding")
         self.calls.append(texts)
         return [list(self.vector) for _ in texts]
 

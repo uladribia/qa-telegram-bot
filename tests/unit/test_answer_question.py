@@ -9,6 +9,7 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
+from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.generator import GenerationResult
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
@@ -107,3 +108,31 @@ async def test_generator_insufficient_abstains() -> None:
         "pregunta", RetrievedEvidence(messages=[_message_evidence(0.6)])
     )
     assert outcome.mode is AnswerMode.ABSTENTION
+
+
+async def test_model_failure_degrades_without_losing_the_question() -> None:
+    """A failing model yields a temporary-unavailable reply, not an error."""
+    service, _ = _service()
+    embedder = FakeEmbedder()
+    embedder.fail = True
+    service = AnswerService(
+        retrieval=RetrievalService(embedder=embedder, vectors=FakeVectorStore()),
+        generator=service.generator,
+        answers=service.answers,
+        transport=service.transport,
+        clock=FrozenClock(NOW),
+    )
+    message = NormalizedMessage(
+        id="m1",
+        conversation_id="c1",
+        content_type="text",
+        source_type="telegram",
+        timestamp=NOW,
+        text="on entrenen?",
+        sender_is_admin=False,
+    )
+    record = await service.answer(message)
+    assert record is not None
+    assert record.answer_mode is AnswerMode.UNAVAILABLE
+    assert record.question == "on entrenen?"
+    assert "provar" in record.answer
