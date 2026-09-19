@@ -94,10 +94,15 @@ class TelegramUpdate(BaseModel):
 
 
 class NormalizedCallback(BaseModel):
-    """A callback query reduced to what the feedback flow needs."""
+    """A callback query reduced to what the feedback flow needs.
+
+    ``sender_chat_id`` is a raw Telegram user id used only to open a private
+    chat with the reporter; it is a routing key, never displayed or logged.
+    """
 
     callback_id: str
     data: str | None = None
     sender_id: str | None = None
+    sender_chat_id: str | None = None
     conversation_id: str | None = None
     message_id: str | None = None

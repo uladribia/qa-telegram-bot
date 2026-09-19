@@ -60,6 +60,8 @@ class ReindexService:
                     "authority": item.authority,
                     "question": item.question,
                     "text": item.answer,
+                    "url": item.url,
+                    "date": item.date,
                 },
             )
             for item, vector in zip(items, embeddings, strict=False)
@@ -81,6 +83,8 @@ class ReindexService:
                     "source_type": message.source_type,
                     "authority": message.authority,
                     "text": message.text,
+                    "author": message.author,
+                    "date": message.date,
                 },
             )
             for message, vector in zip(messages, embeddings, strict=False)

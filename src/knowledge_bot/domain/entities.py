@@ -132,7 +132,11 @@ class BotAnswer:
 
 @dataclass(frozen=True, slots=True)
 class Feedback:
-    """A correction proposed by a user and its review state."""
+    """A correction proposed by a user and its review state.
+
+    ``reporter_chat_id`` is a routing key used to open a private chat with the
+    reporter; it is never displayed.
+    """
 
     id: str
     bot_answer_id: str
@@ -140,6 +144,9 @@ class Feedback:
     created_at: datetime
     qa_id: str | None = None
     reporter_hash: str | None = None
+    reporter_chat_id: str | None = None
     proposed_answer: str | None = None
     admin_edited_answer: str | None = None
+    proposal_prompt_message_id: str | None = None
+    edit_prompt_message_id: str | None = None
     resolved_at: datetime | None = None

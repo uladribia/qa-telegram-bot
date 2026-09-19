@@ -36,6 +36,7 @@ def _service() -> tuple[
     service = SeedService(
         qa_items=qa_items,
         qa_versions=qa_versions,
+        sources=InMemorySourceRepository(),
         ingestor=ingestor,
         clock=FrozenClock(NOW),
     )

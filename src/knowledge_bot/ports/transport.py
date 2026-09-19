@@ -33,3 +33,11 @@ class MessageTransport(Protocol):
     ) -> bool:
         """Replace the text of a message; return whether it succeeded."""
         ...
+
+    async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
+        """Ask for a reply, returning the prompt message id for correlation."""
+        ...
+
+    async def answer_callback(self, callback_id: str) -> None:
+        """Acknowledge an inline-button press."""
+        ...

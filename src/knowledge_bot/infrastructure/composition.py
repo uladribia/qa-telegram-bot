@@ -168,6 +168,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         seed=SeedService(
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
+            sources=D1SourceRepository(database),
             ingestor=MessageIngestor(
                 sources=D1SourceRepository(database),
                 conversations=D1ConversationRepository(database),

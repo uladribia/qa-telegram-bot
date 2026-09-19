@@ -8,7 +8,7 @@ mutated destructively.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from knowledge_bot.domain.entities import Feedback, QAEvidence, QAItem, QAVersion
 from knowledge_bot.domain.enums import (
@@ -37,6 +37,8 @@ PROPOSAL_PROMPT = (
 )
 PROPOSAL_ACK = "Gràcies. Ho he enviat a revisió."
 EDIT_PROMPT = "Envia'm el text correcte."
+REVIEW_REJECTED = "\u274c Correcci\u00f3 rebutjada."
+
 
 _ACTIONS: tuple[tuple[str, str], ...] = (
     (START_PREFIX, "start"),
@@ -98,6 +100,23 @@ class CorrectionRequest:
     proposed_answer: str
 
 
+def render_review(request: CorrectionRequest) -> str:
+    """Render the private admin review message for a correction.
+
+    Args:
+        request: The correction to review.
+
+    Returns:
+        The review text, including the current and proposed answers.
+    """
+    return (
+        "\u26a0\ufe0f Correcci\u00f3 proposada\n\n"
+        f"Pregunta:\n{request.question}\n\n"
+        f"Resposta actual:\n{request.current_answer}\n\n"
+        f"Proposta:\n{request.proposed_answer}"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackService:
     """Start, propose, and review corrections."""
@@ -109,12 +128,18 @@ class FeedbackService:
     evidence: QAEvidenceRepository
     clock: Clock
 
-    async def start(self, answer_id: str, reporter_hash: str | None) -> Feedback | None:
+    async def start(
+        self,
+        answer_id: str,
+        reporter_hash: str | None,
+        reporter_chat_id: str | None = None,
+    ) -> Feedback | None:
         """Open a correction proposal for a bot answer.
 
         Args:
             answer_id: The bot answer the user marked wrong.
             reporter_hash: A pseudonymized reporter id.
+            reporter_chat_id: The chat to prompt privately.
 
         Returns:
             The created feedback, or ``None`` when the answer is unknown.
@@ -129,9 +154,38 @@ class FeedbackService:
             created_at=self.clock.now(),
             qa_id=answer.qa_version_id,
             reporter_hash=reporter_hash,
+            reporter_chat_id=reporter_chat_id,
         )
         await self.feedback.add(feedback)
         return feedback
+
+    async def set_proposal_prompt(self, feedback_id: str, message_id: str) -> None:
+        """Record the prompt message the reporter must reply to."""
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return
+        await self.feedback.save(
+            replace(feedback, proposal_prompt_message_id=message_id)
+        )
+
+    async def set_edit_prompt(self, feedback_id: str, message_id: str) -> None:
+        """Record the prompt message the admin must reply to."""
+        feedback = await self.feedback.get(feedback_id)
+        if feedback is None:
+            return
+        await self.feedback.save(replace(feedback, edit_prompt_message_id=message_id))
+
+    async def find_by_proposal_prompt(self, message_id: str) -> Feedback | None:
+        """Find the feedback awaiting a proposal reply to a prompt message."""
+        return await self.feedback.find_by_proposal_prompt(message_id)
+
+    async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
+        """Find the feedback awaiting an admin edit reply to a prompt message."""
+        return await self.feedback.find_by_edit_prompt(message_id)
+
+    async def get(self, feedback_id: str) -> Feedback | None:
+        """Return a correction proposal by id."""
+        return await self.feedback.get(feedback_id)
 
     async def _update(
         self,
@@ -142,13 +196,9 @@ class FeedbackService:
         admin_edited_answer: str | None = None,
         resolved: bool = False,
     ) -> Feedback:
-        updated = Feedback(
-            id=feedback.id,
-            bot_answer_id=feedback.bot_answer_id,
+        updated = replace(
+            feedback,
             status=status,
-            created_at=feedback.created_at,
-            qa_id=feedback.qa_id,
-            reporter_hash=feedback.reporter_hash,
             proposed_answer=proposed_answer,
             admin_edited_answer=admin_edited_answer,
             resolved_at=self.clock.now() if resolved else None,

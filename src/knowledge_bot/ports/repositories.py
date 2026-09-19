@@ -171,6 +171,14 @@ class FeedbackRepository(Protocol):
         """Persist changes to an existing correction proposal."""
         ...
 
+    async def find_by_proposal_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting a proposal reply to a prompt message."""
+        ...
+
+    async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
+        """Return the feedback awaiting an admin edit reply to a prompt message."""
+        ...
+
 
 @runtime_checkable
 class RecapStateRepository(Protocol):

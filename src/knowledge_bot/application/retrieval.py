@@ -20,6 +20,9 @@ class Evidence:
     authority: int
     similarity: float
     question: str | None = None
+    url: str | None = None
+    date: str | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +48,10 @@ def _as_int(value: object) -> int:
     return 0
 
 
+def _opt_text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
     metadata = match.metadata
     question = metadata.get("question")
@@ -55,6 +62,9 @@ def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
         authority=_as_int(metadata.get("authority")),
         similarity=match.score,
         question=question if isinstance(question, str) else None,
+        url=_opt_text(metadata.get("url")),
+        date=_opt_text(metadata.get("date")),
+        author=_opt_text(metadata.get("author")),
     )
 
 

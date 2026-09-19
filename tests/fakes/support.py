@@ -65,9 +65,10 @@ class RecordingTransport:
         self.edits.append((conversation_id, message_id, text))
         return True
 
-    async def send_force_reply(self, conversation_id: str, text: str) -> None:
+    async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
         """Record a force-reply prompt."""
         self.force_replies.append((conversation_id, text))
+        return str(len(self.force_replies))
 
     async def answer_callback(self, callback_id: str) -> None:
         """Record a callback acknowledgement."""

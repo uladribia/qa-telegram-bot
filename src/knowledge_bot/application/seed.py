@@ -6,16 +6,22 @@ ingest idempotency key.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
-from knowledge_bot.domain.entities import QAItem, QAVersion
-from knowledge_bot.domain.enums import QAOrigin, QAStatus
-from knowledge_bot.domain.policies import web_seed_authority
+from knowledge_bot.domain.entities import QAItem, QAVersion, Source
+from knowledge_bot.domain.enums import QAOrigin, QAStatus, SourceType
+from knowledge_bot.domain.policies import source_authority, web_seed_authority
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import QAItemRepository, QAVersionRepository
+from knowledge_bot.ports.repositories import (
+    QAItemRepository,
+    QAVersionRepository,
+    SourceRepository,
+)
+
+WEB_SEED_SOURCE_ID = SourceType.WEB_SEED.value
 
 
 def stable_id(value: str) -> str:
@@ -45,8 +51,27 @@ class SeedService:
 
     qa_items: QAItemRepository
     qa_versions: QAVersionRepository
+    sources: SourceRepository
     ingestor: MessageIngestor
     clock: Clock
+
+    async def _ensure_web_seed_source(self, canonical_url: str) -> None:
+        """Create the web-seed source row that citations link to."""
+        existing = await self.sources.get(WEB_SEED_SOURCE_ID)
+        if existing is not None:
+            if existing.canonical_url != canonical_url:
+                await self.sources.save(replace(existing, canonical_url=canonical_url))
+            return
+        await self.sources.add(
+            Source(
+                id=WEB_SEED_SOURCE_ID,
+                source_type=SourceType.WEB_SEED,
+                authority=int(source_authority(SourceType.WEB_SEED)),
+                created_at=self.clock.now(),
+                title="Web Q&A",
+                canonical_url=canonical_url,
+            )
+        )
 
     async def seed_qa(self, entries: list[SeedQA]) -> tuple[int, int]:
         """Persist a batch of seed Q&A entries.
@@ -61,6 +86,7 @@ class SeedService:
         skipped = 0
         now = self.clock.now()
         for entry in entries:
+            await self._ensure_web_seed_source(entry.source_url)
             key = entry.source_anchor or stable_id(entry.question)
             if await self.qa_items.get_by_canonical_key(key) is not None:
                 skipped += 1
