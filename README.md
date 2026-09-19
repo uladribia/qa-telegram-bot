@@ -25,6 +25,18 @@ importers and future channels feed the same core.
 
 Routes: `GET /healthz`, `GET /smoke/deps` (temporary).
 
+## Deployment
+
+This repository is currently deployed as a test Worker:
+
+- Worker name: `bhc-qa-testbot`
+- URL: https://bhc-qa-testbot.qa-bots.workers.dev
+- Deploy: `uv run pywrangler deploy`
+
+The Python package and its code stay generic (`knowledge_bot`); only the deploy
+name is specific to this test. Secrets are set with `npx wrangler secret put <NAME>`
+and never committed.
+
 ## Built with coding agents
 
 This repository is mostly written by coding agents. The work was driven with the
