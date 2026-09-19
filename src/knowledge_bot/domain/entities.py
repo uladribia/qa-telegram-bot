@@ -54,6 +54,7 @@ class Message:
     sender_is_admin: bool = False
     external_id: str | None = None
     sender_hash: str | None = None
+    sender_name: str | None = None
     text: str | None = None
     reply_to_message_id: str | None = None
 

@@ -69,13 +69,19 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
         "INSERT INTO conversations VALUES ('-100','telegram',NULL,NULL,'2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO messages VALUES"
-        " ('m1','telegram','-100','-100:1',NULL,0,'2026-01-01','hola',"
+        "INSERT INTO messages"
+        " (id, source_id, conversation_id, external_id, sender_hash, sender_name,"
+        " sender_is_admin, sent_at, text, content_type, reply_to_message_id,"
+        " created_at)"
+        " VALUES ('m1','telegram','-100','-100:1',NULL,'Ada',0,'2026-01-01','hola',"
         "'text',NULL,'2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO messages VALUES"
-        " ('m2','telegram','-100','-100:2',NULL,0,'2026-01-01',NULL,"
+        "INSERT INTO messages"
+        " (id, source_id, conversation_id, external_id, sender_hash, sender_name,"
+        " sender_is_admin, sent_at, text, content_type, reply_to_message_id,"
+        " created_at)"
+        " VALUES ('m2','telegram','-100','-100:2',NULL,NULL,0,'2026-01-01',NULL,"
         "'image',NULL,'2026-01-01')"
     )
     connection.execute(
@@ -104,4 +110,5 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
     assert qa[0].authority == 90
     assert [message.message_id for message in messages] == ["m1"]
     assert messages[0].source_type == "telegram"
+    assert messages[0].author == "Ada"
     assert messages[0].authority == 40

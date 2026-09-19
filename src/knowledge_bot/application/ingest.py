@@ -84,6 +84,7 @@ class MessageIngestor:
                 sender_is_admin=message.sender_is_admin,
                 external_id=message.source_message_id,
                 sender_hash=message.sender_id,
+                sender_name=message.sender_name,
                 text=message.text,
                 reply_to_message_id=message.reply_to_message_id,
             )
