@@ -19,8 +19,6 @@ from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
-from knowledge_bot.ports.generator import GenerationRequest
-from knowledge_bot.ports.vector_store import VectorRecord
 
 ContextResolver = Callable[[Request], AppContext]
 
@@ -82,38 +80,5 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.recap.maybe_send(context.settings.allowed_telegram_chat_id)
         return {"status": "sent" if sent else "skipped"}
-
-    @app.post("/internal/selftest")
-    async def internal_selftest(
-        request: Request,
-        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, object]:
-        """Temporary: exercise the real AI and Vectorize bindings."""
-        context = resolve_context(request)
-        if not secrets_match(key, context.settings.internal_admin_key):
-            raise HTTPException(status_code=401, detail="invalid key")
-        retrieval = context.answer.retrieval
-        embeddings = await retrieval.embedder.embed(["selftest"])
-        vector = embeddings[0]
-        await retrieval.vectors.upsert(
-            [
-                VectorRecord(
-                    id="__selftest__", values=vector, metadata={"kind": "selftest"}
-                )
-            ]
-        )
-        matches = await retrieval.vectors.query(
-            vector, top_k=1, filters={"kind": "selftest"}
-        )
-        await retrieval.vectors.delete(["__selftest__"])
-        generated = await context.answer.generator.generate(
-            GenerationRequest(question="Answer with the single word OK.")
-        )
-        return {
-            "dims": len(vector),
-            "matches": len(matches),
-            "gen_status": generated.status,
-            "gen_answer": generated.answer[:80],
-        }
 
     return app

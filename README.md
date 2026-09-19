@@ -37,6 +37,14 @@ The Python package and its code stay generic (`knowledge_bot`); only the deploy
 name is specific to this test. Secrets are set with `npx wrangler secret put <NAME>`
 and never committed.
 
+One-time infrastructure: the Vectorize index needs metadata indexes before
+filtered retrieval returns anything:
+
+```bash
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name kind --type string
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name status --type string
+```
+
 ## Built with coding agents
 
 This repository is mostly written by coding agents. The work was driven with the
