@@ -35,5 +35,8 @@ class NormalizedMessage(BaseModel):
     sender_id: str | None = None
     text: str | None = None
     reply_to_message_id: str | None = None
+    mentions_bot: bool = False
+    is_reply_to_bot: bool = False
+    is_direct_message: bool = False
     attachments: list[AttachmentRef] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
