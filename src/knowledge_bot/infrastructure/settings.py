@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    telegram_bot_id: str = ""
+    telegram_bot_username: str = ""
     allowed_telegram_chat_id: str = ""
     admin_telegram_user_id: str = ""
     internal_admin_key: str = ""

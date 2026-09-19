@@ -7,7 +7,6 @@ only: binary content is never fetched in v1.
 """
 
 import hashlib
-import hmac
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -18,6 +17,7 @@ from knowledge_bot.contracts.telegram import (
     TelegramUpdate,
 )
 from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.infrastructure.security import secrets_match
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +54,7 @@ def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
     """
     if not provided or not expected:
         return False
-    return hmac.compare_digest(provided, expected)
+    return secrets_match(provided, expected)
 
 
 def _is_allowed_chat(chat_id: int, chat_type: str, identity: TelegramIdentity) -> bool:
