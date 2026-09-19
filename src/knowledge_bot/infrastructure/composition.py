@@ -7,6 +7,7 @@ from typing import Protocol
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
@@ -15,6 +16,7 @@ from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
+    D1AiUsageRepository,
     D1AttachmentRepository,
     D1BotAnswerRepository,
     D1ConversationRepository,
@@ -38,6 +40,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIEmbedder,
     WorkersAIGenerator,
 )
+from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
 from knowledge_bot.ports.transport import MessageTransport
 
@@ -62,6 +65,7 @@ class AppContext:
     reindex: ReindexService
     seed: SeedService
     feedback: FeedbackService
+    budget: AiBudget
     transport: MessageTransport
 
 
@@ -116,12 +120,29 @@ def build_context(env: WorkerEnv) -> AppContext:
         synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
         qa_top_k=_int(env, "QA_TOP_K", 5),
         message_top_k=_int(env, "MESSAGE_TOP_K", 8),
+        ai_daily_neuron_budget=_float(env, "AI_DAILY_NEURON_BUDGET", 10_000.0),
+        ai_neuron_reserve_fraction=_float(env, "AI_NEURON_RESERVE_FRACTION", 0.25),
+        ai_embed_neurons_per_char=_float(env, "AI_EMBED_NEURONS_PER_CHAR", 0.015),
+        ai_chat_neurons_per_char=_float(env, "AI_CHAT_NEURONS_PER_CHAR", 0.020),
     )
     database = env.DB
     answers = D1BotAnswerRepository(database)
     transport = TelegramTransport(WorkersHttpClient(), settings.telegram_bot_token)
     clock = SystemClock()
-    embedder = WorkersAIEmbedder(env.AI, settings.embedding_model)
+    budget = AiBudget(
+        usage=D1AiUsageRepository(database),
+        clock=clock,
+        daily_neurons=settings.ai_daily_neuron_budget,
+        reserve_fraction=settings.ai_neuron_reserve_fraction,
+        embed_neurons_per_char=settings.ai_embed_neurons_per_char,
+        chat_neurons_per_char=settings.ai_chat_neurons_per_char,
+    )
+    embedder = MeteredEmbedder(
+        WorkersAIEmbedder(env.AI, settings.embedding_model), budget
+    )
+    generator = MeteredGenerator(
+        WorkersAIGenerator(env.AI, settings.generation_model), budget
+    )
     vectors = VectorizeStore(env.VECTORIZE)
     return AppContext(
         settings=settings,
@@ -144,7 +165,7 @@ def build_context(env: WorkerEnv) -> AppContext:
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),
-            generator=WorkersAIGenerator(env.AI, settings.generation_model),
+            generator=generator,
             answers=answers,
             transport=transport,
             clock=clock,
@@ -185,5 +206,6 @@ def build_context(env: WorkerEnv) -> AppContext:
             evidence=D1QAEvidenceRepository(database),
             clock=clock,
         ),
+        budget=budget,
         transport=transport,
     )

@@ -93,12 +93,14 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
 
-        Returns the decided mode, the rendered answer, the citations, and an
-        optional judge verdict. No message ever reaches Telegram.
+        Returns the decided mode, the rendered answer, the citations (with the
+        evidence text, so the judge can run as a separate, conditional call),
+        and the retrieved evidence ids. No message ever reaches Telegram.
         """
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        await _require_evaluation_budget(context)
         payload = await request.json()
         question = str(payload.get("question", ""))
         try:
@@ -112,17 +114,8 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
                 "source_ids": [],
                 "evidence_ids": [],
                 "citations": [],
-                "judge": None,
             }
         outcome = preview.outcome
-        verdict: dict[str, str] | None = None
-        if payload.get("judge") and outcome.mode is not AnswerMode.ABSTENTION:
-            judged = await context.answer.judge(
-                question,
-                outcome.answer,
-                [item.text for item in preview.evidence],
-            )
-            verdict = {"verdict": judged.verdict, "reason": judged.reason}
         return {
             "question": question,
             "mode": outcome.mode.value,
@@ -137,12 +130,40 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
                     "url": item.url,
                     "author": item.author,
                     "date": item.date,
+                    "text": item.text,
                 }
                 for item in preview.evidence
                 if item.source_id in outcome.source_ids
             ],
-            "judge": verdict,
         }
+
+    @app.post("/internal/eval/judge")
+    async def internal_eval_judge(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Judge one answer against its cited evidence.
+
+        The eval harness calls this only for cases that already passed the
+        deterministic checks, halving the judge's share of the AI quota.
+        """
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        await _require_evaluation_budget(context)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="invalid payload")
+        evidence = payload.get("evidence") or []
+        try:
+            verdict = await context.answer.judge(
+                str(payload.get("question", "")),
+                str(payload.get("answer", "")),
+                [str(item) for item in evidence],
+            )
+        except ModelUnavailableError:
+            return {"verdict": "error", "reason": "model unavailable"}
+        return {"verdict": verdict.verdict, "reason": verdict.reason}
 
     @app.post("/internal/recap")
     async def internal_recap(
@@ -165,6 +186,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        await _require_evaluation_budget(context)
         report = await context.reindex.reindex()
         return {"qa": report.qa, "messages": report.messages}
 
@@ -177,6 +199,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        await _require_evaluation_budget(context)
         payload = await request.json()
         queries = payload.get("queries", []) if isinstance(payload, dict) else []
         results: dict[str, list[str]] = {}
@@ -209,6 +232,32 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         return {"qa": created, "qa_skipped": skipped, "messages": message_count}
 
     return app
+
+
+async def _require_evaluation_budget(context: AppContext) -> None:
+    """Refuse an expensive admin run once the day's AI budget is nearly spent.
+
+    Only evals and reindex consult this. A real user question is never refused
+    here: it degrades to the temporary-unavailable reply instead, so the inbound
+    event is never lost (spec §47).
+
+    Args:
+        context: The application context.
+
+    Raises:
+        HTTPException: 429 when the evaluation ceiling has been reached.
+    """
+    if await context.budget.evaluation_allowed():
+        return
+    spend = await context.budget.spend()
+    raise HTTPException(
+        status_code=429,
+        detail=(
+            f"AI budget for evaluations is spent: {spend.neurons:.0f} of "
+            f"{spend.limit:.0f} estimated neurons used today. Real answers keep "
+            "working. Resets at 00:00 UTC."
+        ),
+    )
 
 
 async def _handle_message(context: AppContext, message: NormalizedMessage) -> str:

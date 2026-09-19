@@ -21,9 +21,36 @@ importers and future channels feed the same core.
 | `make test-all` | Every test tier |
 | `make smoke` | Build the dev image and check the running Worker |
 | `make all` | Lint plus the fast test tier |
+| `make reindex` | Rebuild the derived vector index from D1 |
+| `make eval-live` | Live quality gate (real model calls; costs AI quota) |
+| `make eval-live-reindex` | Same, rebuilding the index first |
 | `docker build -t knowledge-bot:dev .` | Build the dev image |
 
-Routes: `GET /healthz`, `GET /smoke/deps` (temporary).
+Routes: `GET /healthz`, `POST /internal/{recap,reindex,seed,retrieve,eval/answer,eval/judge}`
+(key-guarded).
+
+## The AI quota guard
+
+The free plan allows **10,000 neurons per day**. When it runs out, every model
+call fails and the bot can answer nothing until 00:00 UTC.
+
+The account's real usage is not visible to a Worker, so calls are metered with a
+character-based estimate (`ai_budget` table, `AI_*` settings). A deliberate
+reserve is held back for real traffic:
+
+- **evals and reindex are refused with HTTP 429** once `budget - reserve` is
+  reached, so a stray eval run cannot take the bot down for a day.
+- **a user question is never refused.** It degrades to the
+temporary-unavailable reply, so the inbound event is never lost.
+
+Reproduce a spent day for testing:
+
+```bash
+npx wrangler d1 execute knowledge-bot --remote --command \
+  "INSERT INTO ai_budget (day, neurons, calls, updated_at)\
+   VALUES ('2026-01-01', 20000, 1, '2026-01-01T00:00:00Z')\
+   ON CONFLICT(day) DO UPDATE SET neurons=excluded.neurons"
+```
 
 ## Deployment
 

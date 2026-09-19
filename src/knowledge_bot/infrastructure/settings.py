@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     qa_top_k: int = 5
     message_top_k: int = 8
 
+    ai_daily_neuron_budget: float = 10_000.0
+    ai_neuron_reserve_fraction: float = 0.25
+    ai_embed_neurons_per_char: float = 0.015
+    ai_chat_neurons_per_char: float = 0.020
+
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
         """Reject any model outside the zero-cost allowlist."""

@@ -20,6 +20,27 @@ class InMemoryRecapStateRepository:
         self._last_sent[conversation_id] = sent_at
 
 
+class InMemoryAiUsageRepository:
+    """Dict-backed implementation of ``AiUsageRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty ledger."""
+        self._days: dict[str, tuple[float, int]] = {}
+
+    async def add(self, day: str, neurons: float, calls: int) -> None:
+        """Add an estimate to a day's running total."""
+        total, count = self._days.get(day, (0.0, 0))
+        self._days[day] = (total + neurons, count + calls)
+
+    async def get(self, day: str) -> tuple[float, int]:
+        """Return the day's ``(neurons, calls)`` so far."""
+        return self._days.get(day, (0.0, 0))
+
+    def seed(self, day: str, neurons: float, calls: int = 1) -> None:
+        """Pre-load a day's totals without going through the meter."""
+        self._days[day] = (neurons, calls)
+
+
 class FrozenClock:
     """A clock frozen at a fixed instant, advanceable in tests."""
 
