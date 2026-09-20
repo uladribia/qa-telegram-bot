@@ -257,6 +257,22 @@ class D1ConversationRepository:
             title=_opt_str(row["title"]),
         )
 
+    async def save(self, conversation: Conversation) -> None:
+        """Persist changes to an existing conversation."""
+        await (
+            self._db.prepare(
+                "UPDATE conversations SET source_id = ?, external_id = ?,"
+                " title = ? WHERE id = ?"
+            )
+            .bind(
+                conversation.source_id,
+                conversation.external_id,
+                conversation.title,
+                conversation.id,
+            )
+            .run()
+        )
+
 
 class D1MessageRepository:
     """D1 implementation of ``MessageRepository`` with idempotent insertion."""
@@ -610,11 +626,17 @@ class D1QAItemRepository:
         )
         return _qa_item(row) if row is not None else None
 
-    async def get_by_canonical_key(self, canonical_key: str) -> QAItem | None:
-        """Return a Q&A item by canonical key, if present."""
+    async def get_by_canonical_key(
+        self,
+        canonical_key: str,
+        scope: str = "global",
+    ) -> QAItem | None:
+        """Return a Q&A item by canonical key within a scope, if present."""
         row = _row(
-            await self._db.prepare("SELECT * FROM qa_items WHERE canonical_key = ?")
-            .bind(canonical_key)
+            await self._db.prepare(
+                "SELECT * FROM qa_items WHERE canonical_key = ? AND scope = ?"
+            )
+            .bind(canonical_key, scope)
             .first()
         )
         return _qa_item(row) if row is not None else None

@@ -19,6 +19,7 @@ from knowledge_bot.domain.entities import (
     QAVersion,
     Source,
 )
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
 
 
 @runtime_checkable
@@ -48,6 +49,10 @@ class ConversationRepository(Protocol):
 
     async def get(self, conversation_id: str) -> Conversation | None:
         """Return a conversation by id, if present."""
+        ...
+
+    async def save(self, conversation: Conversation) -> None:
+        """Persist changes to an existing conversation."""
         ...
 
 
@@ -95,8 +100,12 @@ class QAItemRepository(Protocol):
         """Return a Q&A item by id, if present."""
         ...
 
-    async def get_by_canonical_key(self, canonical_key: str) -> QAItem | None:
-        """Return a Q&A item by canonical key, if present."""
+    async def get_by_canonical_key(
+        self,
+        canonical_key: str,
+        scope: Scope = GLOBAL_SCOPE,
+    ) -> QAItem | None:
+        """Return a Q&A item by canonical key within a scope, if present."""
         ...
 
     async def save(self, item: QAItem) -> None:

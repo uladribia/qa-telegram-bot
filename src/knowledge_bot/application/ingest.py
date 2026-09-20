@@ -11,6 +11,7 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import Attachment, Conversation, Message, Source
 from knowledge_bot.domain.enums import SourceType
 from knowledge_bot.domain.policies import source_authority
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
     ConversationRepository,
@@ -42,11 +43,16 @@ class MessageIngestor:
     messages: MessageRepository
     attachments: AttachmentRepository
 
-    async def ingest(self, message: NormalizedMessage) -> IngestResult:
+    async def ingest(
+        self,
+        message: NormalizedMessage,
+        source_scope: Scope = GLOBAL_SCOPE,
+    ) -> IngestResult:
         """Persist a normalized message and its attachments.
 
         Args:
             message: The normalized inbound message.
+            source_scope: Scope for the backing source row, if newly created.
 
         Returns:
             The stored message id and whether it was newly created.
@@ -62,6 +68,7 @@ class MessageIngestor:
                     created_at=message.timestamp,
                     title=source_type.value,
                     is_mutable=True,
+                    scope=source_scope,
                 )
             )
         if await self.conversations.get(message.conversation_id) is None:

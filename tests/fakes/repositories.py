@@ -63,6 +63,13 @@ class InMemoryConversationRepository:
         """Return a conversation by id, if present."""
         return self._items.get(conversation_id)
 
+    async def save(self, conversation: Conversation) -> None:
+        """Persist changes to an existing conversation."""
+        if conversation.id not in self._items:
+            message = f"conversation not found: {conversation.id}"
+            raise ValueError(message)
+        self._items[conversation.id] = conversation
+
 
 class InMemoryMessageRepository:
     """Dict-backed implementation of ``MessageRepository`` with idempotency."""
@@ -123,6 +130,7 @@ class InMemoryQAItemRepository:
         """Persist a new Q&A item."""
         if any(
             existing.canonical_key == item.canonical_key
+            and existing.scope == item.scope
             for existing in self._items.values()
         ):
             message = f"canonical key already exists: {item.canonical_key}"
@@ -133,10 +141,14 @@ class InMemoryQAItemRepository:
         """Return a Q&A item by id, if present."""
         return self._items.get(qa_id)
 
-    async def get_by_canonical_key(self, canonical_key: str) -> QAItem | None:
-        """Return a Q&A item by canonical key, if present."""
+    async def get_by_canonical_key(
+        self,
+        canonical_key: str,
+        scope: str = "global",
+    ) -> QAItem | None:
+        """Return a Q&A item by canonical key within a scope, if present."""
         for item in self._items.values():
-            if item.canonical_key == canonical_key:
+            if item.canonical_key == canonical_key and item.scope == scope:
                 return item
         return None
 

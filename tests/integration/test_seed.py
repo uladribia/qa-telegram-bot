@@ -98,6 +98,20 @@ async def test_seeding_is_idempotent() -> None:
     assert (created, skipped) == (0, 1)
 
 
+async def test_seed_qa_is_scoped_per_group() -> None:
+    """A group-scoped seed coexists with the global entry of the same key."""
+    service, items, _ = _service()
+    created, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
+    assert created == 1
+    item = await items.get_by_canonical_key("qa-1", "-100")
+    assert item is not None
+    assert item.scope == "-100"
+    # The global scope stays untouched and re-seeding is still idempotent.
+    assert await items.get_by_canonical_key("qa-1") is None
+    created, skipped = await service.seed_qa([_entry("qa-1")], scope="-100")
+    assert (created, skipped) == (0, 1)
+
+
 async def test_seed_messages_uses_ingest_idempotency() -> None:
     """Imported messages are deduplicated by the ingest idempotency key."""
     service, _, _ = _service()

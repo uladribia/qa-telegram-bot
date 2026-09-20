@@ -14,6 +14,7 @@ from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion, Source
 from knowledge_bot.domain.enums import QAOrigin, QAStatus, SourceType
 from knowledge_bot.domain.policies import source_authority, web_seed_authority
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope, is_global
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     QAItemRepository,
@@ -88,11 +89,16 @@ class SeedService:
             )
         )
 
-    async def seed_qa(self, entries: list[SeedQA]) -> tuple[int, int]:
+    async def seed_qa(
+        self,
+        entries: list[SeedQA],
+        scope: Scope = GLOBAL_SCOPE,
+    ) -> tuple[int, int]:
         """Persist a batch of seed Q&A entries.
 
         Args:
             entries: The parsed snapshot entries.
+            scope: The knowledge scope the entries belong to.
 
         Returns:
             A tuple of (created, skipped).
@@ -103,12 +109,13 @@ class SeedService:
         for entry in entries:
             await self._ensure_web_seed_source(entry.source_url)
             key = entry.source_anchor or stable_id(entry.question)
-            if await self.qa_items.get_by_canonical_key(key) is not None:
+            if await self.qa_items.get_by_canonical_key(key, scope) is not None:
                 skipped += 1
                 continue
             in_review = entry.status == "in_review"
-            qa_id = f"qa-{stable_id(key)}"
-            version_id = f"qav-{stable_id(key)}-1"
+            suffix = "" if is_global(scope) else f":{scope}"
+            qa_id = f"qa-{stable_id(key)}{suffix}"
+            version_id = f"qav-{stable_id(key)}-1{suffix}"
             status = QAStatus.UNDER_REVIEW if in_review else QAStatus.ACTIVE
             await self.qa_items.add(
                 QAItem(
@@ -118,6 +125,7 @@ class SeedService:
                     status=status,
                     created_at=now,
                     updated_at=now,
+                    scope=scope,
                     current_version_id=version_id,
                 )
             )
@@ -135,18 +143,26 @@ class SeedService:
             created += 1
         return created, skipped
 
-    async def seed_messages(self, messages: list[NormalizedMessage]) -> int:
+    async def seed_messages(
+        self,
+        messages: list[NormalizedMessage],
+        scope: Scope = GLOBAL_SCOPE,
+    ) -> int:
         """Ingest a batch of imported messages.
+
+        Messages are inherently scoped by their own conversation; ``scope``
+        only tags the import source.
 
         Args:
             messages: The normalized messages to ingest.
+            scope: The knowledge scope of the import source.
 
         Returns:
             The number of newly created messages.
         """
         created = 0
         for message in messages:
-            result = await self.ingestor.ingest(message)
+            result = await self.ingestor.ingest(message, source_scope=scope)
             if result.created:
                 created += 1
         return created

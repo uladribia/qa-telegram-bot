@@ -230,9 +230,33 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             NormalizedMessage.model_validate(item)
             for item in payload.get("messages") or []
         ]
-        created, skipped = await context.seed.seed_qa(qa_entries)
-        message_count = await context.seed.seed_messages(messages)
+        scope = payload.get("scope")
+        if not isinstance(scope, str) or not scope.strip():
+            scope = "global"
+        created, skipped = await context.seed.seed_qa(qa_entries, scope)
+        message_count = await context.seed.seed_messages(messages, scope)
         return {"qa": created, "qa_skipped": skipped, "messages": message_count}
+
+    @app.post("/internal/groups")
+    async def internal_groups(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Register a served Telegram group (idempotent)."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        if not isinstance(payload, dict) or not str(payload.get("chat_id", "")).strip():
+            raise HTTPException(status_code=400, detail="chat_id required")
+        title = payload.get("title")
+        await context.groups.register(
+            str(payload["chat_id"]).strip(),
+            title=str(title).strip()
+            if isinstance(title, str) and title.strip()
+            else None,
+        )
+        return {"status": "registered"}
 
     return app
 

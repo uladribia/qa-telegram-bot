@@ -9,6 +9,7 @@ from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.feedback import FeedbackService
+from knowledge_bot.application.groups import GroupRegistrar
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -65,6 +66,7 @@ class AppContext:
     recap: RecapService
     reindex: ReindexService
     seed: SeedService
+    groups: GroupRegistrar
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
     budget: AiBudget
@@ -205,6 +207,11 @@ def build_context(env: WorkerEnv) -> AppContext:
                 messages=D1MessageRepository(database),
                 attachments=D1AttachmentRepository(database),
             ),
+            clock=clock,
+        ),
+        groups=GroupRegistrar(
+            sources=D1SourceRepository(database),
+            conversations=D1ConversationRepository(database),
             clock=clock,
         ),
         feedback=FeedbackService(

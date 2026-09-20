@@ -85,6 +85,11 @@ def _load_payload(qa: Path | None, messages: Path | None) -> dict[str, object]:
 def seed(
     qa: Path = _QA_FILE,
     messages: Path = _MESSAGES_FILE,
+    scope: str = typer.Option(
+        "global",
+        "--scope",
+        help='Knowledge scope: "global" or the group chat id this seed belongs to.',
+    ),
     base_url: str = _BASE_URL,
 ) -> None:
     """Seed the parsed Q&A and/or messages into D1."""
@@ -92,12 +97,31 @@ def seed(
     if not payload:
         typer.echo("Nothing to seed: pass --qa and/or --messages")
         raise typer.Exit(code=1)
+    payload["scope"] = scope
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/seed",
         json=payload,
         headers=_internal_headers(settings),
         timeout=300.0,
+    )
+    response.raise_for_status()
+    typer.echo(response.text)
+
+
+@app.command("group")
+def group_add(
+    chat_id: str = typer.Argument(..., help="Telegram group chat id."),
+    title: str = typer.Option(None, "--title", help="Human-readable group name."),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Register a served Telegram group (idempotent; refreshes the title)."""
+    settings = Settings()
+    response = httpx.post(
+        f"{base_url}/internal/groups",
+        json={"chat_id": chat_id, "title": title},
+        headers=_internal_headers(settings),
+        timeout=60.0,
     )
     response.raise_for_status()
     typer.echo(response.text)

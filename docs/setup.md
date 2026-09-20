@@ -173,8 +173,15 @@ uv run kb delete-webhook
    ```
 
    Group ids are negative and must keep their leading `-`.
-3. Seed knowledge — see [knowledge-base.md](knowledge-base.md).
-4. Mention the bot and ask something. You should get an answer with sources.
+3. Register each group so knowledge can be scoped to it:
+
+   ```bash
+   BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add -1001234567890 --title "Prebenjamins"
+   ```
+
+4. Seed knowledge — see [knowledge-base.md](knowledge-base.md). The web seed is
+   global; WhatsApp imports and other group-only sources take `--scope <chat-id>`.
+5. Mention the bot and ask something. You should get an answer with sources.
 
 ---
 

@@ -36,3 +36,29 @@ def test_eval_routes_run_while_budget_remains() -> None:
         json={"question": "on entrenen?"},
     )
     assert response.status_code == 200
+
+
+def test_groups_endpoint_registers_a_group() -> None:
+    """The internal groups endpoint registers a served group."""
+    context, _ = build_test_context()
+    client = TestClient(create_app(lambda request: context))
+    headers = {"X-Internal-Key": "internal"}
+    assert client.post("/internal/groups").status_code == 401
+    assert (
+        client.post(
+            "/internal/groups", headers=headers, json={"chat_id": ""}
+        ).status_code
+        == 400
+    )
+    response = client.post(
+        "/internal/groups",
+        headers=headers,
+        json={"chat_id": "-100", "title": "Prebenjamins"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "registered"}
+    # Idempotent re-registration succeeds.
+    response = client.post(
+        "/internal/groups", headers=headers, json={"chat_id": "-100"}
+    )
+    assert response.status_code == 200

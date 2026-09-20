@@ -7,6 +7,24 @@ any time with `make reindex`. Never treat the index as the database.
 
 ---
 
+## Knowledge scopes
+
+Knowledge lives at one of two levels:
+
+- **`global`** — visible from every group (the shared knowledge base).
+- **a group chat id** (e.g. `-1001234…`) — visible only when the question is
+  asked in that group.
+
+Sources and Q&A items carry the scope; messages are always scoped by their own
+conversation. A question in group A never retrieves group B's scoped knowledge,
+but always also sees the global layer. When the same question exists both
+globally and as a group variant, the group variant wins in that group.
+
+Scopes are assigned at seed time with `kb seed --scope` and set per group with
+`kb group add` (see below).
+
+---
+
 ## The three sources
 
 | Source | Authority | Added by |
@@ -29,7 +47,8 @@ Parse the page into a JSON file, then push it to the deployed Worker.
 # 1. Snapshot the Q&A page into data/seed/qa.json
 uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
 
-# 2. Push it into D1 through the Worker
+# 2. Push it into D1 through the Worker (global by default; pass --scope with a
+#    group chat id to make the entries visible only in that group)
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json
 
 # 3. Rebuild the derived index
@@ -66,6 +85,37 @@ after a parser change, delete the rows first (there is no compatibility path):
 npx wrangler d1 execute knowledge-bot --remote --yes \
   --command "DELETE FROM messages WHERE source_id='whatsapp_import'"
 ```
+
+Pass `--scope <group-chat-id>` to `kb seed` to tag the imported messages and
+their source as belonging to one group instead of the global layer.
+
+---
+
+## Registering the served groups
+
+The bot answers in any group listed in `ALLOWED_TELEGRAM_CHAT_IDS`. Before
+seeding group-scoped knowledge (or letting retrieval scope answers), register
+each group so it exists in D1 with its title:
+
+```bash
+BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add -1001234567890 --title "Prebenjamins"
+```
+
+This is idempotent; re-running with a new `--title` refreshes the name. The
+Telegram runtime source and the conversation row are created automatically on
+the first message from a registered group.
+
+## Reclassifying existing knowledge
+
+Existing rows default to the `global` scope. Knowledge generated from one
+group's conversation should be re-scoped to that group:
+
+```bash
+npx wrangler d1 execute knowledge-bot --remote --yes \
+  --command "UPDATE qa_items SET scope='<group-chat-id>' WHERE id IN (SELECT qa_id FROM qa_versions WHERE origin='auto_generated')"
+```
+
+Then `make reindex` so the derived index picks up the new scopes.
 
 ---
 

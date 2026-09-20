@@ -7,6 +7,7 @@ from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.feedback import FeedbackService
+from knowledge_bot.application.groups import GroupRegistrar
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -126,6 +127,11 @@ def build_test_context(
             qa_versions=InMemoryQAVersionRepository(),
             sources=InMemorySourceRepository(),
             ingestor=ingestor,
+            clock=clock,
+        ),
+        groups=GroupRegistrar(
+            sources=InMemorySourceRepository(),
+            conversations=InMemoryConversationRepository(),
             clock=clock,
         ),
         feedback=FeedbackService(
