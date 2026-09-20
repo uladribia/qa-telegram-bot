@@ -18,9 +18,6 @@ from dataclasses import dataclass
 from knowledge_bot.ports.budget import AiUsageRepository
 from knowledge_bot.ports.clock import Clock
 
-# Characters per token, for the estimate. Rough, and only ever used as a ratio.
-_CHARS_PER_TOKEN = 4.0
-
 
 @dataclass(frozen=True, slots=True)
 class AiSpend:
@@ -94,8 +91,3 @@ class AiBudget:
     async def evaluation_allowed(self) -> bool:
         """Return whether an expensive admin run may start."""
         return (await self.spend()).evaluation_allowed
-
-
-def tokens_of(characters: int) -> float:
-    """Return a token estimate for a character count."""
-    return max(characters, 0) / _CHARS_PER_TOKEN

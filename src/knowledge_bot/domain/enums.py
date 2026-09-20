@@ -44,7 +44,6 @@ class QAOrigin(StrEnum):
     """How a Q&A version was produced."""
 
     WEB_SEED = "web_seed"
-    AUTO_GENERATED = "auto_generated"
     ADMIN_APPROVED = "admin_approved"
 
 

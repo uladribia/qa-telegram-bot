@@ -23,7 +23,6 @@ from knowledge_bot.domain.entities import (
 from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
-    EvidenceType,
     FeedbackStatus,
     ProcessingStatus,
     QAOrigin,
@@ -252,22 +251,6 @@ class D1ConversationRepository:
             created_at=_dt(row["created_at"]),
             external_id=_opt_str(row["external_id"]),
             title=_opt_str(row["title"]),
-        )
-
-    async def save(self, conversation: Conversation) -> None:
-        """Persist changes to an existing conversation."""
-        await (
-            self._db.prepare(
-                "UPDATE conversations SET source_id = ?, external_id = ?,"
-                " title = ? WHERE id = ?"
-            )
-            .bind(
-                conversation.source_id,
-                conversation.external_id,
-                conversation.title,
-                conversation.id,
-            )
-            .run()
         )
 
 
@@ -690,15 +673,6 @@ class D1QAVersionRepository:
         )
         return _qa_version(row) if row is not None else None
 
-    async def list_for_qa(self, qa_id: str) -> list[QAVersion]:
-        """Return all versions of a Q&A item."""
-        result = (
-            await self._db.prepare("SELECT * FROM qa_versions WHERE qa_id = ?")
-            .bind(qa_id)
-            .run()
-        )
-        return [_qa_version(row) for row in _rows(result)]
-
 
 class D1QAEvidenceRepository:
     """D1 implementation of ``QAEvidenceRepository``."""
@@ -721,22 +695,6 @@ class D1QAEvidenceRepository:
             )
             .run()
         )
-
-    async def list_for_version(self, version_id: str) -> list[QAEvidence]:
-        """Return the evidence linked to a Q&A version."""
-        result = (
-            await self._db.prepare("SELECT * FROM qa_evidence WHERE qa_version_id = ?")
-            .bind(version_id)
-            .run()
-        )
-        return [
-            QAEvidence(
-                qa_version_id=str(row["qa_version_id"]),
-                evidence_type=EvidenceType(str(row["evidence_type"])),
-                evidence_id=str(row["evidence_id"]),
-            )
-            for row in _rows(result)
-        ]
 
 
 def _qa_item(row: dict[str, object]) -> QAItem:

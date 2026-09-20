@@ -3,7 +3,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from knowledge_bot.application.recap import Recap, build_recap, render_recap
+from knowledge_bot.application.recap_service import Recap, build_recap, render_recap
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 

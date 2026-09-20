@@ -65,6 +65,7 @@ def build_test_context(
         The context and the recording transport used by the recap/answer services.
     """
     answers = InMemoryBotAnswerRepository()
+    feedback_repo = InMemoryFeedbackRepository()
     transport = RecordingTransport()
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
@@ -128,12 +129,13 @@ def build_test_context(
         ),
         feedback=FeedbackService(
             answers=answers,
-            feedback=InMemoryFeedbackRepository(),
+            feedback=feedback_repo,
             qa_items=InMemoryQAItemRepository(),
             qa_versions=InMemoryQAVersionRepository(),
             evidence=InMemoryQAEvidenceRepository(),
             clock=clock,
         ),
+        feedback_repo=feedback_repo,
         budget=AiBudget(
             usage=_usage_with(spent_neurons),
             clock=clock,

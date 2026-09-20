@@ -63,13 +63,6 @@ class InMemoryConversationRepository:
         """Return a conversation by id, if present."""
         return self._items.get(conversation_id)
 
-    async def save(self, conversation: Conversation) -> None:
-        """Persist changes to an existing conversation."""
-        if conversation.id not in self._items:
-            message = f"unknown conversation: {conversation.id}"
-            raise KeyError(message)
-        self._items[conversation.id] = conversation
-
 
 class InMemoryMessageRepository:
     """Dict-backed implementation of ``MessageRepository`` with idempotency."""
@@ -173,10 +166,6 @@ class InMemoryQAVersionRepository:
         """Return a Q&A version by id, if present."""
         return self._items.get(version_id)
 
-    async def list_for_qa(self, qa_id: str) -> list[QAVersion]:
-        """Return all versions of a Q&A item."""
-        return [item for item in self._items.values() if item.qa_id == qa_id]
-
 
 class InMemoryQAEvidenceRepository:
     """Dict-backed implementation of ``QAEvidenceRepository``."""
@@ -193,12 +182,6 @@ class InMemoryQAEvidenceRepository:
             evidence.evidence_id,
         )
         self._items[key] = evidence
-
-    async def list_for_version(self, version_id: str) -> list[QAEvidence]:
-        """Return the evidence linked to a Q&A version."""
-        return [
-            item for item in self._items.values() if item.qa_version_id == version_id
-        ]
 
 
 class InMemoryBotAnswerRepository:

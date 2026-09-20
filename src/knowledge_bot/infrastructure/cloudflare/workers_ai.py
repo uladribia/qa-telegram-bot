@@ -5,15 +5,13 @@
 The adapter only depends on a small protocol so it is testable with fakes.
 """
 
-import json
 import re
 from typing import Protocol, cast
 
-from knowledge_bot.contracts.ai import GenerationOutput, JudgeOutput
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import (
+    GenerationOutput,
     GenerationRequest,
-    GenerationResult,
     JudgeVerdict,
 )
 
@@ -110,16 +108,6 @@ def _extract_content(result: object) -> str:
     return response if isinstance(response, str) else ""
 
 
-def _parse_output(content: str) -> GenerationOutput | None:
-    match = _JSON_OBJECT.search(content)
-    if match is None:
-        return None
-    try:
-        return GenerationOutput.model_validate_json(match.group(0))
-    except ValueError:
-        return None
-
-
 def _render_user(request: GenerationRequest) -> str:
     evidence_lines = [
         f"[{item.source_id}] ({item.label}, authority={item.authority}) {item.text}"
@@ -149,76 +137,67 @@ class WorkersAIGenerator:
         except Exception as error:
             raise ModelUnavailableError("generation") from error
 
-    async def _attempt(self, messages: list[dict[str, str]]) -> GenerationOutput | None:
+    async def _attempt(
+        self,
+        messages: list[dict[str, str]],
+        parse: type[GenerationOutput] | type[JudgeVerdict],
+    ) -> GenerationOutput | JudgeVerdict | None:
+        """Run the model once and parse its JSON output, or ``None``."""
         result = await self._run(messages)
-        return _parse_output(_extract_content(result))
+        content = _extract_content(result)
+        match = _JSON_OBJECT.search(content)
+        if match is None:
+            return None
+        try:
+            return parse.model_validate_json(match.group(0))
+        except ValueError:
+            return None
 
-    async def generate(self, request: GenerationRequest) -> GenerationResult:
-        """Generate a grounded answer, retrying once on invalid JSON."""
-        messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": _render_user(request)},
-        ]
-        output = await self._attempt(messages)
+    async def _attempt_with_retry(
+        self,
+        system: str,
+        user: str,
+        parse: type[GenerationOutput] | type[JudgeVerdict],
+    ) -> GenerationOutput | JudgeVerdict | None:
+        """Parse the model output, retrying once on invalid JSON."""
+        messages = [{"role": "system", "content": system}]
+        output = await self._attempt(
+            [*messages, {"role": "user", "content": user}], parse
+        )
         if output is None:
+            messages.append({"role": "user", "content": user})
             messages.append(
                 {
                     "role": "user",
                     "content": "Return ONLY a valid JSON object matching the schema.",
                 }
             )
-            output = await self._attempt(messages)
-        if output is None:
-            return GenerationResult(status="insufficient")
-        return GenerationResult(
-            status=output.status,
-            answer=output.answer,
-            source_ids=output.source_ids,
-        )
+            output = await self._attempt(messages, parse)
+        return output
 
-    async def _judge_attempt(
-        self, messages: list[dict[str, str]]
-    ) -> JudgeOutput | None:
-        result = await self._run(messages)
-        return _parse_judge(_extract_content(result))
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
+        """Generate a grounded answer, retrying once on invalid JSON."""
+        output = await self._attempt_with_retry(
+            _SYSTEM_PROMPT, _render_user(request), GenerationOutput
+        )
+        if not isinstance(output, GenerationOutput):
+            return GenerationOutput(status="insufficient")
+        return output
 
     async def judge(
         self, question: str, answer: str, evidence: list[str]
     ) -> JudgeVerdict:
         """Judge whether an answer is fully supported by its evidence."""
-        messages = [
-            {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
-            {"role": "user", "content": _render_judge(question, answer, evidence)},
-        ]
-        output = await self._judge_attempt(messages)
-        if output is None:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": "Return ONLY a valid JSON object matching the schema.",
-                }
-            )
-            output = await self._judge_attempt(messages)
-        if output is None:
+        output = await self._attempt_with_retry(
+            _JUDGE_SYSTEM_PROMPT,
+            _render_judge(question, answer, evidence),
+            JudgeVerdict,
+        )
+        if not isinstance(output, JudgeVerdict):
             return JudgeVerdict(verdict="error", reason="unparseable judge output")
-        return JudgeVerdict(verdict=output.verdict, reason=output.reason)
-
-
-def _parse_judge(content: str) -> JudgeOutput | None:
-    match = _JSON_OBJECT.search(content)
-    if match is None:
-        return None
-    try:
-        return JudgeOutput.model_validate_json(match.group(0))
-    except ValueError:
-        return None
+        return output
 
 
 def _render_judge(question: str, answer: str, evidence: list[str]) -> str:
     evidence_text = "\n".join(evidence) if evidence else "(no evidence)"
     return f"QUESTION:\n{question}\n\nANSWER:\n{answer}\n\nEVIDENCE:\n{evidence_text}"
-
-
-def dumps(value: object) -> str:
-    """Serialise a value to compact JSON (helper for callers)."""
-    return json.dumps(value)

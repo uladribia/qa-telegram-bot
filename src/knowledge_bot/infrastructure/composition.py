@@ -42,6 +42,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
 )
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.repositories import FeedbackRepository
 from knowledge_bot.ports.transport import MessageTransport
 
 
@@ -65,6 +66,7 @@ class AppContext:
     reindex: ReindexService
     seed: SeedService
     feedback: FeedbackService
+    feedback_repo: FeedbackRepository
     budget: AiBudget
     transport: MessageTransport
 
@@ -213,6 +215,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             evidence=D1QAEvidenceRepository(database),
             clock=clock,
         ),
+        feedback_repo=D1FeedbackRepository(database),
         budget=budget,
         transport=transport,
     )

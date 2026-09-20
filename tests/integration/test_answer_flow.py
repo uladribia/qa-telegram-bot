@@ -8,7 +8,7 @@ from knowledge_bot.application.answer_question import ABSTENTION_TEXT, AnswerSer
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.enums import AnswerMode, ContentType
-from knowledge_bot.ports.generator import GenerationResult
+from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
 from tests.fakes.repositories import InMemoryBotAnswerRepository
@@ -33,7 +33,7 @@ def _message(text: str) -> NormalizedMessage:
 
 async def _service(
     records: list[VectorRecord],
-    result: GenerationResult | None = None,
+    result: GenerationOutput | None = None,
 ) -> tuple[
     AnswerService,
     InMemoryBotAnswerRepository,
@@ -105,7 +105,7 @@ async def test_synthesis_uses_generator_and_citations() -> None:
     """Message evidence goes through the generator and validates citations."""
     service, _, transport, generator = await _service(
         [_message_record()],
-        GenerationResult(
+        GenerationOutput(
             status="answered", answer="Sí, els dimarts.", source_ids=["m9"]
         ),
     )

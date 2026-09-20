@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: MIT
-"""Answer generation port (spec §17)."""
+"""Answer generation port (spec §17).
+
+Model outputs are an external boundary, so the validated shapes are Pydantic
+models living here next to the protocol that produces them.
+"""
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
+
+from pydantic import BaseModel, Field
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,20 +29,18 @@ class GenerationRequest:
     evidence: list[EvidenceItem] = field(default_factory=list)
 
 
-@dataclass(frozen=True, slots=True)
-class GenerationResult:
-    """The validated generator output."""
+class GenerationOutput(BaseModel):
+    """The validated generator output (spec §17)."""
 
-    status: str
+    status: Literal["answered", "insufficient"]
     answer: str = ""
-    source_ids: list[str] = field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
 
 
-@dataclass(frozen=True, slots=True)
-class JudgeVerdict:
-    """An answer-quality verdict produced by the judge model."""
+class JudgeVerdict(BaseModel):
+    """An answer-quality verdict; ``error`` marks an unparseable judge call."""
 
-    verdict: str
+    verdict: Literal["grounded", "unsupported", "wrong", "error"]
     reason: str = ""
 
 
@@ -44,7 +48,7 @@ class JudgeVerdict:
 class Generator(Protocol):
     """Produces grounded answers from retrieved evidence."""
 
-    async def generate(self, request: GenerationRequest) -> GenerationResult:
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Generate an answer, or report insufficient evidence."""
         ...
 

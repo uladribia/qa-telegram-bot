@@ -108,8 +108,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert item.status is QAStatus.ACTIVE
     assert item.canonical_key == canonical_key_for("Com es demana l'equipament?")
 
-    history = await versions.list_for_qa(version.qa_id)
-    assert [entry.id for entry in history] == [version.id]
+    assert await versions.get(version.id) is not None
 
 
 async def test_approving_supersedes_a_seeded_web_version() -> None:
@@ -146,8 +145,8 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
     assert version is not None
     assert version.supersedes_version_id == "qav-web-1"
     assert version.qa_id == qa_id
-    history = {entry.id for entry in await versions.list_for_qa(qa_id)}
-    assert history == {"qav-web-1", version.id}
+    assert await versions.get("qav-web-1") is not None
+    assert await versions.get(version.id) is not None
     item = await items.get(qa_id)
     assert item is not None
     assert item.current_version_id == version.id
@@ -168,7 +167,7 @@ async def test_admin_edit_takes_precedence_over_the_proposal() -> None:
 
 async def test_reject_leaves_knowledge_untouched() -> None:
     """Rejecting a proposal changes no Q&A."""
-    service, answers, items, versions, _ = await _service()
+    service, answers, items, _, _ = await _service()
     await _seed_answer(answers)
     started = await service.start("ans:m1", None)
     assert started is not None
@@ -182,7 +181,6 @@ async def test_reject_leaves_knowledge_untouched() -> None:
         )
         is None
     )
-    assert await versions.list_for_qa("qa-none") == []
 
 
 async def test_starting_feedback_for_an_unknown_answer_is_a_noop() -> None:

@@ -6,6 +6,7 @@ so the app resolves its context through a callable rather than at import time.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -304,9 +305,9 @@ async def _is_known_correction_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None:
         return False
-    if await context.feedback.find_by_proposal_prompt(reply_to) is not None:
+    if await context.feedback_repo.find_by_proposal_prompt(reply_to) is not None:
         return True
-    return await context.feedback.find_by_edit_prompt(reply_to) is not None
+    return await context.feedback_repo.find_by_edit_prompt(reply_to) is not None
 
 
 async def _handle_feedback_reply(
@@ -317,7 +318,7 @@ async def _handle_feedback_reply(
     if reply_to is None or message.text is None:
         return None
     admin_id = context.settings.admin_telegram_user_id
-    feedback = await context.feedback.find_by_edit_prompt(reply_to)
+    feedback = await context.feedback_repo.find_by_edit_prompt(reply_to)
     if feedback is not None and message.sender_is_admin:
         await context.feedback.admin_edit(feedback.id, message.text)
         review = await context.feedback.correction_request(feedback.id)
@@ -326,7 +327,7 @@ async def _handle_feedback_reply(
                 admin_id, render_review(review), feedback.id
             )
         return "admin_edited"
-    feedback = await context.feedback.find_by_proposal_prompt(reply_to)
+    feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
     if feedback is None:
         return None
     proposed = await context.feedback.propose(
@@ -382,7 +383,9 @@ async def _handle_callback(
             reporter_chat_id or "", PROPOSAL_PROMPT
         )
         if prompt_id is not None:
-            await context.feedback.set_proposal_prompt(feedback.id, prompt_id)
+            await context.feedback_repo.save(
+                replace(feedback, proposal_prompt_message_id=prompt_id)
+            )
         await context.transport.answer_callback(callback_id)
         return "feedback_started"
     if action == "approve":
@@ -390,7 +393,7 @@ async def _handle_callback(
         if version is None:
             return "ignored"
         await context.reindex.reindex()
-        feedback = await context.feedback.get(target)
+        feedback = await context.feedback_repo.get(target)
         await context.transport.send_message(admin_id, ADMIN_APPROVED)
         if feedback is not None and feedback.reporter_chat_id:
             await context.transport.send_message(
@@ -405,7 +408,11 @@ async def _handle_callback(
         prompt = f"{EDIT_PROMPT}\n\nProposta actual:\n{review.proposed_answer}"
         prompt_id = await context.transport.send_force_reply(admin_id, prompt)
         if prompt_id is not None:
-            await context.feedback.set_edit_prompt(target, prompt_id)
+            feedback = await context.feedback_repo.get(target)
+            if feedback is not None:
+                await context.feedback_repo.save(
+                    replace(feedback, edit_prompt_message_id=prompt_id)
+                )
         await context.transport.answer_callback(callback_id)
         return "feedback_edit"
     if action == "reject":
