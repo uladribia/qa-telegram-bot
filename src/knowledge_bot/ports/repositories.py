@@ -50,10 +50,6 @@ class ConversationRepository(Protocol):
         """Return a conversation by id, if present."""
         ...
 
-    async def save(self, conversation: Conversation) -> None:
-        """Persist changes to an existing conversation."""
-        ...
-
 
 @runtime_checkable
 class MessageRepository(Protocol):
@@ -120,10 +116,6 @@ class QAVersionRepository(Protocol):
         """Return a Q&A version by id, if present."""
         ...
 
-    async def list_for_qa(self, qa_id: str) -> list[QAVersion]:
-        """Return all versions of a Q&A item."""
-        ...
-
 
 @runtime_checkable
 class QAEvidenceRepository(Protocol):
@@ -131,10 +123,6 @@ class QAEvidenceRepository(Protocol):
 
     async def add(self, evidence: QAEvidence) -> None:
         """Persist an evidence link."""
-        ...
-
-    async def list_for_version(self, version_id: str) -> list[QAEvidence]:
-        """Return the evidence linked to a Q&A version."""
         ...
 
 

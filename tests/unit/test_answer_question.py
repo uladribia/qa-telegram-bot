@@ -11,7 +11,7 @@ from knowledge_bot.application.retrieval import (
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.enums import AnswerMode
-from knowledge_bot.ports.generator import GenerationResult
+from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
 from tests.fakes.repositories import InMemoryBotAnswerRepository
 from tests.fakes.support import FrozenClock, RecordingTransport
@@ -20,7 +20,7 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _service(
-    result: GenerationResult | None = None,
+    result: GenerationOutput | None = None,
 ) -> tuple[AnswerService, FakeGenerator]:
     generator = FakeGenerator(result)
     service = AnswerService(
@@ -75,7 +75,7 @@ async def test_strong_qa_is_answered_directly_without_generator() -> None:
 async def test_weak_qa_falls_through_to_synthesis() -> None:
     """A weak Q&A match does not bypass the model."""
     service, generator = _service(
-        GenerationResult(status="answered", answer="sintetitzat", source_ids=["qa1"])
+        GenerationOutput(status="answered", answer="sintetitzat", source_ids=["qa1"])
     )
     outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.4)]))
     assert outcome.mode is AnswerMode.SYNTHESIS
@@ -93,7 +93,7 @@ async def test_no_evidence_abstains_without_generator() -> None:
 async def test_unknown_source_id_abstains() -> None:
     """A citation outside the supplied evidence is rejected."""
     service, _ = _service(
-        GenerationResult(status="answered", answer="resposta", source_ids=["ghost"])
+        GenerationOutput(status="answered", answer="resposta", source_ids=["ghost"])
     )
     outcome = await service.decide(
         "pregunta", RetrievedEvidence(messages=[_message_evidence(0.6)])
@@ -103,7 +103,7 @@ async def test_unknown_source_id_abstains() -> None:
 
 async def test_generator_insufficient_abstains() -> None:
     """The model can decline to answer."""
-    service, _ = _service(GenerationResult(status="insufficient"))
+    service, _ = _service(GenerationOutput(status="insufficient"))
     outcome = await service.decide(
         "pregunta", RetrievedEvidence(messages=[_message_evidence(0.6)])
     )

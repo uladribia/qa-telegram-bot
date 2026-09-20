@@ -5,8 +5,8 @@ import math
 
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import (
+    GenerationOutput,
     GenerationRequest,
-    GenerationResult,
     JudgeVerdict,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
@@ -89,16 +89,16 @@ class FakeVectorStore:
 class FakeGenerator:
     """A generator that returns a fixed result and records its requests."""
 
-    def __init__(self, result: GenerationResult | None = None) -> None:
+    def __init__(self, result: GenerationOutput | None = None) -> None:
         """Create a generator with a fixed result."""
         self.result = (
-            result if result is not None else GenerationResult(status="insufficient")
+            result if result is not None else GenerationOutput(status="insufficient")
         )
         self.requests: list[GenerationRequest] = []
         self.verdict = JudgeVerdict(verdict="grounded")
         self.judgements: list[tuple[str, str, list[str]]] = []
 
-    async def generate(self, request: GenerationRequest) -> GenerationResult:
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Record the request and return the fixed result."""
         self.requests.append(request)
         return self.result

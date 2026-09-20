@@ -137,7 +137,7 @@ def test_approve_creates_a_version_and_thanks_the_reporter() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_approved"}
-    feedback = asyncio.run(context.feedback.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.APPROVED
     assert any(
@@ -164,7 +164,7 @@ def test_reject_keeps_the_old_answer() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_rejected"}
-    feedback = asyncio.run(context.feedback.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.REJECTED
 
@@ -188,7 +188,7 @@ def test_non_admin_cannot_confirm() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
-    feedback = asyncio.run(context.feedback.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.PENDING_ADMIN
 
@@ -244,7 +244,7 @@ def test_a_group_member_who_is_not_allowlisted_can_still_propose() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "proposed"}
-    feedback = asyncio.run(context.feedback.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.PENDING_ADMIN
     assert feedback.proposed_answer == "Resposta nova."

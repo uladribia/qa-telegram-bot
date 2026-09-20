@@ -162,34 +162,6 @@ class FeedbackService:
         await self.feedback.add(feedback)
         return feedback
 
-    async def set_proposal_prompt(self, feedback_id: str, message_id: str) -> None:
-        """Record the prompt message the reporter must reply to."""
-        feedback = await self.feedback.get(feedback_id)
-        if feedback is None:
-            return
-        await self.feedback.save(
-            replace(feedback, proposal_prompt_message_id=message_id)
-        )
-
-    async def set_edit_prompt(self, feedback_id: str, message_id: str) -> None:
-        """Record the prompt message the admin must reply to."""
-        feedback = await self.feedback.get(feedback_id)
-        if feedback is None:
-            return
-        await self.feedback.save(replace(feedback, edit_prompt_message_id=message_id))
-
-    async def find_by_proposal_prompt(self, message_id: str) -> Feedback | None:
-        """Find the feedback awaiting a proposal reply to a prompt message."""
-        return await self.feedback.find_by_proposal_prompt(message_id)
-
-    async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
-        """Find the feedback awaiting an admin edit reply to a prompt message."""
-        return await self.feedback.find_by_edit_prompt(message_id)
-
-    async def get(self, feedback_id: str) -> Feedback | None:
-        """Return a correction proposal by id."""
-        return await self.feedback.get(feedback_id)
-
     async def _update(
         self,
         feedback: Feedback,

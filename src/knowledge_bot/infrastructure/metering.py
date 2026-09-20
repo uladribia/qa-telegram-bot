@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.generator import (
+    GenerationOutput,
     GenerationRequest,
-    GenerationResult,
     Generator,
     JudgeVerdict,
 )
@@ -45,7 +45,7 @@ class MeteredGenerator:
         with contextlib.suppress(Exception):
             await self.budget.record_chat(prompt, response)
 
-    async def generate(self, request: GenerationRequest) -> GenerationResult:
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Generate an answer, then record the estimate."""
         result = await self.inner.generate(request)
         prompt = "\n".join(
