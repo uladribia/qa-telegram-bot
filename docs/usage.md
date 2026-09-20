@@ -90,6 +90,7 @@ discussion.
 4. DM to admin the bot forwards the proposal with  [✅ Aprovar] [✏️ Editar] [❌ Rebutjar]
 5. DM to admin admin presses ✅
 6. Group      a future equivalent question gets the corrected answer
+              (it can take up to a minute for the index to catch up)
 7. DM to Quim "Gràcies per la correcció" (private thank-you)
 ```
 

@@ -88,6 +88,7 @@ binding work — a completely dead AI binding still returns 200.
 | Answers say *"no puc consultar la informació"* | Same root cause: the model call failed. |
 | Retrieval returns nothing | Metadata indexes missing, or the base was never reindexed. |
 | A reindex just ran but results look stale | Vectorize eventual consistency — wait ~60s. |
+| A freshly approved correction still abstains | Same cause: the reindex runs on approval, but Vectorize needs up to ~a minute before the new vector is queryable. Re-ask after a short wait; see below. |
 | Webhook returns 401 | `TELEGRAM_WEBHOOK_SECRET` and the registered secret disagree. |
 | A correction is ignored | The confirmer is not `ADMIN_TELEGRAM_USER_ID`. |
 | A stranger's DM gets no reply | Working as intended: only the admin and `ALLOWED_TELEGRAM_USER_IDS` may DM. |
@@ -118,6 +119,25 @@ make eval-live-reindex    # measure + rebuild first
 
 Run the live gate **at most once or twice a day** — it is the largest quota
 consumer. It exits non-zero when a suite fails, with a one-line reason per failure.
+
+---
+
+## Approved corrections are not answerable instantly
+
+When a correction is approved, the flow is: new version written to D1 → reindex
+upserts it into Vectorize → the next equivalent question can be answered.
+Vectorize is **eventually consistent**, so a vector can be written and processed
+and still not appear in query results for up to about a minute. In that window a
+re-ask of the corrected question abstains — the bot cannot see the new answer
+yet, and abstaining is the honest response.
+
+It self-heals: no action is needed, just re-ask. If a correction stays
+unanswerable for more than a few minutes, force a reindex and check the index:
+
+```bash
+make reindex
+npx wrangler vectorize info knowledge-v1
+```
 
 ---
 
