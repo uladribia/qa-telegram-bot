@@ -43,10 +43,34 @@ class IndexableMessage:
 class SearchIndexSource(Protocol):
     """Reads the indexable records from the source of truth."""
 
-    async def list_qa(self) -> list[IndexableQA]:
-        """Return the active Q&A versions to index."""
+    async def get_qa(self, version_id: str) -> IndexableQA | None:
+        """Return one Q&A version to index, by id."""
         ...
 
-    async def list_messages(self) -> list[IndexableMessage]:
-        """Return the messages with text to index."""
+    async def list_qa(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableQA]:
+        """Return the active Q&A versions to index.
+
+        Args:
+            after: Return only versions with id greater than this (cursor).
+            limit: Maximum number of versions to return.
+
+        Returns:
+            The next batch of versions, ordered by id.
+        """
+        ...
+
+    async def list_messages(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableMessage]:
+        """Return the messages with text to index.
+
+        Args:
+            after: Return only messages with id greater than this (cursor).
+            limit: Maximum number of messages to return.
+
+        Returns:
+            The next batch of messages, ordered by id.
+        """
         ...

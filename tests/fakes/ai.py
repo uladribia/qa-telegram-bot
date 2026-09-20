@@ -124,13 +124,34 @@ class FakeSearchIndexSource:
         self.qa = qa or []
         self.messages = messages or []
 
-    async def list_qa(self) -> list[IndexableQA]:
-        """Return the fixed Q&A records."""
-        return list(self.qa)
+    async def get_qa(self, version_id: str) -> IndexableQA | None:
+        """Return one fixed Q&A record by version id."""
+        for item in self.qa:
+            if item.version_id == version_id:
+                return item
+        return None
 
-    async def list_messages(self) -> list[IndexableMessage]:
-        """Return the fixed message records."""
-        return list(self.messages)
+    async def list_qa(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableQA]:
+        """Return the fixed Q&A records beyond the cursor."""
+        qa = list(self.qa)
+        if after is not None:
+            qa = [item for item in qa if item.version_id > after]
+        if limit is not None:
+            qa = qa[:limit]
+        return qa
+
+    async def list_messages(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableMessage]:
+        """Return the fixed message records beyond the cursor."""
+        messages = list(self.messages)
+        if after is not None:
+            messages = [item for item in messages if item.message_id > after]
+        if limit is not None:
+            messages = messages[:limit]
+        return messages
 
 
 class FakeReviewSource:

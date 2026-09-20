@@ -6,7 +6,9 @@ internal endpoints for anything that must touch D1. It never commits data.
 """
 
 import json
+import time
 from pathlib import Path
+from typing import cast
 
 import httpx
 import typer
@@ -81,6 +83,35 @@ def _load_payload(qa: Path | None, messages: Path | None) -> dict[str, object]:
     return payload
 
 
+_SEED_MESSAGE_CHUNK = 50
+
+
+def _post_seed(base_url: str, payload: dict[str, object]) -> dict[str, int]:
+    """Push one seed payload to the Worker, retrying transient failures.
+
+    The free plan's CPU limit makes a cold isolate drop the first heavy
+    request; seeding is idempotent, so a retry just continues where it left
+    off.
+    """
+    settings = Settings()
+    response = None
+    for attempt in range(3):
+        response = httpx.post(
+            f"{base_url}/internal/seed",
+            json=payload,
+            headers=_internal_headers(settings),
+            timeout=300.0,
+        )
+        if response.status_code < 500:
+            break
+        typer.echo(
+            f"  retrying after HTTP {response.status_code} (attempt {attempt + 2}/3)"
+        )
+        time.sleep(2)
+    response.raise_for_status()
+    return cast(dict[str, int], response.json())
+
+
 @app.command()
 def seed(
     qa: Path = _QA_FILE,
@@ -97,23 +128,33 @@ def seed(
     ),
     base_url: str = _BASE_URL,
 ) -> None:
-    """Seed the parsed Q&A and/or messages into D1."""
+    """Seed the parsed Q&A and/or messages into D1 (in idempotent batches)."""
     payload = _load_payload(qa, messages)
     if not payload:
         typer.echo("Nothing to seed: pass --qa and/or --messages")
         raise typer.Exit(code=1)
-    payload["scope"] = scope
-    if renew:
-        payload["renew"] = True
-    settings = Settings()
-    response = httpx.post(
-        f"{base_url}/internal/seed",
-        json=payload,
-        headers=_internal_headers(settings),
-        timeout=300.0,
+    messages_payload = cast("list[dict[str, object]]", payload.get("messages") or [])
+    totals = {"qa": 0, "qa_skipped": 0, "qa_renewed": 0, "messages": 0}
+    if "qa" in payload:
+        totals.update(
+            _post_seed(
+                base_url,
+                {
+                    "qa": payload["qa"],
+                    "scope": scope,
+                    **({"renew": True} if renew else {}),
+                },
+            )
+        )
+    for start in range(0, len(messages_payload), _SEED_MESSAGE_CHUNK):
+        chunk = messages_payload[start : start + _SEED_MESSAGE_CHUNK]
+        counts = _post_seed(base_url, {"messages": chunk, "scope": scope})
+        totals["messages"] += counts.get("messages", 0)
+        typer.echo(f"  seeded {start + len(chunk)}/{len(messages_payload)} messages")
+    typer.echo(
+        f"qa={totals['qa']} qa_skipped={totals['qa_skipped']} "
+        f"qa_renewed={totals['qa_renewed']} messages={totals['messages']}"
     )
-    response.raise_for_status()
-    typer.echo(response.text)
 
 
 group_app = typer.Typer(no_args_is_help=True, help="Register served groups.")
@@ -164,16 +205,43 @@ def review(
 
 
 @app.command()
-def reindex(base_url: str = _BASE_URL) -> None:
-    """Rebuild the vector store from D1."""
-    settings = Settings()
-    response = httpx.post(
-        f"{base_url}/internal/reindex",
-        headers=_internal_headers(settings),
-        timeout=600.0,
-    )
-    response.raise_for_status()
-    typer.echo(response.text)
+def reindex(
+    batch: int = typer.Option(
+        50, "--batch", help="Records per request (keep small: free CPU limits)."
+    ),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Rebuild the vector store from D1, in idempotent batches."""
+    qa_after: str | None = None
+    msg_after: str | None = None
+    totals = {"qa": 0, "messages": 0}
+    while True:
+        settings = Settings()
+        response = None
+        for attempt in range(3):
+            response = httpx.post(
+                f"{base_url}/internal/reindex",
+                json={"qa_after": qa_after, "msg_after": msg_after, "limit": batch},
+                headers=_internal_headers(settings),
+                timeout=300.0,
+            )
+            if response.status_code < 500:
+                break
+            typer.echo(
+                "  retrying after HTTP"
+                f" {response.status_code} (attempt {attempt + 2}/3)"
+            )
+            time.sleep(2)
+        response.raise_for_status()
+        counts = response.json()
+        qa_after = counts.get("qa_after")
+        msg_after = counts.get("msg_after")
+        totals["qa"] += counts.get("qa", 0)
+        totals["messages"] += counts.get("messages", 0)
+        typer.echo(f"  indexed {totals['qa']} qa, {totals['messages']} messages")
+        if qa_after is None and msg_after is None:
+            break
+    typer.echo(f"done: qa={totals['qa']} messages={totals['messages']}")
 
 
 @app.command("set-webhook")

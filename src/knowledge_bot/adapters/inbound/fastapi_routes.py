@@ -187,14 +187,29 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     async def internal_reindex(
         request: Request,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, int]:
-        """Rebuild the derived vector store from D1."""
+    ) -> dict[str, object]:
+        """Rebuild part of the derived vector store from D1.
+
+        Accepts an optional JSON body with ``qa_after``/``msg_after`` cursors
+        and ``limit``; without it, one unbounded pass indexes everything.
+        """
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        report = await context.reindex.reindex()
-        return {"qa": report.qa, "messages": report.messages}
+        payload = await request.json()
+        body = payload if isinstance(payload, dict) else {}
+        report = await context.reindex.reindex(
+            qa_after=body.get("qa_after"),
+            msg_after=body.get("msg_after"),
+            limit=int(body["limit"]) if body.get("limit") is not None else None,
+        )
+        return {
+            "qa": report.qa,
+            "messages": report.messages,
+            "qa_after": report.next_qa,
+            "msg_after": report.next_msg,
+        }
 
     @app.post("/internal/retrieve")
     async def internal_retrieve(
@@ -440,7 +455,7 @@ async def _handle_callback(
         version = await context.feedback.approve(target, scope)
         if version is None:
             return "ignored"
-        await context.reindex.reindex()
+        await context.reindex.reindex_qa_version(version.id)
         feedback = await context.feedback_repo.get(target)
         await context.transport.send_message(admin_id, ADMIN_APPROVED)
         if feedback is not None and feedback.reporter_chat_id:

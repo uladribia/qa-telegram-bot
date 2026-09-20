@@ -542,13 +542,48 @@ class D1SearchIndexSource:
         """Wrap a D1 database binding."""
         self._db = database
 
-    async def list_qa(self) -> list[IndexableQA]:
-        """Return the active Q&A versions to index.
+    async def get_qa(self, version_id: str) -> IndexableQA | None:
+        """Return one active Q&A version to index, by version id."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT qv.id AS version_id, qi.canonical_question AS question,"
+                " qv.answer AS answer, qv.authority AS authority,"
+                " qi.canonical_key AS anchor, qv.source_url AS source_url,"
+                " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
+                " FROM qa_versions qv"
+                " JOIN qa_items qi ON qi.id = qv.qa_id"
+                " WHERE qi.status = 'active' AND qv.id = ?"
+            )
+            .bind(version_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return IndexableQA(
+            version_id=str(row["version_id"]),
+            question=str(row["question"]),
+            answer=str(row["answer"]),
+            authority=int(cast(int, row["authority"])),
+            anchor=_opt_str(row["anchor"]),
+            url=_exact_url(row["source_url"], row["anchor"]),
+            date=_date_part(row["created_at"]),
+            author=_opt_str(row["author"]),
+            scope=str(row["scope"]),
+        )
 
-        Each version is cited from its own origin: a web snapshot entry keeps
-        its anchored URL, an approved correction cites its author.
+    async def list_qa(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableQA]:
+        """Return the active Q&A versions to index, in id-order batches.
+
+        Args:
+            after: Only versions with id greater than this (cursor).
+            limit: Maximum batch size.
+
+        Returns:
+            The next batch of versions.
         """
-        result = await self._db.prepare(
+        query = (
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
             " qv.answer AS answer, qv.authority AS authority,"
             " qi.canonical_key AS anchor, qv.source_url AS source_url,"
@@ -556,7 +591,16 @@ class D1SearchIndexSource:
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
-        ).run()
+        )
+        params: list[object] = []
+        if after is not None:
+            query += " AND qv.id > ?"
+            params.append(after)
+        query += " ORDER BY qv.id"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        result = await self._db.prepare(query).bind(*params).run()
         return [
             IndexableQA(
                 version_id=str(row["version_id"]),
@@ -572,13 +616,24 @@ class D1SearchIndexSource:
             for row in _rows(result)
         ]
 
-    async def list_messages(self) -> list[IndexableMessage]:
-        """Return the messages with text to index."""
-        result = await self._db.prepare(
+    async def list_messages(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableMessage]:
+        """Return the messages with text to index, in id-order batches."""
+        query = (
             "SELECT id, source_id, conversation_id, text,"
             " sender_hash, sender_name, sent_at"
             " FROM messages WHERE text IS NOT NULL AND text != ''"
-        ).run()
+        )
+        params: list[object] = []
+        if after is not None:
+            query += " AND id > ?"
+            params.append(after)
+        query += " ORDER BY id"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        result = await self._db.prepare(query).bind(*params).run()
         return [
             IndexableMessage(
                 message_id=str(row["id"]),
