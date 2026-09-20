@@ -30,6 +30,7 @@ from knowledge_bot.domain.enums import (
     SourceType,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.review import ReviewItem
 
 
 class D1Result(Protocol):
@@ -909,3 +910,42 @@ def _feedback(row: dict[str, object]) -> Feedback:
         proposed_at=_opt_dt(row["proposed_at"]),
         resolved_at=_opt_dt(row["resolved_at"]),
     )
+
+
+class D1ReviewSource:
+    """D1 implementation of ``ReviewSource`` for the human review report."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def list_current(self) -> list[ReviewItem]:
+        """Return the current version of every active Q&A item.
+
+        Each row carries the origin of the version it superseded, so the
+        report can spot a renewal that overwrote a correction.
+        """
+        result = await self._db.prepare(
+            "SELECT qi.canonical_key AS canonical_key,"
+            " qi.canonical_question AS question, qi.scope AS scope,"
+            " qi.status AS status,"
+            " qv.answer AS answer, qv.origin AS origin, qv.created_at AS created_at,"
+            " prev.origin AS superseded_origin"
+            " FROM qa_items qi"
+            " JOIN qa_versions qv ON qv.id = qi.current_version_id"
+            " LEFT JOIN qa_versions prev ON prev.id = qv.supersedes_version_id"
+            " WHERE qi.status IN ('active', 'under_review')"
+        ).run()
+        return [
+            ReviewItem(
+                canonical_key=str(row["canonical_key"]),
+                question=str(row["question"]),
+                scope=str(row["scope"]),
+                answer=str(row["answer"]),
+                origin=str(row["origin"]),
+                created_at=_dt(row["created_at"]),
+                status=str(row["status"]),
+                superseded_origin=_opt_str(row["superseded_origin"]),
+            )
+            for row in _rows(result)
+        ]

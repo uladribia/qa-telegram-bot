@@ -12,12 +12,14 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
+    FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
 )
@@ -134,6 +136,7 @@ def build_test_context(
             conversations=InMemoryConversationRepository(),
             clock=clock,
         ),
+        review=ReviewService(source=FakeReviewSource()),
         feedback=FeedbackService(
             answers=answers,
             feedback=feedback_repo,

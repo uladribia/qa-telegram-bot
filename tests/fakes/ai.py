@@ -10,6 +10,7 @@ from knowledge_bot.ports.generator import (
     JudgeVerdict,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
 
@@ -130,3 +131,15 @@ class FakeSearchIndexSource:
     async def list_messages(self) -> list[IndexableMessage]:
         """Return the fixed message records."""
         return list(self.messages)
+
+
+class FakeReviewSource:
+    """A review source with fixed records."""
+
+    def __init__(self, items: list[ReviewItem] | None = None) -> None:
+        """Create a source with the given review items."""
+        self.items = items or []
+
+    async def list_current(self) -> list[ReviewItem]:
+        """Return the fixed review items."""
+        return list(self.items)

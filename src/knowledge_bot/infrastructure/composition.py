@@ -14,6 +14,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -28,6 +29,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1QAItemRepository,
     D1QAVersionRepository,
     D1RecapStateRepository,
+    D1ReviewSource,
     D1SearchIndexSource,
     D1SourceRepository,
 )
@@ -67,6 +69,7 @@ class AppContext:
     reindex: ReindexService
     seed: SeedService
     groups: GroupRegistrar
+    review: ReviewService
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
     budget: AiBudget
@@ -214,6 +217,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             conversations=D1ConversationRepository(database),
             clock=clock,
         ),
+        review=ReviewService(source=D1ReviewSource(database)),
         feedback=FeedbackService(
             answers=answers,
             feedback=D1FeedbackRepository(database),

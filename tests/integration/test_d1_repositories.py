@@ -24,6 +24,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ConversationRepository,
     D1MessageRepository,
     D1RecapStateRepository,
+    D1ReviewSource,
     D1SourceRepository,
 )
 from knowledge_bot.ports.repositories import (
@@ -206,6 +207,35 @@ async def test_recap_state_upsert() -> None:
     later = NOW + timedelta(hours=25)
     await recap_state.set_last_sent_at("-100", later)
     assert await recap_state.get_last_sent_at("-100") == later
+
+
+async def test_review_source_reads_current_versions_and_superseded_origin() -> None:
+    """The review source joins the current version and the superseded origin."""
+    database = FakeD1Database()
+    connection = database.connection
+    connection.execute(
+        "INSERT INTO qa_items"
+        " (id, canonical_key, canonical_question, status, current_version_id,"
+        " created_at, updated_at, scope) VALUES"
+        " ('q1','k1','Què?','active','v2','2026-01-01','2026-01-02','global')"
+    )
+    connection.execute(
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, origin, created_at) VALUES"
+        " ('v1','q1','Antiga',90,'web_seed','2026-01-01')"
+    )
+    connection.execute(
+        "INSERT INTO qa_versions"
+        " (id, qa_id, answer, authority, origin, created_at,"
+        " supersedes_version_id) VALUES"
+        " ('v2','q1','Nova',90,'web_seed','2026-01-02','v1')"
+    )
+    connection.commit()
+    items = await D1ReviewSource(database).list_current()
+    assert len(items) == 1
+    assert items[0].answer == "Nova"
+    assert items[0].superseded_origin == "web_seed"
+    assert items[0].status == "active"
 
 
 async def test_ingest_use_case_against_d1_repository() -> None:

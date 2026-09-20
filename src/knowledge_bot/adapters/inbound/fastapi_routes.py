@@ -27,6 +27,7 @@ from knowledge_bot.application.feedback import (
     render_review,
 )
 from knowledge_bot.application.intake import IntakeAction, decide_intake
+from knowledge_bot.application.review import render_review_report
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
@@ -265,6 +266,18 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             else None,
         )
         return {"status": "registered"}
+
+    @app.post("/internal/review")
+    async def internal_review(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Return the human knowledge review report as markdown."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        entries = await context.review.review()
+        return {"report": render_review_report(entries)}
 
     return app
 

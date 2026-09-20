@@ -134,6 +134,29 @@ def group_add(
     typer.echo(response.text)
 
 
+@app.command("review")
+def review(
+    out: Path = typer.Option(
+        None, "--out", help="Write the markdown report here (default: stdout)."
+    ),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Build the human knowledge review report (read-only)."""
+    settings = Settings()
+    response = httpx.post(
+        f"{base_url}/internal/review",
+        headers=_internal_headers(settings),
+        timeout=120.0,
+    )
+    response.raise_for_status()
+    report = response.json()["report"]
+    if out is None:
+        typer.echo(report)
+        return
+    out.write_text(report, encoding="utf-8")
+    typer.echo(f"Wrote review report to {out}")
+
+
 @app.command()
 def reindex(base_url: str = _BASE_URL) -> None:
     """Rebuild the vector store from D1."""
