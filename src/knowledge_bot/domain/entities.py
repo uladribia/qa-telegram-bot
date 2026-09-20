@@ -14,6 +14,7 @@ from knowledge_bot.domain.enums import (
     QAStatus,
     SourceType,
 )
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,7 @@ class Source:
     title: str | None = None
     canonical_url: str | None = None
     is_mutable: bool = False
+    scope: str = GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,7 @@ class QAItem:
     status: QAStatus
     created_at: datetime
     updated_at: datetime
+    scope: str = GLOBAL_SCOPE
     current_version_id: str | None = None
 
 

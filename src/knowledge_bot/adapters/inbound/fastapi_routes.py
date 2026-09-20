@@ -175,7 +175,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        sent = await context.recap.maybe_send(context.settings.allowed_telegram_chat_id)
+        sent = False
+        for chat_id in context.settings.allowed_chat_ids:
+            sent = (await context.recap.maybe_send(chat_id)) or sent
         return {"status": "sent" if sent else "skipped"}
 
     @app.post("/internal/reindex")

@@ -96,7 +96,7 @@ deploy). **Secrets must be set on the Worker**, never committed:
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 npx wrangler secret put INTERNAL_ADMIN_KEY
-npx wrangler secret put ALLOWED_TELEGRAM_CHAT_ID
+npx wrangler secret put ALLOWED_TELEGRAM_CHAT_IDS
 npx wrangler secret put ADMIN_TELEGRAM_USER_ID
 npx wrangler secret put ALLOWED_TELEGRAM_USER_IDS   # optional; comma-separated
 ```
@@ -110,7 +110,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 Every key is documented in [`.env.example`](../.env.example). The ones that bite
 if wrong:
 
-- `ALLOWED_TELEGRAM_CHAT_ID` — must include the leading `-` for a group.
+- `ALLOWED_TELEGRAM_CHAT_IDS` — comma-separated group chat ids, one per group
+  the bot serves. Each must include the leading `-` for a group.
 - `ADMIN_TELEGRAM_USER_ID` — only this user can approve corrections.
 - `ALLOWED_TELEGRAM_USER_IDS` — who may open a **private chat** with the bot.
   The admin is always allowed. Leave it empty and only the admin can DM.
@@ -163,7 +164,7 @@ uv run kb delete-webhook
 ## 7. First run
 
 1. Add the bot to your Telegram group.
-2. Find the group's chat id and set it as `ALLOWED_TELEGRAM_CHAT_ID`. There is no
+2. Find the group's chat id and add it to `ALLOWED_TELEGRAM_CHAT_IDS`. There is no
    `/chatid` command yet, so read it from the update:
 
    ```bash

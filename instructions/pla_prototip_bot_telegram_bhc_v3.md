@@ -128,7 +128,7 @@ El Bot API no crea el grup per nosaltres. Per al prototip, l'usuari farà manual
    - fer-lo administrador.
 5. Enviar `/chatid` al grup.
 6. El bot ha de respondre el `chat_id`.
-7. Configurar aquest valor com `ALLOWED_TELEGRAM_CHAT_ID`.
+7. Configurar aquest valor com a entrada de `ALLOWED_TELEGRAM_CHAT_IDS`.
 8. En privat amb el bot, enviar `/whoami`.
 9. Configurar el `user_id` retornat com `ADMIN_TELEGRAM_USER_ID`.
 
@@ -2129,7 +2129,7 @@ INTERNAL_ADMIN_KEY
 Vars:
 
 ```text
-ALLOWED_TELEGRAM_CHAT_ID
+ALLOWED_TELEGRAM_CHAT_IDS
 ADMIN_TELEGRAM_USER_ID
 
 EMBEDDING_MODEL=@cf/google/embeddinggemma-300m

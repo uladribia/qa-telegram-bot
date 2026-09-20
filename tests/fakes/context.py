@@ -41,6 +41,7 @@ from tests.fakes.support import (
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 WEBHOOK_SECRET = "secret"
 ALLOWED_CHAT_ID = "-100"
+ALLOWED_CHAT_IDS = "-100,-200"
 BOT_ID = "999"
 BOT_USERNAME = "bot"
 
@@ -96,14 +97,14 @@ def build_test_context(
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
         telegram_bot_username=BOT_USERNAME,
-        allowed_telegram_chat_id=ALLOWED_CHAT_ID,
+        allowed_telegram_chat_ids=ALLOWED_CHAT_IDS,
         admin_telegram_user_id="1",
         internal_admin_key="internal",
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )
     identity = TelegramIdentity(
-        allowed_chat_id=ALLOWED_CHAT_ID,
+        allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
         bot_id=BOT_ID,
         bot_username=BOT_USERNAME,

@@ -311,12 +311,9 @@ class FeedbackService:
         )
         await self.qa_versions.add(version)
         await self.qa_items.save(
-            QAItem(
-                id=item.id,
-                canonical_key=item.canonical_key,
-                canonical_question=item.canonical_question,
+            replace(
+                item,
                 status=QAStatus.ACTIVE,
-                created_at=item.created_at,
                 updated_at=now,
                 current_version_id=version.id,
             )

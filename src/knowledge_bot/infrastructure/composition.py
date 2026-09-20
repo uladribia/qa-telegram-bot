@@ -114,7 +114,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     settings = Settings(
         telegram_bot_token=_text(env, "TELEGRAM_BOT_TOKEN"),
         telegram_webhook_secret=_text(env, "TELEGRAM_WEBHOOK_SECRET"),
-        allowed_telegram_chat_id=_text(env, "ALLOWED_TELEGRAM_CHAT_ID"),
+        allowed_telegram_chat_ids=_text(env, "ALLOWED_TELEGRAM_CHAT_IDS"),
         allowed_telegram_user_ids=_text(env, "ALLOWED_TELEGRAM_USER_IDS"),
         admin_telegram_user_id=_text(env, "ADMIN_TELEGRAM_USER_ID"),
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
@@ -155,7 +155,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
-            allowed_chat_id=settings.allowed_telegram_chat_id,
+            allowed_chat_ids=frozenset(settings.allowed_chat_ids),
             admin_user_id=settings.admin_telegram_user_id,
             bot_id=settings.telegram_bot_id,
             bot_username=settings.telegram_bot_username,

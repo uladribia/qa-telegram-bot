@@ -155,8 +155,8 @@ class D1SourceRepository:
             self._db.prepare(
                 "INSERT INTO sources"
                 " (id, source_type, external_ref, title, canonical_url,"
-                " authority, is_mutable, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " authority, is_mutable, created_at, scope)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 source.id,
@@ -167,6 +167,7 @@ class D1SourceRepository:
                 source.authority,
                 int(source.is_mutable),
                 _iso(source.created_at),
+                source.scope,
             )
             .run()
         )
@@ -189,6 +190,7 @@ class D1SourceRepository:
             title=_opt_str(row["title"]),
             canonical_url=_opt_str(row["canonical_url"]),
             is_mutable=bool(row["is_mutable"]),
+            scope=str(row["scope"]),
         )
 
     async def save(self, source: Source) -> None:
@@ -196,7 +198,8 @@ class D1SourceRepository:
         await (
             self._db.prepare(
                 "UPDATE sources SET source_type = ?, external_ref = ?, title = ?,"
-                " canonical_url = ?, authority = ?, is_mutable = ? WHERE id = ?"
+                " canonical_url = ?, authority = ?, is_mutable = ?, scope = ?"
+                " WHERE id = ?"
             )
             .bind(
                 source.source_type.value,
@@ -205,6 +208,7 @@ class D1SourceRepository:
                 source.canonical_url,
                 source.authority,
                 int(source.is_mutable),
+                source.scope,
                 source.id,
             )
             .run()
@@ -582,7 +586,7 @@ class D1QAItemRepository:
             self._db.prepare(
                 "INSERT INTO qa_items"
                 " (id, canonical_key, canonical_question, status, current_version_id,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " created_at, updated_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 item.id,
@@ -592,6 +596,7 @@ class D1QAItemRepository:
                 item.current_version_id,
                 _iso(item.created_at),
                 _iso(item.updated_at),
+                item.scope,
             )
             .run()
         )
@@ -705,6 +710,7 @@ def _qa_item(row: dict[str, object]) -> QAItem:
         status=QAStatus(str(row["status"])),
         created_at=_dt(row["created_at"]),
         updated_at=_dt(row["updated_at"]),
+        scope=str(row["scope"]),
         current_version_id=_opt_str(row["current_version_id"]),
     )
 
