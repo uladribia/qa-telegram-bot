@@ -115,15 +115,58 @@ async def test_group_variant_beats_the_global_answer() -> None:
             VectorRecord(
                 id="qa-global",
                 values=vector,
-                metadata={"kind": "qa_version", "status": "active", "scope": "global"},
+                metadata={
+                    "kind": "qa_version",
+                    "status": "active",
+                    "scope": "global",
+                    "anchor": "same-question",
+                },
             ),
             VectorRecord(
                 id="qa-group",
                 values=vector,
-                metadata={"kind": "qa_version", "status": "active", "scope": "-100"},
+                metadata={
+                    "kind": "qa_version",
+                    "status": "active",
+                    "scope": "-100",
+                    "anchor": "same-question",
+                },
             ),
         ]
     )
     service = RetrievalService(embedder=FakeEmbedder(vector), vectors=store)
     retrieved = await service.retrieve("pregunta", conversation_id="-100")
-    assert [item.source_id for item in retrieved.qa] == ["qa-group", "qa-global"]
+    # The same canonical question: the group variant replaces the global one.
+    assert [item.source_id for item in retrieved.qa] == ["qa-group"]
+
+
+async def test_group_variant_suppresses_a_better_scoring_global_match() -> None:
+    """The group variant always wins its question, even with lower similarity."""
+    store = FakeVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="qa-global",
+                values=[1.0, 0.0],
+                metadata={
+                    "kind": "qa_version",
+                    "status": "active",
+                    "scope": "global",
+                    "anchor": "same-question",
+                },
+            ),
+            VectorRecord(
+                id="qa-group",
+                values=[0.6, 0.8],  # cosine ~0.76 vs 1.0 for the global one
+                metadata={
+                    "kind": "qa_version",
+                    "status": "active",
+                    "scope": "-100",
+                    "anchor": "same-question",
+                },
+            ),
+        ]
+    )
+    service = RetrievalService(embedder=FakeEmbedder([1.0, 0.0]), vectors=store)
+    retrieved = await service.retrieve("pregunta", conversation_id="-100")
+    assert [item.source_id for item in retrieved.qa] == ["qa-group"]

@@ -10,10 +10,6 @@ from knowledge_bot.ports.vector_store import VectorMatch, VectorStore
 QA_KIND = "qa_version"
 MESSAGE_KIND = "message"
 
-# A group-scoped Q&A variant beats the global answer of the same question in
-# that group. Applied as a small similarity boost so the tie is deterministic.
-GROUP_PRIORITY_BOOST = 0.01
-
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
@@ -58,12 +54,28 @@ def _opt_text(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _question_key(match: VectorMatch) -> str | None:
+    """Return the canonical question key of a Q&A match, if any.
+
+    Args:
+        match: The vector match.
+
+    Returns:
+        The canonical key from the match metadata, or ``None``.
+    """
+    key = match.metadata.get("anchor")
+    return key if isinstance(key, str) and key else None
+
+
 def _merge_group_first(
     global_matches: list[VectorMatch],
     group_matches: list[VectorMatch],
     top_k: int,
 ) -> list[VectorMatch]:
-    """Merge global and group Q&A matches, group variants boosted.
+    """Merge global and group Q&A matches, group variants first.
+
+    A group-scoped match always suppresses the global match of the same
+    canonical question in that group, regardless of similarity.
 
     Args:
         global_matches: Matches from the global scope.
@@ -71,19 +83,16 @@ def _merge_group_first(
         top_k: Maximum number of matches to return.
 
     Returns:
-        The combined matches, strongest first, group ones boosted by
-        ``GROUP_PRIORITY_BOOST`` so an equally good group variant wins.
+        The combined matches, strongest first.
     """
-    merged = [
-        VectorMatch(
-            id=match.id,
-            score=match.score + GROUP_PRIORITY_BOOST,
-            metadata=match.metadata,
-        )
-        for match in group_matches
+    group_sorted = sorted(group_matches, key=lambda match: match.score, reverse=True)
+    covered = {_question_key(match) for match in group_sorted} - {None}
+    global_sorted = [
+        match
+        for match in sorted(global_matches, key=lambda match: match.score, reverse=True)
+        if _question_key(match) not in covered
     ]
-    merged.extend(global_matches)
-    merged.sort(key=lambda match: match.score, reverse=True)
+    merged = [*group_sorted, *global_sorted]
     return merged[:top_k]
 
 
