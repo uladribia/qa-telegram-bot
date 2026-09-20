@@ -140,6 +140,7 @@ def build_test_context(
             qa_items=InMemoryQAItemRepository(),
             qa_versions=InMemoryQAVersionRepository(),
             evidence=InMemoryQAEvidenceRepository(),
+            conversations=InMemoryConversationRepository(),
             clock=clock,
         ),
         feedback_repo=feedback_repo,

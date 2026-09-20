@@ -139,7 +139,11 @@ The normal path, and the only one that produces a human-approved answer:
 
 An approval creates a **new version** with the proposer's name and the proposal
 date, and supersedes the old one. Nothing is overwritten, so every answer stays
-auditable back to its source.
+auditable back to its source. At approval the admin also chooses the **scope**:
+🌐 global (all groups) or 👥 a group-only variant of the answer; in its group
+the variant outranks the global answer. See [usage.md](usage.md) for the flow.
+Knowledge generated from one group's conversation should stay group-scoped;
+the reclassification command in the section below fixes existing rows.
 
 ---
 

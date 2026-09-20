@@ -87,8 +87,9 @@ discussion.
 1. Group      Quim presses  [⚠️ Està malament?]  on the wrong answer
 2. DM to Quim the bot asks: "Què corregiries? Escriu la resposta correcta…"
 3. DM to Quim Quim writes the correction → "Gràcies. Ho he enviat a revisió."
-4. DM to admin the bot forwards the proposal with  [✅ Aprovar] [✏️ Editar] [❌ Rebutjar]
-5. DM to admin admin presses ✅
+4. DM to admin the bot forwards the proposal with  [🌐 Aprovar global] [👥 Aprovar grup]
+   [✏️ Editar] [❌ Rebutjar]
+5. DM to admin admin presses 🌐 or 👥
 6. Group      a future equivalent question gets the corrected answer
               (it can take up to a minute for the index to catch up)
 7. DM to Quim "Gràcies per la correcció" (private thank-you)
@@ -104,6 +105,11 @@ Who may do what:
   sent, so it is accepted regardless of `ALLOWED_TELEGRAM_USER_IDS`.
 - Approving does **not** overwrite anything. It adds a new version; the old one is
   kept, and the web Q&A is never modified.
+- The admin chooses the **scope** of the corrected answer at approval time:
+  🌐 makes it the global answer (every group sees it), 👥 makes it a
+  group-only variant (only the group the corrected answer came from sees it).
+  In that group the variant outranks the global answer; other groups keep
+  seeing the global one.
 
 `✏️ Editar` shows the current proposal and asks for the corrected text; the edited
 version comes back to the admin with the same three buttons.

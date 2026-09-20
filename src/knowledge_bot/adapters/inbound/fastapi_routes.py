@@ -18,6 +18,7 @@ from knowledge_bot.adapters.inbound.telegram import (
 )
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
+    GROUP_SCOPE,
     PROPOSAL_ACK,
     PROPOSAL_PROMPT,
     REVIEW_REJECTED,
@@ -31,6 +32,7 @@ from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
@@ -414,8 +416,9 @@ async def _handle_callback(
             )
         await context.transport.answer_callback(callback_id)
         return "feedback_started"
-    if action == "approve":
-        version = await context.feedback.approve(target)
+    if action == "approve_global" or action == "approve_group":
+        scope = GLOBAL_SCOPE if action == "approve_global" else GROUP_SCOPE
+        version = await context.feedback.approve(target, scope)
         if version is None:
             return "ignored"
         await context.reindex.reindex()

@@ -220,6 +220,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
             evidence=D1QAEvidenceRepository(database),
+            conversations=D1ConversationRepository(database),
             clock=clock,
         ),
         feedback_repo=D1FeedbackRepository(database),

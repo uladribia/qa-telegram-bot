@@ -9,6 +9,7 @@ mutated destructively.
 
 import hashlib
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 from knowledge_bot.domain.entities import Feedback, QAEvidence, QAItem, QAVersion
 from knowledge_bot.domain.enums import (
@@ -18,17 +19,23 @@ from knowledge_bot.domain.enums import (
     QAStatus,
 )
 from knowledge_bot.domain.policies import Authority
+from knowledge_bot.domain.scope import Scope
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
+    ConversationRepository,
     FeedbackRepository,
     QAEvidenceRepository,
     QAItemRepository,
     QAVersionRepository,
 )
 
+#: Approve target meaning "the conversation the corrected answer came from".
+GROUP_SCOPE = "group"
+
 START_PREFIX = "feedback:start:"
-APPROVE_PREFIX = "feedback:approve:"
+APPROVE_GLOBAL_PREFIX = "feedback:approve-global:"
+APPROVE_GROUP_PREFIX = "feedback:approve-group:"
 EDIT_PREFIX = "feedback:edit:"
 REJECT_PREFIX = "feedback:reject:"
 
@@ -42,7 +49,8 @@ REVIEW_REJECTED = "\u274c Correcci\u00f3 rebutjada."
 
 _ACTIONS: tuple[tuple[str, str], ...] = (
     (START_PREFIX, "start"),
-    (APPROVE_PREFIX, "approve"),
+    (APPROVE_GLOBAL_PREFIX, "approve_global"),
+    (APPROVE_GROUP_PREFIX, "approve_group"),
     (EDIT_PREFIX, "edit"),
     (REJECT_PREFIX, "reject"),
 )
@@ -98,6 +106,7 @@ class CorrectionRequest:
     question: str
     current_answer: str
     proposed_answer: str
+    group_title: str | None = None
 
 
 def render_review(request: CorrectionRequest) -> str:
@@ -114,6 +123,7 @@ def render_review(request: CorrectionRequest) -> str:
         f"Pregunta:\n{request.question}\n\n"
         f"Resposta actual:\n{request.current_answer}\n\n"
         f"Proposta:\n{request.proposed_answer}"
+        + (f"\n\nGrup: {request.group_title}" if request.group_title else "")
     )
 
 
@@ -126,6 +136,7 @@ class FeedbackService:
     qa_items: QAItemRepository
     qa_versions: QAVersionRepository
     evidence: QAEvidenceRepository
+    conversations: ConversationRepository
     clock: Clock
 
     async def start(
@@ -275,11 +286,17 @@ class FeedbackService:
             proposed_answer=proposal,
         )
 
-    async def approve(self, feedback_id: str) -> QAVersion | None:
-        """Approve a proposal and supersede the previous answer version.
+    async def approve(self, feedback_id: str, scope: Scope) -> QAVersion | None:
+        """Approve a proposal as a new answer version in the chosen scope.
+
+        Approving as global updates (or creates) the global item for the
+        question. Approving as a group variant creates (or updates) an item
+        scoped to the group the corrected answer came from, leaving the global
+        answer untouched.
 
         Args:
             feedback_id: The feedback to approve.
+            scope: ``GLOBAL_SCOPE``, or ``GROUP_SCOPE`` for the asking group.
 
         Returns:
             The new Q&A version, or ``None`` when the feedback is unknown or has
@@ -294,7 +311,10 @@ class FeedbackService:
         now = self.clock.now()
         answer = await self.answers.get(feedback.bot_answer_id)
         question = answer.question if answer is not None else ""
-        qa_id = await self._resolve_qa_id(feedback, question)
+        target_scope = (
+            answer.conversation_id if scope == GROUP_SCOPE and answer else scope
+        )
+        qa_id = await self._resolve_target(feedback, question, target_scope, now)
         item = await self.qa_items.get(qa_id)
         if item is None:
             return None
@@ -334,26 +354,61 @@ class FeedbackService:
         )
         return version
 
-    async def _resolve_qa_id(self, feedback: Feedback, question: str) -> str:
+    async def _resolve_target(
+        self,
+        feedback: Feedback,
+        question: str,
+        scope: Scope,
+        now: datetime,
+    ) -> str:
+        """Find or create the Q&A item an approval applies to.
+
+        When the corrected answer cited an item in the target scope, that item
+        is superseded. Otherwise the canonical question resolves (or creates)
+        the item for the target scope.
+
+        Args:
+            feedback: The correction being approved.
+            question: The question text of the corrected answer.
+            scope: The scope the approval applies to.
+            now: The current timestamp.
+
+        Returns:
+            The Q&A item id to attach the new version to.
+        """
         if feedback.qa_id is not None:
-            existing = await self.qa_items.get(feedback.qa_id)
-            if existing is not None:
-                return existing.id
-            source = await self.qa_versions.get(feedback.qa_id)
-            if source is not None:
-                return source.qa_id
+            cited = await self._cited_item(feedback.qa_id)
+            if cited is not None and cited.scope == scope:
+                return cited.id
         key = canonical_key_for(question) if question else feedback.id
-        item = await self.qa_items.get_by_canonical_key(key)
-        if item is not None:
-            return item.id
-        stamp = self.clock.now()
+        existing = await self.qa_items.get_by_canonical_key(key, scope)
+        if existing is not None:
+            return existing.id
         created = QAItem(
-            id=f"qa:{key}",
+            id=f"qa:{key}:{scope}",
             canonical_key=key,
             canonical_question=question,
             status=QAStatus.ACTIVE,
-            created_at=stamp,
-            updated_at=stamp,
+            created_at=now,
+            updated_at=now,
+            scope=scope,
         )
         await self.qa_items.add(created)
         return created.id
+
+    async def _cited_item(self, qa_ref: str) -> QAItem | None:
+        """Resolve a feedback's Q&A reference to an item, if possible.
+
+        Args:
+            qa_ref: A Q&A item id or a Q&A version id.
+
+        Returns:
+            The referenced item, or ``None``.
+        """
+        item = await self.qa_items.get(qa_ref)
+        if item is not None:
+            return item
+        source = await self.qa_versions.get(qa_ref)
+        if source is None:
+            return None
+        return await self.qa_items.get(source.qa_id)
