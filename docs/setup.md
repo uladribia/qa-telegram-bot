@@ -180,7 +180,7 @@ uv run kb delete-webhook
 3. Register each group so knowledge can be scoped to it:
 
    ```bash
-   BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add -1001234567890 --title "Prebenjamins"
+   BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add --chat-id -1001234567890 --title "Prebenjamins"
    ```
 
 4. Seed knowledge — see [knowledge-base.md](knowledge-base.md). The web seed is

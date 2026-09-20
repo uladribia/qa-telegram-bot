@@ -98,7 +98,7 @@ seeding group-scoped knowledge (or letting retrieval scope answers), register
 each group so it exists in D1 with its title:
 
 ```bash
-BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add -1001234567890 --title "Prebenjamins"
+BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add --chat-id -1001234567890 --title "Prebenjamins"
 ```
 
 This is idempotent; re-running with a new `--title` refreshes the name. The

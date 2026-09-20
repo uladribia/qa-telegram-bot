@@ -116,9 +116,15 @@ def seed(
     typer.echo(response.text)
 
 
-@app.command("group")
+group_app = typer.Typer(no_args_is_help=True, help="Register served groups.")
+app.add_typer(group_app, name="group")
+
+
+@group_app.command("add")
 def group_add(
-    chat_id: str = typer.Argument(..., help="Telegram group chat id."),
+    chat_id: str = typer.Option(
+        ..., "--chat-id", help="Telegram group chat id (negative for groups)."
+    ),
     title: str = typer.Option(None, "--title", help="Human-readable group name."),
     base_url: str = _BASE_URL,
 ) -> None:
