@@ -106,7 +106,30 @@ class CorrectionRequest:
     question: str
     current_answer: str
     proposed_answer: str
-    group_title: str | None = None
+    group_label: str | None = None
+    current_origin: str | None = None
+
+
+_CURRENT_ORIGIN_LABEL: dict[str, str] = {
+    "web_seed": "web",
+    "admin_approved": "correcció aprovada",
+    "auto_generated": "generada del grup",
+}
+
+
+def current_origin_label(origin: str | None) -> str:
+    """Return a human label for the origin of the current answer.
+
+    Args:
+        origin: The Q&A origin, or ``None`` when the answer was synthesized
+            from group messages without a Q&A version.
+
+    Returns:
+        A short Catalan label for the review message.
+    """
+    if origin is None:
+        return "síntesi del grup"
+    return _CURRENT_ORIGIN_LABEL.get(origin, origin)
 
 
 def render_review(request: CorrectionRequest) -> str:
@@ -120,10 +143,12 @@ def render_review(request: CorrectionRequest) -> str:
     """
     return (
         "\u26a0\ufe0f Correcci\u00f3 proposada\n\n"
+        f"Grup: {request.group_label}\n\n"
         f"Pregunta:\n{request.question}\n\n"
-        f"Resposta actual:\n{request.current_answer}\n\n"
+        "Resposta actual ("
+        f"{current_origin_label(request.current_origin)}):\n"
+        f"{request.current_answer}\n\n"
         f"Proposta:\n{request.proposed_answer}"
-        + (f"\n\nGrup: {request.group_title}" if request.group_title else "")
     )
 
 
@@ -279,12 +304,33 @@ class FeedbackService:
         proposal = feedback.admin_edited_answer or feedback.proposed_answer
         if answer is None or not proposal:
             return None
+        conversation = await self.conversations.get(answer.conversation_id)
+        group_label = (conversation.title if conversation else None) or (
+            answer.conversation_id
+        )
         return CorrectionRequest(
             feedback_id=feedback.id,
             question=answer.question,
             current_answer=answer.answer,
             proposed_answer=proposal,
+            group_label=group_label,
+            current_origin=await self._current_origin(feedback.qa_id),
         )
+
+    async def _current_origin(self, qa_ref: str | None) -> str | None:
+        """Return the origin of the version the corrected answer came from.
+
+        Args:
+            qa_ref: The Q&A item or version id cited by the answer.
+
+        Returns:
+            The origin value, or ``None`` when unknown (synthesized answer).
+        """
+        cited = await self._cited_item(qa_ref) if qa_ref else None
+        if cited is None or cited.current_version_id is None:
+            return None
+        version = await self.qa_versions.get(cited.current_version_id)
+        return version.origin.value if version is not None else None
 
     async def approve(self, feedback_id: str, scope: Scope) -> QAVersion | None:
         """Approve a proposal as a new answer version in the chosen scope.

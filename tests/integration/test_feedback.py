@@ -99,6 +99,9 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert request.question == "Com es demana l'equipament?"
     assert request.current_answer == "Resposta antiga."
     assert request.proposed_answer == "La llista la passa l'entrenador."
+    # The group of origin is always visible: chat id when unregistered.
+    assert request.group_label == "-100"
+    assert request.current_origin is None
 
     version = await service.approve(started.id, GROUP_SCOPE)
     assert version is not None
