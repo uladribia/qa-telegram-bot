@@ -147,6 +147,41 @@ the reclassification command in the section below fixes existing rows.
 
 ---
 
+## Renewing the base from a live source
+
+When the underlying website changes, re-snapshot it and renew the base. Without
+`--renew` seeding skips everything it has seen before; with it, entries whose
+answer changed get a **new version** on the existing item and become current —
+the latest update prevails, and no old version is ever deleted.
+
+```bash
+uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
+BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json --renew
+make reindex
+```
+
+A renewal that lands after an approved correction supersedes it (latest wins);
+the correction stays in the version history, and the divergence shows up in the
+human review report (`kb review`).
+
+---
+
+## Human review report
+
+To see where the base and the corrections diverge and decide what humans should
+look at:
+
+```bash
+BOT_BASE_URL=https://<worker>.workers.dev uv run kb review --out review.md
+```
+
+The report lists, per question: the current answer of each scope, group
+variants that differ from the global answer, approved corrections, in-review
+entries, and renewals that overwrote recent corrections. It is read-only; acting
+on it goes through the normal Telegram correction flow.
+
+---
+
 ## Data rules
 
 - **Never commit data.** `data/` is gitignored; `data/raw/*` and `data/seed/` are

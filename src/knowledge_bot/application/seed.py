@@ -7,6 +7,7 @@ ingest idempotency key.
 
 import hashlib
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.contracts.messages import NormalizedMessage
@@ -58,6 +59,7 @@ class SeedReport:
 
     qa: int
     qa_skipped: int
+    qa_renewed: int
     messages: int
 
 
@@ -93,24 +95,39 @@ class SeedService:
         self,
         entries: list[SeedQA],
         scope: Scope = GLOBAL_SCOPE,
-    ) -> tuple[int, int]:
+        renew: bool = False,
+    ) -> tuple[int, int, int]:
         """Persist a batch of seed Q&A entries.
+
+        Without ``renew``, existing entries are skipped (idempotent import).
+        With ``renew``, an entry whose answer differs from the current version
+        creates a new version on the existing item and makes it current, so
+        the most recent update always prevails. Old versions are kept.
 
         Args:
             entries: The parsed snapshot entries.
             scope: The knowledge scope the entries belong to.
+            renew: Update changed entries instead of skipping them.
 
         Returns:
-            A tuple of (created, skipped).
+            A tuple of (created, skipped, renewed).
         """
         created = 0
         skipped = 0
+        renewed = 0
         now = self.clock.now()
         for entry in entries:
             await self._ensure_web_seed_source(entry.source_url)
             key = entry.source_anchor or stable_id(entry.question)
-            if await self.qa_items.get_by_canonical_key(key, scope) is not None:
-                skipped += 1
+            existing = await self.qa_items.get_by_canonical_key(key, scope)
+            if existing is not None:
+                if not renew:
+                    skipped += 1
+                    continue
+                if await self._renew_item(existing, entry, now):
+                    renewed += 1
+                else:
+                    skipped += 1
                 continue
             in_review = entry.status == "in_review"
             suffix = "" if is_global(scope) else f":{scope}"
@@ -141,7 +158,42 @@ class SeedService:
                 )
             )
             created += 1
-        return created, skipped
+        return created, skipped, renewed
+
+    async def _renew_item(self, item: QAItem, entry: SeedQA, now: datetime) -> bool:
+        """Add a newer web version to an existing item when the answer changed.
+
+        Args:
+            item: The existing Q&A item.
+            entry: The freshly snapshotted entry.
+            now: The renewal timestamp.
+
+        Returns:
+            ``True`` when a new version was created.
+        """
+        current = (
+            await self.qa_versions.get(item.current_version_id)
+            if item.current_version_id
+            else None
+        )
+        if current is not None and current.answer == entry.answer:
+            return False
+        in_review = entry.status == "in_review"
+        version = QAVersion(
+            id=f"qav:{item.id}:{int(now.timestamp())}",
+            qa_id=item.id,
+            answer=entry.answer,
+            authority=int(web_seed_authority(in_review=in_review)),
+            origin=QAOrigin.WEB_SEED,
+            created_at=now,
+            supersedes_version_id=item.current_version_id,
+            source_url=_anchored(entry.source_url, entry.source_anchor),
+        )
+        await self.qa_versions.add(version)
+        await self.qa_items.save(
+            replace(item, updated_at=now, current_version_id=version.id)
+        )
+        return True
 
     async def seed_messages(
         self,

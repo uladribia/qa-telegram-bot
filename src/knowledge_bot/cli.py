@@ -90,6 +90,11 @@ def seed(
         "--scope",
         help='Knowledge scope: "global" or the group chat id this seed belongs to.',
     ),
+    renew: bool = typer.Option(
+        False,
+        "--renew",
+        help="Update entries whose answer changed instead of skipping them.",
+    ),
     base_url: str = _BASE_URL,
 ) -> None:
     """Seed the parsed Q&A and/or messages into D1."""
@@ -98,6 +103,8 @@ def seed(
         typer.echo("Nothing to seed: pass --qa and/or --messages")
         raise typer.Exit(code=1)
     payload["scope"] = scope
+    if renew:
+        payload["renew"] = True
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/seed",

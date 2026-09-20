@@ -235,9 +235,15 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         scope = payload.get("scope")
         if not isinstance(scope, str) or not scope.strip():
             scope = "global"
-        created, skipped = await context.seed.seed_qa(qa_entries, scope)
+        renew = bool(payload.get("renew", False))
+        created, skipped, renewed = await context.seed.seed_qa(qa_entries, scope, renew)
         message_count = await context.seed.seed_messages(messages, scope)
-        return {"qa": created, "qa_skipped": skipped, "messages": message_count}
+        return {
+            "qa": created,
+            "qa_skipped": skipped,
+            "qa_renewed": renewed,
+            "messages": message_count,
+        }
 
     @app.post("/internal/groups")
     async def internal_groups(
