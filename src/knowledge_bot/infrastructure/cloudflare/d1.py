@@ -551,7 +551,7 @@ class D1SearchIndexSource:
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
             " qv.answer AS answer, qv.authority AS authority,"
             " qi.canonical_key AS anchor, qv.source_url AS source_url,"
-            " qv.author AS author, qv.created_at AS created_at"
+            " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
@@ -566,6 +566,7 @@ class D1SearchIndexSource:
                 url=_exact_url(row["source_url"], row["anchor"]),
                 date=_date_part(row["created_at"]),
                 author=_opt_str(row["author"]),
+                scope=str(row["scope"]),
             )
             for row in _rows(result)
         ]
@@ -573,7 +574,8 @@ class D1SearchIndexSource:
     async def list_messages(self) -> list[IndexableMessage]:
         """Return the messages with text to index."""
         result = await self._db.prepare(
-            "SELECT id, source_id, text, sender_hash, sender_name, sent_at"
+            "SELECT id, source_id, conversation_id, text,"
+            " sender_hash, sender_name, sent_at"
             " FROM messages WHERE text IS NOT NULL AND text != ''"
         ).run()
         return [
@@ -582,6 +584,7 @@ class D1SearchIndexSource:
                 text=str(row["text"]),
                 source_type=str(row["source_id"]),
                 authority=_message_authority(str(row["source_id"])),
+                conversation_id=str(row["conversation_id"]),
                 author=_sender_label(row["sender_name"], row["sender_hash"]),
                 date=_datetime_part(row["sent_at"]),
             )

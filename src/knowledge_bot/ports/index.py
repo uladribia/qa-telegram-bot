@@ -4,6 +4,8 @@
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
+
 
 @dataclass(frozen=True, slots=True)
 class IndexableQA:
@@ -21,6 +23,7 @@ class IndexableQA:
     url: str | None = None
     date: str | None = None
     author: str | None = None
+    scope: str = GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,7 @@ class IndexableMessage:
     text: str
     source_type: str
     authority: int
+    conversation_id: str
     author: str | None = None
     date: str | None = None
 

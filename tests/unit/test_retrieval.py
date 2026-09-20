@@ -56,3 +56,74 @@ async def test_retrieval_filters_status_and_ranks_by_similarity() -> None:
     assert retrieved.qa[0].question == "Quan?"
     assert [item.source_id for item in retrieved.messages] == ["m1", "m2"]
     assert retrieved.messages[0].label == "Grup"
+
+
+async def test_scoped_retrieval_sees_global_and_own_group_only() -> None:
+    """A question in group A sees global knowledge and group A only."""
+    store = FakeVectorStore()
+    vector = [1.0, 0.0]
+    await store.upsert(
+        [
+            VectorRecord(
+                id="qa-global",
+                values=vector,
+                metadata={"kind": "qa_version", "status": "active", "scope": "global"},
+            ),
+            VectorRecord(
+                id="qa-a",
+                values=vector,
+                metadata={"kind": "qa_version", "status": "active", "scope": "-100"},
+            ),
+            VectorRecord(
+                id="qa-b",
+                values=vector,
+                metadata={"kind": "qa_version", "status": "active", "scope": "-200"},
+            ),
+            VectorRecord(
+                id="msg-a",
+                values=vector,
+                metadata={"kind": "message", "scope": "-100"},
+            ),
+            VectorRecord(
+                id="msg-b",
+                values=vector,
+                metadata={"kind": "message", "scope": "-200"},
+            ),
+        ]
+    )
+    service = RetrievalService(
+        embedder=FakeEmbedder(vector),
+        vectors=store,
+        qa_top_k=5,
+        message_top_k=5,
+    )
+    retrieved = await service.retrieve("pregunta", conversation_id="-100")
+    qa_ids = [item.source_id for item in retrieved.qa]
+    message_ids = [item.source_id for item in retrieved.messages]
+    assert "qa-global" in qa_ids and "qa-a" in qa_ids
+    assert "qa-b" not in qa_ids
+    assert "msg-a" in message_ids
+    assert "msg-b" not in message_ids
+
+
+async def test_group_variant_beats_the_global_answer() -> None:
+    """When both scopes match equally, the group variant comes first."""
+    store = FakeVectorStore()
+    vector = [1.0, 0.0]
+    await store.upsert(
+        [
+            VectorRecord(
+                id="qa-global",
+                values=vector,
+                metadata={"kind": "qa_version", "status": "active", "scope": "global"},
+            ),
+            VectorRecord(
+                id="qa-group",
+                values=vector,
+                metadata={"kind": "qa_version", "status": "active", "scope": "-100"},
+            ),
+        ]
+    )
+    service = RetrievalService(embedder=FakeEmbedder(vector), vectors=store)
+    retrieved = await service.retrieve("pregunta", conversation_id="-100")
+    assert [item.source_id for item in retrieved.qa] == ["qa-group", "qa-global"]

@@ -226,7 +226,9 @@ class AnswerService:
         if not question:
             return None
         try:
-            retrieved = await self.retrieval.retrieve(question)
+            retrieved = await self.retrieval.retrieve(
+                question, conversation_id=message.conversation_id
+            )
             outcome = await self.decide(question, retrieved)
         except ModelUnavailableError:
             outcome = AnswerOutcome(

@@ -22,6 +22,7 @@ async def test_reindex_embeds_qa_and_messages_with_metadata() -> None:
                 text="hola",
                 source_type="telegram",
                 authority=40,
+                conversation_id="-100",
             )
         ],
     )
@@ -36,11 +37,13 @@ async def test_reindex_embeds_qa_and_messages_with_metadata() -> None:
     assert qa.metadata["kind"] == "qa_version"
     assert qa.metadata["status"] == "active"
     assert qa.metadata["authority"] == 90
+    assert qa.metadata["scope"] == "global"
     assert qa.metadata["question"] == "Quan?"
     assert qa.metadata["text"] == "Dimarts"
     message = vectors.records["m1"]
     assert message.metadata["kind"] == "message"
     assert message.metadata["authority"] == 40
+    assert message.metadata["scope"] == "-100"
 
 
 async def test_reindex_of_an_empty_source_is_a_noop() -> None:
