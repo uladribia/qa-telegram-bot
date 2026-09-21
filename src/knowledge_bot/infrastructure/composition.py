@@ -262,6 +262,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             admin_user_id=settings.admin_telegram_user_id,
             mode=settings.admin_report_mode,
             interval_min=settings.admin_report_interval_min,
+            budget=budget,
         ),
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(database),

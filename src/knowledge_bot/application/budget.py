@@ -75,6 +75,10 @@ class AiBudget:
         characters = len(prompt) + len(response)
         return max(characters, 0) * self.chat_neurons_per_char
 
+    async def usage_today(self) -> tuple[float, int]:
+        """Return today's estimated ``(neurons, calls)`` for reporting."""
+        return await self.usage.get(self.day())
+
     async def record(self, neurons: float) -> None:
         """Add an estimate to today's total."""
         day = self.day()

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.reviewers import (
     ReviewerManager,
     ReviewerReportService,
@@ -21,7 +22,11 @@ from tests.fakes.repositories import (
     InMemoryReviewerEventRepository,
     InMemoryReviewerRepository,
 )
-from tests.fakes.support import FrozenClock, InMemoryReportStateRepository
+from tests.fakes.support import (
+    FrozenClock,
+    InMemoryAiUsageRepository,
+    InMemoryReportStateRepository,
+)
 
 NOW = datetime(2026, 9, 21, 18, 4, tzinfo=UTC)
 
@@ -101,12 +106,16 @@ def test_render_reviewer_list_and_report() -> None:
     assert "Correccions revisades (1)" in report
     assert "Pepe · Prebenjamins" in report
     assert "aprovada (global)" in report
+    assert "Consum d'IA" not in report
+    with_spend = render_report([_event()], spend=(123.4, 10_000.0, 7))
+    assert "Consum d'IA avui: 123 / 10000 neurones en 7 crides" in with_spend
 
 
 def _report_service(
     events: InMemoryReviewerEventRepository,
     transport,  # noqa: ANN001 - recording transport from fakes
     mode: str,
+    budget: AiBudget | None = None,
 ) -> ReviewerReportService:
     return ReviewerReportService(
         events=events,
@@ -115,6 +124,7 @@ def _report_service(
         clock=FrozenClock(NOW),
         admin_user_id="1",
         mode=mode,
+        budget=budget,
     )
 
 
@@ -134,10 +144,24 @@ def test_always_mode_reports_immediately() -> None:
     """With mode=always every recorded event reaches the admin at once."""
     events = InMemoryReviewerEventRepository()
     transport = RecordingTransportStub()
-    service = _report_service(events, transport, "always")
+    budget = AiBudget(usage=InMemoryAiUsageRepository(), clock=FrozenClock(NOW))
+    asyncio.run(budget.record(123.4))
+    service = _report_service(events, transport, "always", budget=budget)
     asyncio.run(service.record(_event()))
     assert len(transport.messages) == 1
+    assert (
+        "Consum d'IA avui: 123 / 10000 neurones en 1 crides" in transport.messages[0][1]
+    )
     assert asyncio.run(events.list_unreported()) == []
+
+
+def test_report_without_budget_has_no_spend_line() -> None:
+    """A report service without a budget omits the usage line entirely."""
+    events = InMemoryReviewerEventRepository()
+    transport = RecordingTransportStub()
+    service = _report_service(events, transport, "always")
+    asyncio.run(service.record(_event()))
+    assert "Consum d'IA" not in transport.messages[0][1]
 
 
 def test_batch_mode_holds_until_due() -> None:
