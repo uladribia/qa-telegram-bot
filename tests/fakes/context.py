@@ -7,16 +7,19 @@ from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.feedback import FeedbackService
+from knowledge_bot.application.groups import GroupRegistrar
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
+    FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
 )
@@ -41,6 +44,7 @@ from tests.fakes.support import (
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 WEBHOOK_SECRET = "secret"
 ALLOWED_CHAT_ID = "-100"
+ALLOWED_CHAT_IDS = "-100,-200"
 BOT_ID = "999"
 BOT_USERNAME = "bot"
 
@@ -96,14 +100,14 @@ def build_test_context(
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
         telegram_bot_username=BOT_USERNAME,
-        allowed_telegram_chat_id=ALLOWED_CHAT_ID,
+        allowed_telegram_chat_ids=ALLOWED_CHAT_IDS,
         admin_telegram_user_id="1",
         internal_admin_key="internal",
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )
     identity = TelegramIdentity(
-        allowed_chat_id=ALLOWED_CHAT_ID,
+        allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
         bot_id=BOT_ID,
         bot_username=BOT_USERNAME,
@@ -127,12 +131,21 @@ def build_test_context(
             ingestor=ingestor,
             clock=clock,
         ),
+        groups=GroupRegistrar(
+            sources=InMemorySourceRepository(),
+            conversations=InMemoryConversationRepository(),
+            clock=clock,
+        ),
+        review=ReviewService(
+            source=FakeReviewSource(), conversations=InMemoryConversationRepository()
+        ),
         feedback=FeedbackService(
             answers=answers,
             feedback=feedback_repo,
             qa_items=InMemoryQAItemRepository(),
             qa_versions=InMemoryQAVersionRepository(),
             evidence=InMemoryQAEvidenceRepository(),
+            conversations=InMemoryConversationRepository(),
             clock=clock,
         ),
         feedback_repo=feedback_repo,

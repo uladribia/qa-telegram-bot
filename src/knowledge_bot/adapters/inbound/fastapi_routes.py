@@ -18,6 +18,7 @@ from knowledge_bot.adapters.inbound.telegram import (
 )
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
+    GROUP_SCOPE,
     PROPOSAL_ACK,
     PROPOSAL_PROMPT,
     REVIEW_REJECTED,
@@ -26,11 +27,13 @@ from knowledge_bot.application.feedback import (
     render_review,
 )
 from knowledge_bot.application.intake import IntakeAction, decide_intake
+from knowledge_bot.application.review import render_review_report
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
@@ -175,21 +178,38 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        sent = await context.recap.maybe_send(context.settings.allowed_telegram_chat_id)
+        sent = False
+        for chat_id in context.settings.allowed_chat_ids:
+            sent = (await context.recap.maybe_send(chat_id)) or sent
         return {"status": "sent" if sent else "skipped"}
 
     @app.post("/internal/reindex")
     async def internal_reindex(
         request: Request,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, int]:
-        """Rebuild the derived vector store from D1."""
+    ) -> dict[str, object]:
+        """Rebuild part of the derived vector store from D1.
+
+        Accepts an optional JSON body with ``qa_after``/``msg_after`` cursors
+        and ``limit``; without it, one unbounded pass indexes everything.
+        """
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        report = await context.reindex.reindex()
-        return {"qa": report.qa, "messages": report.messages}
+        payload = await request.json()
+        body = payload if isinstance(payload, dict) else {}
+        report = await context.reindex.reindex(
+            qa_after=body.get("qa_after"),
+            msg_after=body.get("msg_after"),
+            limit=int(body["limit"]) if body.get("limit") is not None else None,
+        )
+        return {
+            "qa": report.qa,
+            "messages": report.messages,
+            "qa_after": report.next_qa,
+            "msg_after": report.next_msg,
+        }
 
     @app.post("/internal/retrieve")
     async def internal_retrieve(
@@ -228,9 +248,51 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             NormalizedMessage.model_validate(item)
             for item in payload.get("messages") or []
         ]
-        created, skipped = await context.seed.seed_qa(qa_entries)
-        message_count = await context.seed.seed_messages(messages)
-        return {"qa": created, "qa_skipped": skipped, "messages": message_count}
+        scope = payload.get("scope")
+        if not isinstance(scope, str) or not scope.strip():
+            scope = "global"
+        renew = bool(payload.get("renew", False))
+        created, skipped, renewed = await context.seed.seed_qa(qa_entries, scope, renew)
+        message_count = await context.seed.seed_messages(messages, scope)
+        return {
+            "qa": created,
+            "qa_skipped": skipped,
+            "qa_renewed": renewed,
+            "messages": message_count,
+        }
+
+    @app.post("/internal/groups")
+    async def internal_groups(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Register a served Telegram group (idempotent)."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        if not isinstance(payload, dict) or not str(payload.get("chat_id", "")).strip():
+            raise HTTPException(status_code=400, detail="chat_id required")
+        title = payload.get("title")
+        await context.groups.register(
+            str(payload["chat_id"]).strip(),
+            title=str(title).strip()
+            if isinstance(title, str) and title.strip()
+            else None,
+        )
+        return {"status": "registered"}
+
+    @app.post("/internal/review")
+    async def internal_review(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Return the human knowledge review report as markdown."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        entries = await context.review.review()
+        return {"report": render_review_report(entries)}
 
     return app
 
@@ -388,11 +450,12 @@ async def _handle_callback(
             )
         await context.transport.answer_callback(callback_id)
         return "feedback_started"
-    if action == "approve":
-        version = await context.feedback.approve(target)
+    if action == "approve_global" or action == "approve_group":
+        scope = GLOBAL_SCOPE if action == "approve_global" else GROUP_SCOPE
+        version = await context.feedback.approve(target, scope)
         if version is None:
             return "ignored"
-        await context.reindex.reindex()
+        await context.reindex.reindex_qa_version(version.id)
         feedback = await context.feedback_repo.get(target)
         await context.transport.send_message(admin_id, ADMIN_APPROVED)
         if feedback is not None and feedback.reporter_chat_id:

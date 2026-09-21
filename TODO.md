@@ -1,3 +1,3 @@
 1. Deployment guide for agents and people, and test it for "prebenjamins".
-2. CLI to refresh knowledge base from whatsapp extract and web (live) or other sources.
-3. Refactor and agent audit with ASTRA and grill-me
+2. Add multi correction users and assign them via telegram app.
+3. Add an explanation of the flows for layman users

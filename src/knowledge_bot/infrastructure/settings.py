@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""
     telegram_bot_id: str = ""
     telegram_bot_username: str = ""
-    allowed_telegram_chat_id: str = ""
+    allowed_telegram_chat_ids: str = ""
     allowed_telegram_user_ids: str = ""
     admin_telegram_user_id: str = ""
     internal_admin_key: str = ""
@@ -46,6 +46,19 @@ class Settings(BaseSettings):
     ai_neuron_reserve_fraction: float = 0.25
     ai_embed_neurons_per_char: float = 0.015
     ai_chat_neurons_per_char: float = 0.020
+
+    @property
+    def allowed_chat_ids(self) -> tuple[str, ...]:
+        """Return the allowed Telegram group chat ids.
+
+        ``ALLOWED_TELEGRAM_CHAT_IDS`` is a comma-separated list; one entry
+        per group the bot serves.
+        """
+        return tuple(
+            chat_id.strip()
+            for chat_id in self.allowed_telegram_chat_ids.split(",")
+            if chat_id.strip()
+        )
 
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":

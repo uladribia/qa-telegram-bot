@@ -30,6 +30,7 @@ from knowledge_bot.domain.enums import (
     SourceType,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.review import ReviewItem
 
 
 class D1Result(Protocol):
@@ -155,8 +156,8 @@ class D1SourceRepository:
             self._db.prepare(
                 "INSERT INTO sources"
                 " (id, source_type, external_ref, title, canonical_url,"
-                " authority, is_mutable, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " authority, is_mutable, created_at, scope)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 source.id,
@@ -167,6 +168,7 @@ class D1SourceRepository:
                 source.authority,
                 int(source.is_mutable),
                 _iso(source.created_at),
+                source.scope,
             )
             .run()
         )
@@ -189,6 +191,7 @@ class D1SourceRepository:
             title=_opt_str(row["title"]),
             canonical_url=_opt_str(row["canonical_url"]),
             is_mutable=bool(row["is_mutable"]),
+            scope=str(row["scope"]),
         )
 
     async def save(self, source: Source) -> None:
@@ -196,7 +199,8 @@ class D1SourceRepository:
         await (
             self._db.prepare(
                 "UPDATE sources SET source_type = ?, external_ref = ?, title = ?,"
-                " canonical_url = ?, authority = ?, is_mutable = ? WHERE id = ?"
+                " canonical_url = ?, authority = ?, is_mutable = ?, scope = ?"
+                " WHERE id = ?"
             )
             .bind(
                 source.source_type.value,
@@ -205,6 +209,7 @@ class D1SourceRepository:
                 source.canonical_url,
                 source.authority,
                 int(source.is_mutable),
+                source.scope,
                 source.id,
             )
             .run()
@@ -251,6 +256,22 @@ class D1ConversationRepository:
             created_at=_dt(row["created_at"]),
             external_id=_opt_str(row["external_id"]),
             title=_opt_str(row["title"]),
+        )
+
+    async def save(self, conversation: Conversation) -> None:
+        """Persist changes to an existing conversation."""
+        await (
+            self._db.prepare(
+                "UPDATE conversations SET source_id = ?, external_id = ?,"
+                " title = ? WHERE id = ?"
+            )
+            .bind(
+                conversation.source_id,
+                conversation.external_id,
+                conversation.title,
+                conversation.id,
+            )
+            .run()
         )
 
 
@@ -521,21 +542,65 @@ class D1SearchIndexSource:
         """Wrap a D1 database binding."""
         self._db = database
 
-    async def list_qa(self) -> list[IndexableQA]:
-        """Return the active Q&A versions to index.
+    async def get_qa(self, version_id: str) -> IndexableQA | None:
+        """Return one active Q&A version to index, by version id."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT qv.id AS version_id, qi.canonical_question AS question,"
+                " qv.answer AS answer, qv.authority AS authority,"
+                " qi.canonical_key AS anchor, qv.source_url AS source_url,"
+                " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
+                " FROM qa_versions qv"
+                " JOIN qa_items qi ON qi.id = qv.qa_id"
+                " WHERE qi.status = 'active' AND qv.id = ?"
+            )
+            .bind(version_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return IndexableQA(
+            version_id=str(row["version_id"]),
+            question=str(row["question"]),
+            answer=str(row["answer"]),
+            authority=int(cast(int, row["authority"])),
+            anchor=_opt_str(row["anchor"]),
+            url=_exact_url(row["source_url"], row["anchor"]),
+            date=_date_part(row["created_at"]),
+            author=_opt_str(row["author"]),
+            scope=str(row["scope"]),
+        )
 
-        Each version is cited from its own origin: a web snapshot entry keeps
-        its anchored URL, an approved correction cites its author.
+    async def list_qa(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableQA]:
+        """Return the active Q&A versions to index, in id-order batches.
+
+        Args:
+            after: Only versions with id greater than this (cursor).
+            limit: Maximum batch size.
+
+        Returns:
+            The next batch of versions.
         """
-        result = await self._db.prepare(
+        query = (
             "SELECT qv.id AS version_id, qi.canonical_question AS question,"
             " qv.answer AS answer, qv.authority AS authority,"
             " qi.canonical_key AS anchor, qv.source_url AS source_url,"
-            " qv.author AS author, qv.created_at AS created_at"
+            " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
-        ).run()
+        )
+        params: list[object] = []
+        if after is not None:
+            query += " AND qv.id > ?"
+            params.append(after)
+        query += " ORDER BY qv.id"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        result = await self._db.prepare(query).bind(*params).run()
         return [
             IndexableQA(
                 version_id=str(row["version_id"]),
@@ -546,22 +611,36 @@ class D1SearchIndexSource:
                 url=_exact_url(row["source_url"], row["anchor"]),
                 date=_date_part(row["created_at"]),
                 author=_opt_str(row["author"]),
+                scope=str(row["scope"]),
             )
             for row in _rows(result)
         ]
 
-    async def list_messages(self) -> list[IndexableMessage]:
-        """Return the messages with text to index."""
-        result = await self._db.prepare(
-            "SELECT id, source_id, text, sender_hash, sender_name, sent_at"
+    async def list_messages(
+        self, after: str | None = None, limit: int | None = None
+    ) -> list[IndexableMessage]:
+        """Return the messages with text to index, in id-order batches."""
+        query = (
+            "SELECT id, source_id, conversation_id, text,"
+            " sender_hash, sender_name, sent_at"
             " FROM messages WHERE text IS NOT NULL AND text != ''"
-        ).run()
+        )
+        params: list[object] = []
+        if after is not None:
+            query += " AND id > ?"
+            params.append(after)
+        query += " ORDER BY id"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        result = await self._db.prepare(query).bind(*params).run()
         return [
             IndexableMessage(
                 message_id=str(row["id"]),
                 text=str(row["text"]),
                 source_type=str(row["source_id"]),
                 authority=_message_authority(str(row["source_id"])),
+                conversation_id=str(row["conversation_id"]),
                 author=_sender_label(row["sender_name"], row["sender_hash"]),
                 date=_datetime_part(row["sent_at"]),
             )
@@ -582,7 +661,7 @@ class D1QAItemRepository:
             self._db.prepare(
                 "INSERT INTO qa_items"
                 " (id, canonical_key, canonical_question, status, current_version_id,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " created_at, updated_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 item.id,
@@ -592,6 +671,7 @@ class D1QAItemRepository:
                 item.current_version_id,
                 _iso(item.created_at),
                 _iso(item.updated_at),
+                item.scope,
             )
             .run()
         )
@@ -605,11 +685,17 @@ class D1QAItemRepository:
         )
         return _qa_item(row) if row is not None else None
 
-    async def get_by_canonical_key(self, canonical_key: str) -> QAItem | None:
-        """Return a Q&A item by canonical key, if present."""
+    async def get_by_canonical_key(
+        self,
+        canonical_key: str,
+        scope: str = "global",
+    ) -> QAItem | None:
+        """Return a Q&A item by canonical key within a scope, if present."""
         row = _row(
-            await self._db.prepare("SELECT * FROM qa_items WHERE canonical_key = ?")
-            .bind(canonical_key)
+            await self._db.prepare(
+                "SELECT * FROM qa_items WHERE canonical_key = ? AND scope = ?"
+            )
+            .bind(canonical_key, scope)
             .first()
         )
         return _qa_item(row) if row is not None else None
@@ -705,6 +791,7 @@ def _qa_item(row: dict[str, object]) -> QAItem:
         status=QAStatus(str(row["status"])),
         created_at=_dt(row["created_at"]),
         updated_at=_dt(row["updated_at"]),
+        scope=str(row["scope"]),
         current_version_id=_opt_str(row["current_version_id"]),
     )
 
@@ -878,3 +965,42 @@ def _feedback(row: dict[str, object]) -> Feedback:
         proposed_at=_opt_dt(row["proposed_at"]),
         resolved_at=_opt_dt(row["resolved_at"]),
     )
+
+
+class D1ReviewSource:
+    """D1 implementation of ``ReviewSource`` for the human review report."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def list_current(self) -> list[ReviewItem]:
+        """Return the current version of every active Q&A item.
+
+        Each row carries the origin of the version it superseded, so the
+        report can spot a renewal that overwrote a correction.
+        """
+        result = await self._db.prepare(
+            "SELECT qi.canonical_key AS canonical_key,"
+            " qi.canonical_question AS question, qi.scope AS scope,"
+            " qi.status AS status,"
+            " qv.answer AS answer, qv.origin AS origin, qv.created_at AS created_at,"
+            " prev.origin AS superseded_origin"
+            " FROM qa_items qi"
+            " JOIN qa_versions qv ON qv.id = qi.current_version_id"
+            " LEFT JOIN qa_versions prev ON prev.id = qv.supersedes_version_id"
+            " WHERE qi.status IN ('active', 'under_review')"
+        ).run()
+        return [
+            ReviewItem(
+                canonical_key=str(row["canonical_key"]),
+                question=str(row["question"]),
+                scope=str(row["scope"]),
+                answer=str(row["answer"]),
+                origin=str(row["origin"]),
+                created_at=_dt(row["created_at"]),
+                status=str(row["status"]),
+                superseded_origin=_opt_str(row["superseded_origin"]),
+            )
+            for row in _rows(result)
+        ]

@@ -58,6 +58,7 @@ Full instructions, including the one-time Cloudflare resources, are in
 | `make format` | Format and auto-fix |
 | `make smoke` | Build the dev image, boot the Worker, check `/healthz` |
 | `make reindex` | Rebuild the derived vector index from D1 |
+| `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
 | `make eval-live` | Live quality gate (real model calls; costs AI quota) |
 | `make eval-live-reindex` | Same, rebuilding the index first |
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |

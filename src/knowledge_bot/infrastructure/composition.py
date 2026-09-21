@@ -9,10 +9,12 @@ from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.feedback import FeedbackService
+from knowledge_bot.application.groups import GroupRegistrar
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -27,6 +29,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1QAItemRepository,
     D1QAVersionRepository,
     D1RecapStateRepository,
+    D1ReviewSource,
     D1SearchIndexSource,
     D1SourceRepository,
 )
@@ -65,6 +68,8 @@ class AppContext:
     recap: RecapService
     reindex: ReindexService
     seed: SeedService
+    groups: GroupRegistrar
+    review: ReviewService
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
     budget: AiBudget
@@ -114,7 +119,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     settings = Settings(
         telegram_bot_token=_text(env, "TELEGRAM_BOT_TOKEN"),
         telegram_webhook_secret=_text(env, "TELEGRAM_WEBHOOK_SECRET"),
-        allowed_telegram_chat_id=_text(env, "ALLOWED_TELEGRAM_CHAT_ID"),
+        allowed_telegram_chat_ids=_text(env, "ALLOWED_TELEGRAM_CHAT_IDS"),
         allowed_telegram_user_ids=_text(env, "ALLOWED_TELEGRAM_USER_IDS"),
         admin_telegram_user_id=_text(env, "ADMIN_TELEGRAM_USER_ID"),
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
@@ -155,7 +160,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
-            allowed_chat_id=settings.allowed_telegram_chat_id,
+            allowed_chat_ids=frozenset(settings.allowed_chat_ids),
             admin_user_id=settings.admin_telegram_user_id,
             bot_id=settings.telegram_bot_id,
             bot_username=settings.telegram_bot_username,
@@ -207,12 +212,22 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             clock=clock,
         ),
+        groups=GroupRegistrar(
+            sources=D1SourceRepository(database),
+            conversations=D1ConversationRepository(database),
+            clock=clock,
+        ),
+        review=ReviewService(
+            source=D1ReviewSource(database),
+            conversations=D1ConversationRepository(database),
+        ),
         feedback=FeedbackService(
             answers=answers,
             feedback=D1FeedbackRepository(database),
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
             evidence=D1QAEvidenceRepository(database),
+            conversations=D1ConversationRepository(database),
             clock=clock,
         ),
         feedback_repo=D1FeedbackRepository(database),

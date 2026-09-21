@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all eval-live eval-live-reindex reindex smoke
+.PHONY: all format lint test test-integration test-all eval-live eval-live-reindex reindex smoke seed-self-qa
 
 all: lint test
 
@@ -40,6 +40,12 @@ eval-live-reindex:
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:
 	uv run kb reindex
+
+# Seed the bot's self-explanation Q&A (data/seed/bot_self_qa.json) into the
+# deployed Worker as global knowledge. Idempotent: run it after every release
+# tag and after any change to the self-explanation entries.
+seed-self-qa:
+	BOT_BASE_URL=$${BOT_BASE_URL:-https://bhc-qa-testbot.qa-bots.workers.dev} uv run kb seed --qa data/seed/bot_self_qa.json
 
 # Runtime fidelity: build the dev image, run the Worker, check /healthz.
 smoke:

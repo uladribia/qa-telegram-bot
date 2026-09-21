@@ -128,7 +128,7 @@ El Bot API no crea el grup per nosaltres. Per al prototip, l'usuari farà manual
    - fer-lo administrador.
 5. Enviar `/chatid` al grup.
 6. El bot ha de respondre el `chat_id`.
-7. Configurar aquest valor com `ALLOWED_TELEGRAM_CHAT_ID`.
+7. Configurar aquest valor com a entrada de `ALLOWED_TELEGRAM_CHAT_IDS`.
 8. En privat amb el bot, enviar `/whoami`.
 9. Configurar el `user_id` retornat com `ADMIN_TELEGRAM_USER_ID`.
 
@@ -2129,7 +2129,7 @@ INTERNAL_ADMIN_KEY
 Vars:
 
 ```text
-ALLOWED_TELEGRAM_CHAT_ID
+ALLOWED_TELEGRAM_CHAT_IDS
 ADMIN_TELEGRAM_USER_ID
 
 EMBEDDING_MODEL=@cf/google/embeddinggemma-300m
@@ -3291,8 +3291,10 @@ El prototip està acabat quan:
 
 # 53.1. Estat actual de la implementació
 
-Darrera actualització: 2026-09-19. Aquest apartat és la font de veritat sobre què
-està fet i què no; la resta del pla descriu el destí, no l'estat.
+Darrera actualització: **2026-09-21**. Aquest apartat és la font de veritat sobre què
+està fet i què no; la resta del pla descriu el destí, no l'estat. Els milestones
+M1–M6 i M8–M11 estan fets i desplegats; el pla original es considera implementat
+en allà on aquest apartat no digui el contrari.
 
 ## Fet i verificat
 
@@ -3309,15 +3311,40 @@ està fet i què no; la resta del pla descriu el destí, no l'estat.
   abans d'esgotar la quota. Una pregunta d'usuari mai és refusada (degrada a error temporal).
 - **Citacions amb procedència real**: web → URL exacta amb àncora; grup → autor i data;
   correcció → autor de la proposta i data de la proposta. La procedència viu a la versió.
+- **Coneixement multi-grup (scopes)** (després del 2026-09-19): registre de grups
+  (`kb group add`), seed amb `--scope`, retrieval que combina la capa global amb la
+  del grup que pregunta. Una variant de grup sempre guanya la resposta global de la
+  mateixa pregunta dins del seu grup, i l'admin tria l'abast (global o grup) en aprovar
+  una correcció. Migració `0008`.
+- **Renovació append-only de la base**: `kb seed --renew` afegeix una nova versió quan
+  canvia la resposta (latest wins); els originals mai no s'esborren. La divergència
+  amb correccions recents es veu al report de revisió.
+- **Report de revisió humana**: `kb review` genera un Markdown de només lectura amb
+  les divergències entre base i correccions, variants de grup, i renovacions que
+  han sobreescrit correccions recents.
+- **Batching de seed/reindex**: peticions en lots per cabre dins el límit de CPU del
+  pla gratuït, amb cursors per reprendre si una petició pesada cau; reindex dirigit
+  d'una sola versió després d'aprovar una correcció; texts de missatge capats a l'índex.
+- **Gate d'accés per DM**: els missatges directes queden restringits a l'admin i els
+  usuaris de `ALLOWED_TELEGRAM_USER_IDS`; el flux de correcció accepta sempre la
+  resposta a una pregunta del bot, sense allowlist.
+- **El bot s'explica a si mateix**: Q&A estàtic versionat a
+  `data/seed/bot_self_qa.json` (generat dels docs, sense LLM en runtime), sembrat
+  com a coneixement global amb `make seed-self-qa` i mantingut a cada tag
+  (AGENTS.md §10.1). Respon "qui ets?", "com funciones?", el flux de correcció,
+  els límits i l'abstenció. Resol §53.2 per la via estàtica.
 
-Gates: **87 unitaris + 56 integració** verds, offline evals 4/4, `ruff` i `ty` nets.
+Gates: **88 unitaris + 72 integració + 2 arquitectura** (162) verds, offline evals
+4/4 (trigger 5/5, abstenció 16/16, citacions 5/5, seed versioning 4/4), `ruff` i
+`ty` nets.
 
 ## Pendent (decidit, no fet)
 
 - **M7 classificador** (§12): no hi ha mòdul ni calibratge. `evals/classifier.yaml`
   existeix sense res a provar. Es va ajornar perquè el listener està apagat i el bot
   només respon quan se l'adreça. És un milestone del pla, per tant està pendent.
-- **M3 pendents**: `/chatid` i `/whoami` no implementats.
+- **M3 pendents**: `/chatid` i `/whoami` no implementats (el chat id es llegeix a
+  mà del primer update; vegeu `docs/setup.md`).
 - **§26 actualitzar la resposta enviada**: `edit_message` existeix al port de transport
   però **no es crida mai**. Després d'aprovar, el missatge original del grup continua
   mostrant la resposta antiga.
@@ -3334,7 +3361,6 @@ Gates: **87 unitaris + 56 integració** verds, offline evals 4/4, `ruff` i `ty` 
   objectiu ≥ 95% quan es va esgotar la quota.
 - **El jutge condicional** (dues crides, només per a casos que passen els controls
   deterministes) **no s'ha provat mai en viu**.
-- **Reindex pendent** per publicar la correcció de citacions a Vectorize.
 
 ## Fora d'abast a propòsit
 
@@ -3342,53 +3368,47 @@ Gates: **87 unitaris + 56 integració** verds, offline evals 4/4, `ruff` i `ty` 
 
 ---
 
-# 53.2. Tasca pendent: el bot que s'explica a si mateix
+# 53.2. El bot que s'explica a si mateix — RESOLT (2026-09-21)
 
-**Objectiu.** Quan algú pregunta què fa el bot, com funciona o com es corregeix una
-resposta, el bot ha de respondre **amb les seves pròpies paraules i en la llengua de
-la pregunta**, de manera entenedora, **extret del seu propi material documental**.
+**Resolt per la via estàtica.** El bot respon "qui ets?", "com funciones?", com
+es corregeix una resposta, quins són els seus límits i per què s'absté, a partir
+d'un Q&A estàtic versionat: `data/seed/bot_self_qa.json`.
 
-No és un assistent general: ha d'explicar el seu propi funcionament, no opinar.
+## Com funciona
 
-## Per què
+1. El fitxer el genera el model de coding **a partir de `docs/` i `README.md`**
+   en el moment del tag de release; no hi ha generació LLM en runtime ni en pipeline.
+2. Es sembra com a Q&A **global** amb `make seed-self-qa`
+   (`kb seed --qa data/seed/bot_self_qa.json`), amb el mateix pipeline que
+   qualsevol altra Q&A del web: idempotent, versionat, i amb `--renew` quan
+   canvia un text.
+3. Retrieval, evidence gate i citació no tenen cap camí especial: el bot respon
+   en la llengua de la pregunta, com ja fa, i pot citar l'entrada del doc d'origen
+   (`source_url` apunta al fitxer de `docs/` corresponent al GitHub).
+4. Les entrades no exposen internals (taules, secrets, claus de configuració).
 
-Avui, si algú pregunta "què saps fer?", el bot abstenirà o respondrà amb una Q&A del
-club que no hi té res a veure. La documentació existeix (`README.md`, `docs/*.md`),
-però el bot no la pot llegir.
+## Per què no l'enfocament d'indexar `docs/` per seccions
 
-## Enfocament proposat
+L'enfocament proposat originalment (`kind=doc_section` a Vectorize, metadata per
+secció, data del git) quedava descartat de moment perquè:
 
-1. **Indexar la documentació com una procedència més**, amb un `kind` propi
-   (p. ex. `doc_section`) per secció, no el fitxer sencer.
-2. Metadata per secció: `path` (`docs/usage.md`), `heading`, `text`, `date` (del git).
-3. **Citació**: `• Docs · <títol de la secció> · docs/usage.md` (sense URL pública;
-   si algun dia hi ha web, l'URL exacta).
-4. **Reutilitzar el pipeline existent**: retrieval + evidence gate + generació. Sense
-   cap model nou ni cap camí especial: el bot respon en la llengua de la pregunta, com ja fa.
-5. **Ordre d'autoritat**: per a preguntes **factuals del club**, les Q&A del club
-   manen sobre la documentació. La documentació només respon sobre el propi bot.
-6. **Abstenir si no està documentat**: si la secció no existeix, ha de dir que no ho sap.
-   Mai inventar-se capacitats que no té.
+- afegeix un `kind` nou al retrieval i metadata indexes per resoldre un problema
+  que un fitxer estàtic de 14 entrades cobreix;
+- el contingut explicatiu del bot canvia poc i el volíem revisable per un humà
+  abans de publicar-lo;
+- la documentació ja viu al git; duplicar-la a l'índex trencaria "D1 és la font
+  de veritat" per a material que no és coneixement del club.
 
-## Restriccions
+Si el material creix o vol citar seccions exactes amb data del git, l'enfocament
+de `doc_section` segueix sent l'upgrade path natural.
 
-- Cost 0 €: només els models permesos, sense fallback.
-- La documentació és al git; l'índex és derivat i reconstruïble amb `make reindex`.
-- No exposar detalls interns innecessaris (noms de taules, secrets, claus).
-- No usar la documentació com a evidència per a fets del club.
+## Criteris d'acceptació
 
-## Criteris d'acceptació (evals)
-
-- "Què saps fer?" → explica el flow (respon, cita, i es pot corregir) amb una font de `docs/`.
-- La mateixa pregunta en castellà → respon en castellà.
-- "Com corregeixo una resposta equivocada?" → descriu el flow de correcció per DM.
-- Una capacitat que **no** existeix (p. ex. "processes fotos?") → abstenció o negació clara.
-- Cap resposta d'aquesta suite pot citar una font que no sigui de `docs/`.
-
-## Nota de manteniment
-
-Aquesta tasca i la documentació de `docs/` estan lligades: si el bot ha d'explicar el
-seu flow, `docs/usage.md` ha de descriure'l correctament. Actualitzar-les juntes.
+- "Qui ets?" / "Què saps fer?" → descriu el flow (respon, cita, es pot corregir).
+- "Com corregeixo una resposta equivocada?" → descriu el flux per DM.
+- Una capacitat inexistent ("processes fotos?") → negació clara.
+- Manteniment lligat a `docs/`: AGENTS.md §10.1 obliga a actualitzar les entrades
+  a la mateixa branca que el canvi de comportament, i a cada release tag.
 
 ---
 

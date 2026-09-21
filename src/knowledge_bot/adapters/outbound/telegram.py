@@ -36,9 +36,15 @@ def review_keyboard(feedback_id: str) -> dict[str, object]:
         "inline_keyboard": [
             [
                 {
-                    "text": "\u2705 Aprovar",
-                    "callback_data": f"feedback:approve:{feedback_id}",
+                    "text": "\U0001f310 Aprovar global",
+                    "callback_data": f"feedback:approve-global:{feedback_id}",
                 },
+                {
+                    "text": "\U0001f465 Aprovar grup",
+                    "callback_data": f"feedback:approve-group:{feedback_id}",
+                },
+            ],
+            [
                 {
                     "text": "\u270f\ufe0f Editar",
                     "callback_data": f"feedback:edit:{feedback_id}",
@@ -47,8 +53,8 @@ def review_keyboard(feedback_id: str) -> dict[str, object]:
                     "text": "\u274c Rebutjar",
                     "callback_data": f"feedback:reject:{feedback_id}",
                 },
-            ]
-        ]
+            ],
+        ],
     }
 
 

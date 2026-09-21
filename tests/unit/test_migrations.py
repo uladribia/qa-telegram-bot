@@ -53,7 +53,9 @@ def test_expected_indexes_exist() -> None:
 
 def _seed_source_and_conversation(connection: sqlite3.Connection) -> None:
     connection.execute(
-        "INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sources"
+        " (id, source_type, external_ref, title, canonical_url, authority,"
+        " is_mutable, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         ("s1", "telegram", None, None, None, 95, 0, "2026-01-01"),
     )
     connection.execute(
@@ -74,6 +76,28 @@ def test_feedback_routing_columns_exist() -> None:
         "proposal_prompt_message_id",
         "edit_prompt_message_id",
     } <= columns
+
+
+def test_qa_items_allow_one_variant_per_scope() -> None:
+    """The same canonical question exists once per scope, not once globally."""
+    connection = _connect()
+    _apply(connection)
+    sql = (
+        "INSERT INTO qa_items"
+        " (id, canonical_key, canonical_question, status, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    values = ("q1", "equipment", "?", "active", "2026-01-01", "2026-01-01")
+    connection.execute(sql, values)
+    connection.execute(
+        "INSERT INTO qa_items"
+        " (id, canonical_key, canonical_question, status, created_at, updated_at,"
+        " scope) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("q2", "equipment", "?", "active", "2026-01-01", "2026-01-01", "-100"),
+    )
+    duplicate = ("q3", "equipment", "?", "active", "2026-01-01", "2026-01-01")
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(sql, duplicate)
 
 
 def test_message_idempotency_key_is_unique() -> None:
@@ -126,7 +150,9 @@ def test_qa_version_history_is_append_only() -> None:
     connection = _connect()
     _apply(connection)
     connection.execute(
-        "INSERT INTO qa_items VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO qa_items"
+        " (id, canonical_key, canonical_question, status, current_version_id,"
+        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         ("q1", "equipment", "?", "active", "v1", "2026-01-01", "2026-01-01"),
     )
     connection.execute(

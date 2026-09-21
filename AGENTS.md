@@ -230,6 +230,24 @@ After every change:
 
 Never mark work complete while the gate is red.
 
+## 10.1 Bot self-explanation Q&A (`data/seed/bot_self_qa.json`)
+
+The bot explains itself in the group from a static, versioned Q&A file:
+`data/seed/bot_self_qa.json` (global scope, seeded like any other Q&A with
+`make seed-self-qa` or `uv run kb seed --qa data/seed/bot_self_qa.json`).
+
+- **When the bot's behaviour, flows, limits, or docs change, update the
+  self-explanation entries in the same branch.** It is part of `docs/`, not an
+  afterthought: a new command, flow, or failure mode is not finished until the
+  bot can describe it (or correctly disclaim it) from this file.
+- **Every release tag must ship an up-to-date version** and run
+  `make seed-self-qa` once against the deployed Worker after deploying. The
+  seed is idempotent; use `kb seed --renew` if an answer's text changed.
+- Entries are written in Catalan (the group's language), derive strictly from
+  `docs/` and `README.md`, cite their doc origin in `source_url`, and never
+  expose internals (table names, secrets, config keys). No LLM generation at
+  runtime or in a pipeline: a human-visible, reviewable static file.
+
 ## 11. Do not
 
 - Add frameworks, services, or dependencies beyond the plan (no LangChain, no

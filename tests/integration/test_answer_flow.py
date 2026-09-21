@@ -67,6 +67,7 @@ def _qa_record() -> VectorRecord:
         metadata={
             "kind": "qa_version",
             "status": "active",
+            "scope": "global",
             "text": "Els dimarts.",
             "authority": 90,
             "question": "Quan entrenen?",
@@ -78,7 +79,12 @@ def _message_record() -> VectorRecord:
     return VectorRecord(
         id="m9",
         values=[1.0, 0.0],
-        metadata={"kind": "message", "text": "els dimarts", "authority": 40},
+        metadata={
+            "kind": "message",
+            "scope": "-100",
+            "text": "els dimarts",
+            "authority": 40,
+        },
     )
 
 

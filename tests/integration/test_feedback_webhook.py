@@ -133,7 +133,7 @@ def test_approve_creates_a_version_and_thanks_the_reporter() -> None:
     )
     response = client.post(
         "/telegram/webhook",
-        json=_callback("feedback:approve:fb:ans:-100:10", from_id=1),
+        json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=1),
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_approved"}
@@ -184,7 +184,7 @@ def test_non_admin_cannot_confirm() -> None:
     )
     response = client.post(
         "/telegram/webhook",
-        json=_callback("feedback:approve:fb:ans:-100:10", from_id=555),
+        json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
@@ -202,9 +202,12 @@ def test_unknown_callback_is_ignored() -> None:
     assert response.json() == {"status": "ignored"}
 
 
-def test_review_text_includes_current_and_proposed() -> None:
-    """The review payload shows the current and proposed answers."""
-    from knowledge_bot.application.feedback import CorrectionRequest
+def test_review_text_includes_group_origin_and_current_source() -> None:
+    """The review payload shows the group, current source, and answers."""
+    from knowledge_bot.application.feedback import (
+        CorrectionRequest,
+        current_origin_label,
+    )
 
     text = render_review(
         CorrectionRequest(
@@ -212,11 +215,17 @@ def test_review_text_includes_current_and_proposed() -> None:
             question="Com?",
             current_answer="Antiga",
             proposed_answer="Nova",
+            group_label="Prebenjamins",
+            current_origin="web_seed",
         )
     )
+    assert "Grup: Prebenjamins" in text
+    assert "Resposta actual (web):" in text
     assert "Antiga" in text
     assert "Nova" in text
     assert "Com?" in text
+    assert current_origin_label(None) == "síntesi del grup"
+    assert current_origin_label("admin_approved") == "correcció aprovada"
 
 
 def test_button_label_is_the_expected_catalan() -> None:

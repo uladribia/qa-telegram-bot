@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: MIT
 """Integration tests for the correction flow (spec §34)."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from knowledge_bot.application.feedback import (
+    GROUP_SCOPE,
     FeedbackService,
     callback_action,
     callback_target,
@@ -16,8 +18,10 @@ from knowledge_bot.domain.enums import (
     QAOrigin,
     QAStatus,
 )
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from tests.fakes.repositories import (
     InMemoryBotAnswerRepository,
+    InMemoryConversationRepository,
     InMemoryFeedbackRepository,
     InMemoryQAEvidenceRepository,
     InMemoryQAItemRepository,
@@ -45,6 +49,7 @@ async def _service() -> tuple[
         qa_items=items,
         qa_versions=versions,
         evidence=InMemoryQAEvidenceRepository(),
+        conversations=InMemoryConversationRepository(),
         clock=FrozenClock(NOW),
     )
     return service, answers, items, versions, feedback
@@ -67,11 +72,13 @@ async def _seed_answer(answers: InMemoryBotAnswerRepository) -> BotAnswer:
 def test_callback_payloads_are_parsed() -> None:
     """The callback action and target are extracted from the payload."""
     assert callback_action("feedback:start:ans:m1") == "start"
-    assert callback_action("feedback:approve:fb:ans:m1") == "approve"
+    assert callback_action("feedback:approve-global:fb:ans:m1") == "approve_global"
+    assert callback_action("feedback:approve-group:fb:ans:m1") == "approve_group"
     assert callback_action("feedback:edit:fb:ans:m1") == "edit"
     assert callback_action("feedback:reject:fb:ans:m1") == "reject"
+    assert callback_action("feedback:approve:fb:ans:m1") is None
     assert callback_action("other:thing") is None
-    assert callback_target("feedback:approve:fb:ans:m1") == "fb:ans:m1"
+    assert callback_target("feedback:approve-global:fb:ans:m1") == "fb:ans:m1"
 
 
 async def test_full_correction_flow_creates_a_new_authoritative_version() -> None:
@@ -92,8 +99,11 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert request.question == "Com es demana l'equipament?"
     assert request.current_answer == "Resposta antiga."
     assert request.proposed_answer == "La llista la passa l'entrenador."
+    # The group of origin is always visible: chat id when unregistered.
+    assert request.group_label == "-100"
+    assert request.current_origin is None
 
-    version = await service.approve(started.id)
+    version = await service.approve(started.id, GROUP_SCOPE)
     assert version is not None
     assert version.authority == 100
     assert version.origin is QAOrigin.ADMIN_APPROVED
@@ -106,6 +116,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert item is not None
     assert item.current_version_id == version.id
     assert item.status is QAStatus.ACTIVE
+    assert item.scope == "-100"
     assert item.canonical_key == canonical_key_for("Com es demana l'equipament?")
 
     assert await versions.get(version.id) is not None
@@ -141,7 +152,7 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
     started = await service.start("ans:m1", None)
     assert started is not None
     await service.propose(started.id, "Resposta corregida.")
-    version = await service.approve(started.id)
+    version = await service.approve(started.id, GLOBAL_SCOPE)
     assert version is not None
     assert version.supersedes_version_id == "qav-web-1"
     assert version.qa_id == qa_id
@@ -160,7 +171,7 @@ async def test_admin_edit_takes_precedence_over_the_proposal() -> None:
     assert started is not None
     await service.propose(started.id, "proposta del reporter")
     await service.admin_edit(started.id, "text editat per l'admin")
-    version = await service.approve(started.id)
+    version = await service.approve(started.id, GROUP_SCOPE)
     assert version is not None
     assert version.answer == "text editat per l'admin"
 
@@ -187,3 +198,52 @@ async def test_starting_feedback_for_an_unknown_answer_is_a_noop() -> None:
     """An unknown answer id produces no feedback."""
     service, _, _, _, _ = await _service()
     assert await service.start("nope", None) is None
+
+
+async def test_approving_as_group_and_global_builds_both_variants() -> None:
+    """Each scope approval lands in its own item; neither overwrites the other."""
+    service, answers, items, versions, _feedback = await _service()
+    await _seed_answer(answers)
+    started = await service.start("ans:m1", None)
+    assert started is not None
+    await service.propose(started.id, "Resposta del grup.")
+
+    group_version = await service.approve(started.id, GROUP_SCOPE)
+    assert group_version is not None
+    assert group_version.answer == "Resposta del grup."
+    group_item = await items.get(group_version.qa_id)
+    assert group_item is not None
+    assert group_item.scope == "-100"
+    # The global scope has no item yet: the group variant did not leak.
+    assert (
+        await items.get_by_canonical_key(
+            canonical_key_for("Com es demana l'equipament?"), GLOBAL_SCOPE
+        )
+        is None
+    )
+
+    # A second correction (on another answer) approved as global creates the
+    # global variant.
+    previous = await answers.get("ans:m1")
+    assert previous is not None
+    await answers.add(
+        replace(
+            previous,
+            id="ans:m2",
+            user_message_id="m2",
+        )
+    )
+    started2 = await service.start("ans:m2", None)
+    assert started2 is not None
+    await service.propose(started2.id, "Resposta global.")
+    global_version = await service.approve(started2.id, GLOBAL_SCOPE)
+    assert global_version is not None
+    global_item = await items.get(global_version.qa_id)
+    assert global_item is not None
+    assert global_item.scope == GLOBAL_SCOPE
+    assert global_item.id != group_item.id
+    # The group variant keeps its own answer.
+    group_after = await items.get(group_item.id)
+    assert group_after is not None
+    assert group_after.current_version_id == group_version.id
+    assert await versions.get(global_version.id) is not None

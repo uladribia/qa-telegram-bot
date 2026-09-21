@@ -8,7 +8,8 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
-from knowledge_bot.domain.enums import ContentType, QAStatus
+from knowledge_bot.domain.entities import QAItem, QAVersion
+from knowledge_bot.domain.enums import ContentType, QAOrigin, QAStatus
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryConversationRepository,
@@ -48,13 +49,14 @@ def _entry(
     *,
     status: Literal["published", "in_review"] = "published",
     question: str = "P?",
+    answer: str = "R.",
 ) -> SeedQA:
     return SeedQA(
         source_url="https://example.com/",
         source_anchor=anchor,
         section="S",
         question=question,
-        answer="R.",
+        answer=answer,
         status=status,
         retrieved_at=NOW,
     )
@@ -63,7 +65,7 @@ def _entry(
 async def test_seed_qa_creates_item_and_version() -> None:
     """A published entry becomes an active item with a version."""
     service, items, versions = _service()
-    created, skipped = await service.seed_qa([_entry("qa-1")])
+    created, skipped, _ = await service.seed_qa([_entry("qa-1")])
     assert (created, skipped) == (1, 0)
     item = await items.get_by_canonical_key("qa-1")
     assert item is not None
@@ -94,7 +96,21 @@ async def test_seeding_is_idempotent() -> None:
     """Re-seeding the same snapshot skips existing entries."""
     service, _, _ = _service()
     await service.seed_qa([_entry("qa-1")])
-    created, skipped = await service.seed_qa([_entry("qa-1")])
+    created, skipped, _ = await service.seed_qa([_entry("qa-1")])
+    assert (created, skipped) == (0, 1)
+
+
+async def test_seed_qa_is_scoped_per_group() -> None:
+    """A group-scoped seed coexists with the global entry of the same key."""
+    service, items, _ = _service()
+    created, _, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
+    assert created == 1
+    item = await items.get_by_canonical_key("qa-1", "-100")
+    assert item is not None
+    assert item.scope == "-100"
+    # The global scope stays untouched and re-seeding is still idempotent.
+    assert await items.get_by_canonical_key("qa-1") is None
+    created, skipped, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
     assert (created, skipped) == (0, 1)
 
 
@@ -113,3 +129,75 @@ async def test_seed_messages_uses_ingest_idempotency() -> None:
     )
     assert await service.seed_messages([message]) == 1
     assert await service.seed_messages([message]) == 0
+
+
+async def test_renew_updates_changed_entries_append_only() -> None:
+    """Renewal creates a newer version; unchanged entries are skipped."""
+    service, items, versions = _service()
+    await service.seed_qa([_entry("qa-1", question="Què?,", answer="R v1.")])
+    item = await items.get_by_canonical_key("qa-1")
+    assert item is not None
+    first_version_id = item.current_version_id
+    assert first_version_id is not None
+
+    # Unchanged entry: skipped even with renew.
+    created, skipped, renewed = await service.seed_qa(
+        [_entry("qa-1", question="Què?,", answer="R v1.")], renew=True
+    )
+    assert (created, skipped, renewed) == (0, 1, 0)
+
+    # Changed answer: new version wins, the old one is kept.
+    created, skipped, renewed = await service.seed_qa(
+        [_entry("qa-1", question="Què?,", answer="R v2.")], renew=True
+    )
+    assert (created, skipped, renewed) == (0, 0, 1)
+    renewed_item = await items.get_by_canonical_key("qa-1")
+    assert renewed_item is not None
+    current_version_id = renewed_item.current_version_id
+    assert current_version_id is not None
+    assert current_version_id != first_version_id
+    new_version = await versions.get(current_version_id)
+    assert new_version is not None
+    assert new_version.answer == "R v2."
+    assert new_version.supersedes_version_id == first_version_id
+    assert await versions.get(first_version_id) is not None
+
+
+async def test_renewed_web_beats_an_older_approved_correction() -> None:
+    """A web renewal after a correction supersedes it: latest update wins."""
+    service, items, versions = _service()
+    key = "qa-1"
+    item = QAItem(
+        id="qa-item-1",
+        canonical_key=key,
+        canonical_question="P?",
+        status=QAStatus.ACTIVE,
+        created_at=NOW,
+        updated_at=NOW,
+        current_version_id="qav-correction",
+    )
+    await items.add(item)
+    await versions.add(
+        QAVersion(
+            id="qav-correction",
+            qa_id="qa-item-1",
+            answer="Correcció aprovada.",
+            authority=100,
+            origin=QAOrigin.ADMIN_APPROVED,
+            created_at=NOW,
+        )
+    )
+    created, skipped, renewed = await service.seed_qa(
+        [_entry(key, question="P?", answer="Web renovat.")], renew=True
+    )
+    assert (created, skipped, renewed) == (0, 0, 1)
+    updated = await items.get("qa-item-1")
+    assert updated is not None
+    current_id = updated.current_version_id
+    assert current_id is not None
+    current = await versions.get(current_id)
+    assert current is not None
+    assert current.answer == "Web renovat."
+    assert current.supersedes_version_id == "qav-correction"
+    # The correction stays in history.
+    assert await versions.get("qav-correction") is not None

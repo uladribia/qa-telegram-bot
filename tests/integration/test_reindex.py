@@ -22,6 +22,7 @@ async def test_reindex_embeds_qa_and_messages_with_metadata() -> None:
                 text="hola",
                 source_type="telegram",
                 authority=40,
+                conversation_id="-100",
             )
         ],
     )
@@ -36,11 +37,13 @@ async def test_reindex_embeds_qa_and_messages_with_metadata() -> None:
     assert qa.metadata["kind"] == "qa_version"
     assert qa.metadata["status"] == "active"
     assert qa.metadata["authority"] == 90
+    assert qa.metadata["scope"] == "global"
     assert qa.metadata["question"] == "Quan?"
     assert qa.metadata["text"] == "Dimarts"
     message = vectors.records["m1"]
     assert message.metadata["kind"] == "message"
     assert message.metadata["authority"] == 40
+    assert message.metadata["scope"] == "-100"
 
 
 async def test_reindex_of_an_empty_source_is_a_noop() -> None:
@@ -62,7 +65,8 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
     database = FakeD1Database()
     connection = database.connection
     connection.execute(
-        "INSERT INTO sources VALUES"
+        "INSERT INTO sources (id, source_type, external_ref, title,"
+        " canonical_url, authority, is_mutable, created_at) VALUES"
         " ('telegram','telegram',NULL,NULL,NULL,40,0,'2026-01-01')"
     )
     connection.execute(
@@ -85,7 +89,8 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
         "'image',NULL,'2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO qa_items VALUES"
+        "INSERT INTO qa_items (id, canonical_key, canonical_question, status,"
+        " current_version_id, created_at, updated_at) VALUES"
         " ('q1','equipment','Quan?','active','v1','2026-01-01','2026-01-01')"
     )
     connection.execute(
@@ -96,7 +101,8 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
         "'https://x.test/#a1')"
     )
     connection.execute(
-        "INSERT INTO qa_items VALUES"
+        "INSERT INTO qa_items (id, canonical_key, canonical_question, status,"
+        " current_version_id, created_at, updated_at) VALUES"
         " ('q2','old','Old?','superseded','v2','2026-01-01','2026-01-01')"
     )
     connection.execute(
@@ -125,7 +131,8 @@ async def test_an_approved_correction_cites_its_author_not_the_web() -> None:
     database = FakeD1Database()
     connection = database.connection
     connection.execute(
-        "INSERT INTO qa_items VALUES"
+        "INSERT INTO qa_items (id, canonical_key, canonical_question, status,"
+        " current_version_id, created_at, updated_at) VALUES"
         " ('q1','403af1d3b03b694e','Com es diu?','active','v2','2026-01-01',"
         "'2026-01-02')"
     )

@@ -14,7 +14,7 @@ from knowledge_bot.domain.enums import ContentType
 
 ALLOWED_CHAT = "-1001234567890"
 IDENTITY = TelegramIdentity(
-    allowed_chat_id=ALLOWED_CHAT,
+    allowed_chat_ids=frozenset({ALLOWED_CHAT}),
     admin_user_id="100000001",
     bot_id="999",
     bot_username="bhc_qa_testbot",
