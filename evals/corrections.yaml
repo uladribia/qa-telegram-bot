@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# Correction-flow eval set (spec §43). Six deterministic scenarios, each an
+# in-process flow over fakes (see `eval_corrections()` in run.py). Acceptance:
+# 100% pass; they are not probabilistic.
+#
+# Predominant language: Catalan.
+
+- id: auto_answer_correction_approve
+  flow: start -> propose -> approve
+  expect: new active version with admin authority
+- id: web_answer_local_override
+  flow: seed web version -> correction -> approve global
+  expected: supersedes the web version, web version kept
+- id: correction_reject
+  flow: start -> propose -> reject
+  expected: no Q&A created or modified
+- id: correction_admin_edit_approve
+  flow: start -> propose -> admin edit -> approve
+  expected: the admin-edited text wins
+- id: two_corrections_sequentially
+  flow: approve -> second correction -> approve
+  expected: the second supersedes the first
+- id: later_question_uses_newest
+  flow: after sequential approvals, read the item's current version
+  expected: the last approved version is current, earlier ones preserved
