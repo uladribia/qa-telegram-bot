@@ -166,6 +166,25 @@ human review report (`kb review`).
 
 ---
 
+## The bot explaining itself
+
+The bot answers questions about itself ("qui ets?", "com funciones?", "com
+corregeixo una resposta?") from a static, versioned Q&A file:
+`data/seed/bot_self_qa.json`. It is generated from the documentation at
+each release tag — no runtime LLM generation — and seeded as **global**
+knowledge, so every deployment serves the same self-explanation:
+
+```bash
+make seed-self-qa      # = kb seed --qa data/seed/bot_self_qa.json
+```
+
+It is idempotent; after editing an answer's text, seed with `--renew`. When
+the bot's behaviour, flows, or limits change, update these entries in the same
+branch (see AGENTS.md §10.1) and never expose internals (tables, secrets,
+config keys) in them.
+
+---
+
 ## Human review report
 
 To see where the base and the corrections diverge and decide what humans should

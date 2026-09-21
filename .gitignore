@@ -31,10 +31,12 @@ pylock.toml
 *.sqlite
 *.sqlite3
 
-# Data artifacts are generated locally and never committed.
+# Data artifacts are generated locally and never committed; the bot's
+# self-explanation Q&A is versioned and ships with the repo.
 data/raw/*
 !data/raw/.gitkeep
-data/seed/
+data/seed/*
+!data/seed/bot_self_qa.json
 
 # IDE / OS
 .idea/
