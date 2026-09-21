@@ -117,6 +117,43 @@ class QAVersion:
 
 
 @dataclass(frozen=True, slots=True)
+class Reviewer:
+    """A person nominated to confirm corrections for a scope.
+
+    ``user_id`` is a raw Telegram user id used as a routing key; ``name`` is
+    only for display. There is exactly one reviewer per scope (``global`` or
+    a group chat id).
+    """
+
+    scope: str
+    user_id: str
+    name: str
+    created_at: datetime
+    nominated_by: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewerEvent:
+    """One correction resolution by a reviewer, for the admin report.
+
+    ``reviewer_user_id`` is a routing key; ``reviewer_name`` is what the admin
+    report shows. ``action`` is ``approved``/``edited_approved``/``rejected``
+    and ``approval_scope`` is ``global`` or the target group chat id.
+    """
+
+    feedback_id: str
+    action: str
+    created_at: datetime
+    reviewer_user_id: str | None = None
+    reviewer_name: str | None = None
+    group_label: str | None = None
+    question: str | None = None
+    approval_scope: str | None = None
+    id: int | None = None
+    reported: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class QAEvidence:
     """A link between a Q&A version and a piece of evidence."""
 

@@ -18,6 +18,8 @@ from knowledge_bot.domain.entities import (
     QAEvidence,
     QAItem,
     QAVersion,
+    Reviewer,
+    ReviewerEvent,
     Source,
 )
 from knowledge_bot.domain.enums import (
@@ -1004,3 +1006,166 @@ class D1ReviewSource:
             )
             for row in _rows(result)
         ]
+
+
+class D1ReviewerRepository:
+    """D1 implementation of ``ReviewerRepository`` (one reviewer per scope)."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(self, scope: str) -> Reviewer | None:
+        """Return the reviewer of a scope, if any."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM reviewers WHERE scope = ?")
+            .bind(scope)
+            .first()
+        )
+        return _reviewer(row) if row is not None else None
+
+    async def save(self, reviewer: Reviewer) -> None:
+        """Create or replace the reviewer of a scope."""
+        await (
+            self._db.prepare(
+                "INSERT INTO reviewers"
+                " (scope, user_id, name, nominated_by, created_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(scope) DO UPDATE SET"
+                " user_id = excluded.user_id, name = excluded.name,"
+                " nominated_by = excluded.nominated_by,"
+                " created_at = excluded.created_at"
+            )
+            .bind(
+                reviewer.scope,
+                reviewer.user_id,
+                reviewer.name,
+                reviewer.nominated_by,
+                _iso(reviewer.created_at),
+            )
+            .run()
+        )
+
+    async def delete(self, scope: str) -> bool:
+        """Remove the reviewer of a scope; return whether one existed."""
+        if await self.get(scope) is None:
+            return False
+        await (
+            self._db.prepare("DELETE FROM reviewers WHERE scope = ?").bind(scope).run()
+        )
+        return True
+
+    async def all(self) -> list[Reviewer]:
+        """Return every reviewer, global scope first."""
+        result = await self._db.prepare(
+            "SELECT * FROM reviewers"
+            " ORDER BY CASE WHEN scope = 'global' THEN 0 ELSE 1 END, scope"
+        ).run()
+        return [_reviewer(row) for row in _rows(result)]
+
+
+def _reviewer(row: dict[str, object]) -> Reviewer:
+    return Reviewer(
+        scope=str(row["scope"]),
+        user_id=str(row["user_id"]),
+        name=str(row["name"]),
+        nominated_by=_opt_str(row["nominated_by"]),
+        created_at=_dt(row["created_at"]),
+    )
+
+
+class D1ReviewerEventRepository:
+    """D1 implementation of ``ReviewerEventRepository`` (admin report)."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, event: ReviewerEvent) -> ReviewerEvent:
+        """Persist an event and return it."""
+        await (
+            self._db.prepare(
+                "INSERT INTO reviewer_events"
+                " (feedback_id, reviewer_user_id, reviewer_name, group_label,"
+                "  question, action, approval_scope, created_at, reported)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                event.feedback_id,
+                event.reviewer_user_id,
+                event.reviewer_name,
+                event.group_label,
+                event.question,
+                event.action,
+                event.approval_scope,
+                _iso(event.created_at),
+                int(event.reported),
+            )
+            .run()
+        )
+        return event
+
+    async def list_unreported(self) -> list[ReviewerEvent]:
+        """Return events not yet included in an admin report."""
+        result = await self._db.prepare(
+            "SELECT * FROM reviewer_events WHERE reported = 0 ORDER BY created_at"
+        ).run()
+        return [_reviewer_event(row) for row in _rows(result)]
+
+    async def mark_reported(self, feedback_ids: list[str]) -> None:
+        """Mark the events of these feedback ids as reported."""
+        if not feedback_ids:
+            return
+        placeholders = ", ".join("?" for _ in feedback_ids)
+        await (
+            self._db.prepare(
+                f"UPDATE reviewer_events SET reported = 1"
+                f" WHERE feedback_id IN ({placeholders})"
+            )
+            .bind(*feedback_ids)
+            .run()
+        )
+
+
+def _reviewer_event(row: dict[str, object]) -> ReviewerEvent:
+    return ReviewerEvent(
+        id=_opt_int(row["id"]),
+        feedback_id=str(row["feedback_id"]),
+        action=str(row["action"]),
+        created_at=_dt(row["created_at"]),
+        reviewer_user_id=_opt_str(row["reviewer_user_id"]),
+        reviewer_name=_opt_str(row["reviewer_name"]),
+        group_label=_opt_str(row["group_label"]),
+        question=_opt_str(row["question"]),
+        approval_scope=_opt_str(row["approval_scope"]),
+        reported=bool(row["reported"]),
+    )
+
+
+class D1ReportStateRepository:
+    """D1 implementation of ``ReportStateRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get_last_sent_at(self) -> datetime | None:
+        """Return when the last admin report was sent, if ever."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT last_sent_at FROM report_state WHERE scope = 'admin'"
+            ).first()
+        )
+        return _dt(row["last_sent_at"]) if row is not None else None
+
+    async def set_last_sent_at(self, sent_at: datetime) -> None:
+        """Record when the admin report was sent."""
+        await (
+            self._db.prepare(
+                "INSERT INTO report_state (scope, last_sent_at) VALUES ('admin', ?)"
+                " ON CONFLICT(scope) DO UPDATE SET"
+                " last_sent_at = excluded.last_sent_at"
+            )
+            .bind(_iso(sent_at))
+            .run()
+        )

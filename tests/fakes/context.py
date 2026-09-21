@@ -12,7 +12,13 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
+from knowledge_bot.application.revert import CorrectionReverter
 from knowledge_bot.application.review import ReviewService
+from knowledge_bot.application.reviewers import (
+    ReviewerManager,
+    ReviewerReportService,
+    ReviewerRouter,
+)
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
@@ -32,12 +38,15 @@ from tests.fakes.repositories import (
     InMemoryQAEvidenceRepository,
     InMemoryQAItemRepository,
     InMemoryQAVersionRepository,
+    InMemoryReviewerEventRepository,
+    InMemoryReviewerRepository,
     InMemorySourceRepository,
 )
 from tests.fakes.support import (
     FrozenClock,
     InMemoryAiUsageRepository,
     InMemoryRecapStateRepository,
+    InMemoryReportStateRepository,
     RecordingTransport,
 )
 
@@ -55,6 +64,7 @@ def build_test_context(
     recap_enabled: bool = False,
     spent_neurons: float = 0.0,
     allowed_user_ids: frozenset[str] = frozenset(),
+    admin_report_mode: str = "always",
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
 
@@ -64,6 +74,7 @@ def build_test_context(
         spent_neurons: Estimated AI spend to pre-load for today, to exercise
             the quota guard.
         allowed_user_ids: Extra users who may open a private chat.
+        admin_report_mode: How the admin is informed of reviewer resolutions.
 
     Returns:
         The context and the recording transport used by the recap/answer services.
@@ -96,6 +107,8 @@ def build_test_context(
         interval_hours=24,
         language="ca",
     )
+    reviewer_repo = InMemoryReviewerRepository()
+    reviewer_events = InMemoryReviewerEventRepository()
     settings = Settings(
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
@@ -149,6 +162,20 @@ def build_test_context(
             clock=clock,
         ),
         feedback_repo=feedback_repo,
+        reviewers=ReviewerManager(reviewers=reviewer_repo, clock=clock),
+        router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
+        reviewer_report=ReviewerReportService(
+            events=reviewer_events,
+            state=InMemoryReportStateRepository(),
+            transport=transport,
+            clock=clock,
+            admin_user_id="1",
+            mode=admin_report_mode,
+        ),
+        reverter=CorrectionReverter(
+            qa_items=InMemoryQAItemRepository(),
+            qa_versions=InMemoryQAVersionRepository(),
+        ),
         budget=AiBudget(
             usage=_usage_with(spent_neurons),
             clock=clock,

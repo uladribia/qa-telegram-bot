@@ -3333,6 +3333,13 @@ en allà on aquest apartat no digui el contrari.
   com a coneixement global amb `make seed-self-qa` i mantingut a cada tag
   (AGENTS.md §10.1). Respon "qui ets?", "com funciones?", el flux de correcció,
   els límits i l'abstenció. Resol §53.2 per la via estàtica.
+- **Reviewers per correccions** (després del 2026-09-21): l'admin pot nominar un
+  revisor per grup i un de global amb `/reviewer` (per reply, només ell); les
+  propostes van al revisor del grup d'origen, si no al global, si no a l'admin.
+  Els revisors confirmen (aprovar/editar/rebutjar, amb tria d'abast) amb
+  comprovació al servidor. L'admin no pot desfer res des de Telegram però rep un
+  report configurable (`ADMIN_REPORT_MODE`: always/batch/off) de cada resolució,
+  i el rollback només existeix per CLI (`kb revert`). Migració `0009`.
 
 Gates: **88 unitaris + 72 integració + 2 arquitectura** (162) verds, offline evals
 4/4 (trigger 5/5, abstenció 16/16, citacions 5/5, seed versioning 4/4), `ruff` i

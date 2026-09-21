@@ -139,11 +139,16 @@ The normal path, and the only one that produces a human-approved answer:
 
 An approval creates a **new version** with the proposer's name and the proposal
 date, and supersedes the old one. Nothing is overwritten, so every answer stays
-auditable back to its source. At approval the admin also chooses the **scope**:
-🌐 global (all groups) or 👥 a group-only variant of the answer; in its group
-the variant outranks the global answer. See [usage.md](usage.md) for the flow.
-Knowledge generated from one group's conversation should stay group-scoped;
-the reclassification command in the section below fixes existing rows.
+auditable back to its source. At approval the reviewer also chooses the
+**scope**: 🌐 global (all groups) or 👥 a group-only variant of the answer; in
+its group the variant outranks the global answer. See [usage.md](usage.md) for
+the flow, including how the admin nominates reviewers with `/reviewer`.
+Knowledge generated from one group's conversation should stay group-scoped; the
+reclassification command in the section below fixes existing rows.
+
+The admin is informed of every reviewer resolution (`ADMIN_REPORT_MODE`:
+`always`, `batch` or `off`) and can roll a correction back with `kb revert`
+(see [operations.md](operations.md)) — never from Telegram.
 
 ---
 

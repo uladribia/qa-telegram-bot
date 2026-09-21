@@ -25,6 +25,8 @@ class TelegramUser(BaseModel):
 
     id: int
     is_bot: bool = False
+    first_name: str | None = None
+    last_name: str | None = None
     username: str | None = None
 
 

@@ -4,6 +4,7 @@
 The fakes are async to match the D1-backed implementations and the ports.
 """
 
+from dataclasses import replace
 from datetime import datetime
 
 from knowledge_bot.domain.entities import (
@@ -15,8 +16,11 @@ from knowledge_bot.domain.entities import (
     QAEvidence,
     QAItem,
     QAVersion,
+    Reviewer,
+    ReviewerEvent,
     Source,
 )
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
 class InMemorySourceRepository:
@@ -254,3 +258,56 @@ class InMemoryFeedbackRepository:
             if feedback.edit_prompt_message_id == message_id:
                 return feedback
         return None
+
+
+class InMemoryReviewerRepository:
+    """Dict-backed implementation of ``ReviewerRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, Reviewer] = {}
+
+    async def get(self, scope: str) -> Reviewer | None:
+        """Return the reviewer of a scope, if any."""
+        return self._items.get(scope)
+
+    async def save(self, reviewer: Reviewer) -> None:
+        """Create or replace the reviewer of a scope."""
+        self._items[reviewer.scope] = reviewer
+
+    async def delete(self, scope: str) -> bool:
+        """Remove the reviewer of a scope; return whether one existed."""
+        return self._items.pop(scope, None) is not None
+
+    async def all(self) -> list[Reviewer]:
+        """Return every reviewer, global scope first."""
+        return sorted(
+            self._items.values(),
+            key=lambda reviewer: (reviewer.scope != GLOBAL_SCOPE, reviewer.scope),
+        )
+
+
+class InMemoryReviewerEventRepository:
+    """List-backed implementation of ``ReviewerEventRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._events: list[ReviewerEvent] = []
+
+    async def add(self, event: ReviewerEvent) -> ReviewerEvent:
+        """Persist an event and return it."""
+        self._events.append(event)
+        return event
+
+    async def list_unreported(self) -> list[ReviewerEvent]:
+        """Return events not yet included in an admin report."""
+        return [event for event in self._events if not event.reported]
+
+    async def mark_reported(self, feedback_ids: list[str]) -> None:
+        """Mark the events of these feedback ids as reported."""
+        self._events = [
+            replace(event, reported=True)
+            if event.feedback_id in feedback_ids
+            else event
+            for event in self._events
+        ]

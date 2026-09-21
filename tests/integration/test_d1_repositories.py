@@ -266,3 +266,51 @@ async def test_ingest_use_case_against_d1_repository() -> None:
     assert stored.text == "mira"
     attachments = await ingestor.attachments.list_for_message("tg:-100:10")
     assert len(attachments) == 1
+
+
+async def test_reviewer_repositories_round_trip() -> None:
+    """Reviewer nomination, replacement, removal, and events survive D1 SQL."""
+    from dataclasses import replace
+
+    from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
+    from knowledge_bot.domain.scope import GLOBAL_SCOPE
+    from knowledge_bot.infrastructure.cloudflare.d1 import (
+        D1ReportStateRepository,
+        D1ReviewerEventRepository,
+        D1ReviewerRepository,
+    )
+
+    database = FakeD1Database()
+    reviewers = D1ReviewerRepository(database)
+    assert await reviewers.get(GLOBAL_SCOPE) is None
+    await reviewers.save(Reviewer(GLOBAL_SCOPE, "222", "Pepe", NOW, "1"))
+    await reviewers.save(Reviewer(GLOBAL_SCOPE, "333", "Marta", NOW, "1"))
+    stored = await reviewers.get(GLOBAL_SCOPE)
+    assert stored is not None and stored.user_id == "333" and stored.name == "Marta"
+    assert [r.user_id for r in await reviewers.all()] == ["333"]
+    assert await reviewers.delete(GLOBAL_SCOPE) is True
+    assert await reviewers.delete(GLOBAL_SCOPE) is False
+
+    events = D1ReviewerEventRepository(database)
+    event = await events.add(
+        ReviewerEvent(
+            feedback_id="fb:1",
+            action="approved",
+            created_at=NOW,
+            reviewer_name="Pepe",
+            group_label="Prebenjamins",
+            question="Com?",
+            approval_scope=GLOBAL_SCOPE,
+        )
+    )
+    assert event.feedback_id == "fb:1"
+    await events.add(replace(event, feedback_id="fb:2", action="rejected"))
+    assert len(await events.list_unreported()) == 2
+    await events.mark_reported(["fb:1"])
+    pending = await events.list_unreported()
+    assert [e.feedback_id for e in pending] == ["fb:2"]
+
+    state = D1ReportStateRepository(database)
+    assert await state.get_last_sent_at() is None
+    await state.set_last_sent_at(NOW)
+    assert await state.get_last_sent_at() == NOW

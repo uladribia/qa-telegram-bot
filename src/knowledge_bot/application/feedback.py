@@ -100,7 +100,7 @@ def callback_target(data: str | None) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class CorrectionRequest:
-    """A correction proposal shown to the admin."""
+    """A correction proposal shown to its reviewer."""
 
     feedback_id: str
     question: str
@@ -108,6 +108,7 @@ class CorrectionRequest:
     proposed_answer: str
     group_label: str | None = None
     current_origin: str | None = None
+    group_chat_id: str | None = None
 
 
 _CURRENT_ORIGIN_LABEL: dict[str, str] = {
@@ -315,6 +316,7 @@ class FeedbackService:
             proposed_answer=proposal,
             group_label=group_label,
             current_origin=await self._current_origin(feedback.qa_id),
+            group_chat_id=answer.conversation_id,
         )
 
     async def _current_origin(self, qa_ref: str | None) -> str | None:

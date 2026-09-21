@@ -205,6 +205,29 @@ def review(
 
 
 @app.command()
+def revert(
+    qa_item_id: str = typer.Argument(help="The qa item id to roll back one version."),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Revert an approved correction to the version it superseded (CLI-only)."""
+    settings = Settings()
+    response = httpx.post(
+        f"{base_url}/internal/revert",
+        json={"qa_item_id": qa_item_id},
+        headers=_internal_headers(settings),
+        timeout=120.0,
+    )
+    if response.status_code == 404:
+        typer.echo(f"Nothing to revert for {qa_item_id}")
+        raise typer.Exit(code=1)
+    response.raise_for_status()
+    body = response.json()
+    typer.echo(
+        f"Reverted {qa_item_id}: current version is now {body['restored_version_id']}"
+    )
+
+
+@app.command()
 def reindex(
     batch: int = typer.Option(
         50, "--batch", help="Records per request (keep small: free CPU limits)."
