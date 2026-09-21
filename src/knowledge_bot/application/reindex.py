@@ -12,6 +12,11 @@ from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA, SearchIndexSource
 from knowledge_bot.ports.vector_store import VectorRecord, VectorStore
 
+# ponytail: embed/metadata caps keep huge pasted texts (12k+ chars) under the
+# free-tier CPU limit and Vectorize metadata size; raise if long documents matter.
+_MAX_EMBED_CHARS = 2000
+_MAX_METADATA_CHARS = 4000
+
 
 @dataclass(frozen=True, slots=True)
 class ReindexReport:
@@ -115,7 +120,9 @@ class ReindexService:
     ) -> list[VectorRecord]:
         if not messages:
             return []
-        embeddings = await self.embedder.embed([message.text for message in messages])
+        embeddings = await self.embedder.embed(
+            [message.text[:_MAX_EMBED_CHARS] for message in messages]
+        )
         return [
             VectorRecord(
                 id=message.message_id,
@@ -126,7 +133,7 @@ class ReindexService:
                     "source_type": message.source_type,
                     "authority": message.authority,
                     "scope": message.conversation_id,
-                    "text": message.text,
+                    "text": message.text[:_MAX_METADATA_CHARS],
                     "author": message.author,
                     "date": message.date,
                 },

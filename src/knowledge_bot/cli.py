@@ -209,39 +209,50 @@ def reindex(
     batch: int = typer.Option(
         50, "--batch", help="Records per request (keep small: free CPU limits)."
     ),
+    qa_after: str | None = typer.Option(None, help="Resume cursor for QA versions."),
+    msg_after: str | None = typer.Option(None, help="Resume cursor for messages."),
     base_url: str = _BASE_URL,
 ) -> None:
     """Rebuild the vector store from D1, in idempotent batches."""
-    qa_after: str | None = None
-    msg_after: str | None = None
     totals = {"qa": 0, "messages": 0}
-    while True:
-        settings = Settings()
-        response = None
-        for attempt in range(3):
-            response = httpx.post(
-                f"{base_url}/internal/reindex",
-                json={"qa_after": qa_after, "msg_after": msg_after, "limit": batch},
-                headers=_internal_headers(settings),
-                timeout=300.0,
-            )
-            if response.status_code < 500:
+    try:
+        while True:
+            settings = Settings()
+            response = None
+            for attempt in range(3):
+                response = httpx.post(
+                    f"{base_url}/internal/reindex",
+                    json={"qa_after": qa_after, "msg_after": msg_after, "limit": batch},
+                    headers=_internal_headers(settings),
+                    timeout=300.0,
+                )
+                if response.status_code < 500:
+                    break
+                typer.echo(
+                    "  retrying after HTTP"
+                    f" {response.status_code} (attempt {attempt + 2}/3)"
+                )
+                time.sleep(2)
+            response.raise_for_status()
+            counts = response.json()
+            qa_after = counts.get("qa_after")
+            msg_after = counts.get("msg_after")
+            totals["qa"] += counts.get("qa", 0)
+            totals["messages"] += counts.get("messages", 0)
+            typer.echo(f"  indexed {totals['qa']} qa, {totals['messages']} messages")
+            if qa_after is None and msg_after is None:
                 break
-            typer.echo(
-                "  retrying after HTTP"
-                f" {response.status_code} (attempt {attempt + 2}/3)"
-            )
-            time.sleep(2)
-        response.raise_for_status()
-        counts = response.json()
-        qa_after = counts.get("qa_after")
-        msg_after = counts.get("msg_after")
-        totals["qa"] += counts.get("qa", 0)
-        totals["messages"] += counts.get("messages", 0)
-        typer.echo(f"  indexed {totals['qa']} qa, {totals['messages']} messages")
-        if qa_after is None and msg_after is None:
-            break
+    except httpx.HTTPError as error:
+        typer.echo(
+            f"interrupted after {totals}: {error}; resume with:"
+            f" --qa-after {qa_after or ''} --msg-after {msg_after or ''}"
+        )
+        raise
     typer.echo(f"done: qa={totals['qa']} messages={totals['messages']}")
+    if qa_after is not None or msg_after is not None:
+        typer.echo(
+            f"resume with: --qa-after {qa_after or ''} --msg-after {msg_after or ''}"
+        )
 
 
 @app.command("set-webhook")
