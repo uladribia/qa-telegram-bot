@@ -102,3 +102,19 @@ class RecordingTransport:
     async def answer_callback(self, callback_id: str) -> None:
         """Record a callback acknowledgement."""
         return
+
+
+class InMemoryReportStateRepository:
+    """In-memory implementation of ``ReportStateRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._last_sent: datetime | None = None
+
+    async def get_last_sent_at(self) -> datetime | None:
+        """Return when the last admin report was sent, if ever."""
+        return self._last_sent
+
+    async def set_last_sent_at(self, sent_at: datetime) -> None:
+        """Record when the admin report was sent."""
+        self._last_sent = sent_at

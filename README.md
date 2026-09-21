@@ -63,7 +63,7 @@ Full instructions, including the one-time Cloudflare resources, are in
 | `make eval-live-reindex` | Same, rebuilding the index first |
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
 
-Routes: `GET /healthz`; key-guarded `POST /internal/{recap,reindex,seed,retrieve,eval/answer,eval/judge}`.
+Routes: `GET /healthz`; key-guarded `POST /internal/{recap,report,reindex,revert,seed,retrieve,eval/answer,eval/judge}`.
 
 ---
 

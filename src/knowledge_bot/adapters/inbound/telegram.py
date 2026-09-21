@@ -188,9 +188,16 @@ def normalize_message(
         content_type=content_type,
         source_message_id=external_id,
         sender_id=pseudonymize(str(sender.id)) if sender else None,
+        sender_user_id=str(sender.id) if sender else None,
         sender_name=sender_name,
         text=text,
         reply_to_message_id=str(reply.message_id) if reply else None,
+        reply_to_user_id=str(reply.from_user.id)
+        if reply is not None and reply.from_user
+        else None,
+        reply_to_user_name=_display_name(reply.from_user)
+        if reply is not None and reply.from_user
+        else None,
         mentions_bot=mentions_bot,
         is_reply_to_bot=is_reply_to_bot,
         is_direct_message=chat.type == "private",

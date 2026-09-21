@@ -19,6 +19,9 @@ EXPECTED_TABLES = {
     "bot_answers",
     "feedback",
     "recap_state",
+    "reviewers",
+    "reviewer_events",
+    "report_state",
 }
 
 

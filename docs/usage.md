@@ -87,9 +87,10 @@ discussion.
 1. Group      Quim presses  [⚠️ Està malament?]  on the wrong answer
 2. DM to Quim the bot asks: "Què corregiries? Escriu la resposta correcta…"
 3. DM to Quim Quim writes the correction → "Gràcies. Ho he enviat a revisió."
-4. DM to admin the bot forwards the proposal with  [🌐 Aprovar global] [👥 Aprovar grup]
-   [✏️ Editar] [❌ Rebutjar]
-5. DM to admin admin presses 🌐 or 👥
+4. DM to the group's reviewer (or the global reviewer, or the admin)
+              the bot forwards the proposal with [🌐 Aprovar global] [👥 Aprovar grup]
+              [✏️ Editar] [❌ Rebutjar]
+5. DM         the reviewer presses 🌐 or 👥
 6. Group      a future equivalent question gets the corrected answer
               (it can take up to a minute for the index to catch up)
 7. DM to Quim "Gràcies per la correcció" (private thank-you)
@@ -98,21 +99,59 @@ discussion.
 Who may do what:
 
 - **Anyone in the group** can flag an answer and propose a correction.
-- **Only the admin** (`ADMIN_TELEGRAM_USER_ID`) can approve, edit or reject. This
-  is enforced server-side: a confirmation from anyone else is ignored, not just
-  hidden.
+- **Corrections are confirmed by reviewers**: the reviewer nominated for the
+  group the answer came from, or the global reviewer when that group has none,
+  or the admin when nobody is nominated. Anyone nominated may approve, edit or
+  reject — and choose 🌐 or 👥 at approval time. This is enforced server-side:
+  a confirmation from anyone else is ignored, not just hidden.
+- The admin is the fallback reviewer and the only one who can nominate or
+  remove reviewers (see below) or roll a correction back (CLI only, see
+  [operations.md](operations.md)).
 - Reporting needs no allowlisting: the proposal is a reply to a prompt the bot
   sent, so it is accepted regardless of `ALLOWED_TELEGRAM_USER_IDS`.
 - Approving does **not** overwrite anything. It adds a new version; the old one is
   kept, and the web Q&A is never modified.
-- The admin chooses the **scope** of the corrected answer at approval time:
+- The reviewer chooses the **scope** of the corrected answer at approval time:
   🌐 makes it the global answer (every group sees it), 👥 makes it a
   group-only variant (only the group the corrected answer came from sees it).
   In that group the variant outranks the global answer; other groups keep
   seeing the global one.
 
 `✏️ Editar` shows the current proposal and asks for the corrected text; the edited
-version comes back to the admin with the same three buttons.
+version comes back to the reviewer's DM with the same three buttons.
+
+### Nominating reviewers
+
+Only the admin can nominate, and only from Telegram, by **replying to a message
+of the person** (their Telegram user id is what gets stored; usernames are not
+used):
+
+| Action | Where | Command |
+|---|---|---|
+| Nominate the group's reviewer | in the group | reply to their message with `/reviewer` |
+| Nominate the global reviewer | any group | reply to their message with `/reviewer global` |
+| List current reviewers | any chat | `/reviewer` (no reply) |
+| Remove the group's reviewer | in the group | `/reviewer off` |
+| Remove the global reviewer | any chat | `/reviewer off global` |
+
+Nominating again replaces the previous reviewer of that scope; there is no
+history — it is an operational role, not knowledge.
+
+### The admin report on reviewer corrections
+
+The admin cannot act on reviewer decisions from Telegram, but is informed of
+every one of them, configured with `ADMIN_REPORT_MODE`:
+
+- `always` (default): one private report per resolution — who, which group,
+  which question, what they did (approved global / approved group / edited /
+  rejected), and when.
+- `batch`: one consolidated report every `ADMIN_REPORT_INTERVAL_MIN` minutes.
+  Like the recap, the check is opportunistic on inbound events; an external
+  scheduler can also poke `POST /internal/report`.
+- `off`: no reports. Events are still recorded in D1.
+
+The report is read-only. Rolling a correction back is a CLI operation only
+(`kb revert`, see [operations.md](operations.md)).
 
 ---
 

@@ -17,6 +17,8 @@ from knowledge_bot.domain.entities import (
     QAEvidence,
     QAItem,
     QAVersion,
+    Reviewer,
+    ReviewerEvent,
     Source,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
@@ -187,4 +189,55 @@ class RecapStateRepository(Protocol):
 
     async def set_last_sent_at(self, conversation_id: str, sent_at: datetime) -> None:
         """Record when a recap was sent."""
+        ...
+
+
+@runtime_checkable
+class ReviewerRepository(Protocol):
+    """Persistence for correction reviewers, one per scope."""
+
+    async def get(self, scope: str) -> Reviewer | None:
+        """Return the reviewer of a scope, if any."""
+        ...
+
+    async def save(self, reviewer: Reviewer) -> None:
+        """Create or replace the reviewer of a scope."""
+        ...
+
+    async def delete(self, scope: str) -> bool:
+        """Remove the reviewer of a scope; return whether one existed."""
+        ...
+
+    async def all(self) -> list[Reviewer]:
+        """Return every reviewer, global scope first."""
+        ...
+
+
+@runtime_checkable
+class ReviewerEventRepository(Protocol):
+    """Persistence for reviewer correction resolutions (admin report)."""
+
+    async def add(self, event: ReviewerEvent) -> ReviewerEvent:
+        """Persist an event and return it with its id."""
+        ...
+
+    async def list_unreported(self) -> list[ReviewerEvent]:
+        """Return events not yet included in an admin report."""
+        ...
+
+    async def mark_reported(self, feedback_ids: list[str]) -> None:
+        """Mark the events of these feedback ids as reported."""
+        ...
+
+
+@runtime_checkable
+class ReportStateRepository(Protocol):
+    """Persistence for the last time the admin report was sent."""
+
+    async def get_last_sent_at(self) -> datetime | None:
+        """Return when the last admin report was sent, if ever."""
+        ...
+
+    async def set_last_sent_at(self, sent_at: datetime) -> None:
+        """Record when the admin report was sent."""
         ...

@@ -141,6 +141,22 @@ npx wrangler vectorize info knowledge-v1
 
 ---
 
+## Reverting a correction (CLI only)
+
+There is **no rollback from Telegram**: a reviewer's approval cannot be undone
+from the group or DMs, and the admin report is read-only. The only way back is
+the CLI, which restores the version the correction superseded. Nothing is
+deleted — the reverted version stays in the history:
+
+```bash
+BOT_BASE_URL=https://<worker>.workers.dev uv run kb revert <qa_item_id>
+```
+
+The item id is visible in the review report (`kb review`). The derived index is
+updated as part of the revert; it can take up to a minute to settle.
+
+---
+
 ## Migrations
 
 Migrations live in `migrations/` and are applied **by hand**; there is no runner.

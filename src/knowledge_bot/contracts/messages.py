@@ -43,6 +43,11 @@ class NormalizedMessage(BaseModel):
     sender_name: str | None = None
     text: str | None = None
     reply_to_message_id: str | None = None
+    #: Raw Telegram user ids used only as routing keys (reviewer nomination,
+    #: confirmation checks); never logged and never displayed as data.
+    sender_user_id: str | None = None
+    reply_to_user_id: str | None = None
+    reply_to_user_name: str | None = None
     mentions_bot: bool = False
     is_reply_to_bot: bool = False
     is_direct_message: bool = False

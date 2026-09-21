@@ -7,6 +7,7 @@ so the app resolves its context through a callable rather than at import time.
 
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -22,15 +23,21 @@ from knowledge_bot.application.feedback import (
     PROPOSAL_ACK,
     PROPOSAL_PROMPT,
     REVIEW_REJECTED,
+    CorrectionRequest,
     callback_action,
     callback_target,
     render_review,
 )
 from knowledge_bot.application.intake import IntakeAction, decide_intake
 from knowledge_bot.application.review import render_review_report
+from knowledge_bot.application.reviewers import (
+    parse_reviewer_command,
+    render_reviewer_list,
+)
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
+from knowledge_bot.domain.entities import ReviewerEvent
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
@@ -42,6 +49,12 @@ ContextResolver = Callable[[Request], AppContext]
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
+
+
+def _reviewer_confirmed(scope: str, name: str) -> str:
+    """Build the confirmation message after a reviewer nomination."""
+    target = "revisor global" if scope == GLOBAL_SCOPE else "revisor d'aquest grup"
+    return f"\u2705 {name} \u00e9s ara el {target}."
 
 
 def create_app(resolve_context: ContextResolver) -> FastAPI:
@@ -182,6 +195,40 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         for chat_id in context.settings.allowed_chat_ids:
             sent = (await context.recap.maybe_send(chat_id)) or sent
         return {"status": "sent" if sent else "skipped"}
+
+    @app.post("/internal/report")
+    async def internal_report(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Force the opportunistic admin report check from a scheduler."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        sent = await context.reviewer_report.maybe_send()
+        return {"status": "sent" if sent else "skipped"}
+
+    @app.post("/internal/revert")
+    async def internal_revert(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Revert a Q&A item to the version its current one superseded.
+
+        The only rollback path: a CLI operation, never a Telegram action.
+        """
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        payload = await request.json()
+        qa_item_id = (
+            str(payload.get("qa_item_id", "")) if isinstance(payload, dict) else ""
+        )
+        restored = await context.reverter.revert(qa_item_id)
+        if restored is None:
+            raise HTTPException(status_code=404, detail="nothing to revert")
+        await context.reindex.reindex_qa_version(restored.id)
+        return {"status": "reverted", "restored_version_id": restored.id}
 
     @app.post("/internal/reindex")
     async def internal_reindex(
@@ -324,7 +371,7 @@ async def _require_evaluation_budget(context: AppContext) -> None:
 
 
 async def _handle_message(context: AppContext, message: NormalizedMessage) -> str:
-    """Route a normalized message: feedback replies first, then intake."""
+    """Route a normalized message: reviewer commands, feedback replies, intake."""
     if (
         message.is_direct_message
         and not message.is_sender_allowed
@@ -335,6 +382,8 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         # username is discoverable, so an open DM would let anyone spend the
         # shared free AI quota and buzz the admin with fake corrections.
         return "ignored"
+    if message.text is not None and message.text.split()[0].startswith("/reviewer"):
+        return await _handle_reviewer_command(context, message)
     if message.reply_to_message_id is not None:
         handled = await _handle_feedback_reply(context, message)
         if handled:
@@ -349,7 +398,54 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     if action is IntakeAction.ANSWER and result.created:
         await context.answer.answer(message)
     await context.recap.maybe_send(message.conversation_id)
+    await context.reviewer_report.maybe_send()
     return action.value
+
+
+async def _handle_reviewer_command(
+    context: AppContext, message: NormalizedMessage
+) -> str:
+    """Handle ``/reviewer``: nominate, remove, or list correction reviewers.
+
+    Only the admin may change reviewers. A nomination points at the person the
+    command replies to (their Telegram user id); without a reply the command
+    lists the current reviewers. Without ``global`` the scope is the group the
+    command was typed in.
+
+    Args:
+        context: The application context.
+        message: The command message.
+
+    Returns:
+        A short status string.
+    """
+    if not message.sender_is_admin:
+        return "ignored"
+    action, is_global = parse_reviewer_command(message.text or "")
+    scope = GLOBAL_SCOPE if is_global else message.conversation_id
+    chat = message.conversation_id
+    if action == "nominate" and message.reply_to_user_id is None:
+        reviewers = await context.reviewers.list_reviewers()
+        await context.transport.send_message(chat, render_reviewer_list(reviewers))
+        return "reviewer_list"
+    if action == "nominate":
+        name = message.reply_to_user_name or "?"
+        await context.reviewers.nominate(
+            scope,
+            message.reply_to_user_id or "",
+            name,
+            message.sender_user_id or "",
+        )
+        await context.transport.send_message(chat, _reviewer_confirmed(scope, name))
+        return "reviewer_nominated"
+    removed = await context.reviewers.remove(scope)
+    await context.transport.send_message(
+        chat,
+        "\u2705 Revisor eliminat."
+        if removed
+        else "No hi havia cap revisor per eliminar.",
+    )
+    return "reviewer_removed"
 
 
 async def _is_known_correction_reply(
@@ -375,20 +471,25 @@ async def _is_known_correction_reply(
 async def _handle_feedback_reply(
     context: AppContext, message: NormalizedMessage
 ) -> str | None:
-    """Handle a reply to a feedback prompt (reporter or admin)."""
+    """Handle a reply to a feedback prompt (reporter or reviewer)."""
     reply_to = message.reply_to_message_id
     if reply_to is None or message.text is None:
         return None
-    admin_id = context.settings.admin_telegram_user_id
     feedback = await context.feedback_repo.find_by_edit_prompt(reply_to)
-    if feedback is not None and message.sender_is_admin:
-        await context.feedback.admin_edit(feedback.id, message.text)
+    if feedback is not None:
         review = await context.feedback.correction_request(feedback.id)
-        if review is not None:
+        if review is None or not await context.router.can_confirm(
+            message.sender_user_id, review.group_chat_id
+        ):
+            return None
+        await context.feedback.admin_edit(feedback.id, message.text)
+        destination = await context.router.destination(review.group_chat_id)
+        review = await context.feedback.correction_request(feedback.id)
+        if destination is not None and review is not None:
             await context.transport.send_review(
-                admin_id, render_review(review), feedback.id
+                destination, render_review(review), feedback.id
             )
-        return "admin_edited"
+        return "reviewer_edited"
     feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
     if feedback is None:
         return None
@@ -401,9 +502,11 @@ async def _handle_feedback_reply(
     await context.transport.send_message(reporter_chat, PROPOSAL_ACK)
     review = await context.feedback.correction_request(proposed.id)
     if review is not None:
-        await context.transport.send_review(
-            admin_id, render_review(review), proposed.id
-        )
+        destination = await context.router.destination(review.group_chat_id)
+        if destination is not None:
+            await context.transport.send_review(
+                destination, render_review(review), proposed.id
+            )
     return "proposed"
 
 
@@ -430,12 +533,8 @@ async def _handle_callback(
     target = callback_target(data)
     if action is None or target is None:
         return "ignored"
-    admin_id = context.settings.admin_telegram_user_id
-    is_admin = reporter_chat_id == admin_id
-    # Proposing a correction is open to any group user; confirming it is not.
-    if action != "start" and not is_admin:
-        return "ignored"
     if action == "start":
+        # Proposing a correction is open to any group user.
         feedback = await context.feedback.start(
             target, None, reporter_chat_id, reporter_name
         )
@@ -450,6 +549,13 @@ async def _handle_callback(
             )
         await context.transport.answer_callback(callback_id)
         return "feedback_started"
+    # Confirming a correction is only for its reviewer (the group's reviewer,
+    # the global reviewer, or the admin), enforced here on the server.
+    review = await context.feedback.correction_request(target)
+    if review is None or not await context.router.can_confirm(
+        reporter_chat_id, review.group_chat_id
+    ):
+        return "ignored"
     if action == "approve_global" or action == "approve_group":
         scope = GLOBAL_SCOPE if action == "approve_global" else GROUP_SCOPE
         version = await context.feedback.approve(target, scope)
@@ -457,7 +563,20 @@ async def _handle_callback(
             return "ignored"
         await context.reindex.reindex_qa_version(version.id)
         feedback = await context.feedback_repo.get(target)
-        await context.transport.send_message(admin_id, ADMIN_APPROVED)
+        await context.reviewer_report.record(
+            _reviewer_event(
+                target,
+                review,
+                "edited_approved"
+                if feedback is not None and feedback.admin_edited_answer
+                else "approved",
+                GLOBAL_SCOPE if action == "approve_global" else review.group_chat_id,
+                reporter_chat_id,
+                reporter_name,
+            )
+        )
+        if reporter_chat_id:
+            await context.transport.send_message(reporter_chat_id, ADMIN_APPROVED)
         if feedback is not None and feedback.reporter_chat_id:
             await context.transport.send_message(
                 feedback.reporter_chat_id, REPORTER_THANKS
@@ -465,11 +584,10 @@ async def _handle_callback(
         await context.transport.answer_callback(callback_id)
         return "feedback_approved"
     if action == "edit":
-        review = await context.feedback.correction_request(target)
-        if review is None:
-            return "ignored"
         prompt = f"{EDIT_PROMPT}\n\nProposta actual:\n{review.proposed_answer}"
-        prompt_id = await context.transport.send_force_reply(admin_id, prompt)
+        prompt_id = await context.transport.send_force_reply(
+            reporter_chat_id or "", prompt
+        )
         if prompt_id is not None:
             feedback = await context.feedback_repo.get(target)
             if feedback is not None:
@@ -480,7 +598,39 @@ async def _handle_callback(
         return "feedback_edit"
     if action == "reject":
         await context.feedback.reject(target)
-        await context.transport.send_message(admin_id, REVIEW_REJECTED)
+        await context.reviewer_report.record(
+            _reviewer_event(
+                target,
+                review,
+                "rejected",
+                None,
+                reporter_chat_id,
+                reporter_name,
+            )
+        )
+        if reporter_chat_id:
+            await context.transport.send_message(reporter_chat_id, REVIEW_REJECTED)
         await context.transport.answer_callback(callback_id)
         return "feedback_rejected"
     return "ignored"
+
+
+def _reviewer_event(
+    feedback_id: str,
+    review: CorrectionRequest,
+    action: str,
+    approval_scope: str | None,
+    reviewer_user_id: str | None,
+    reviewer_name: str | None,
+) -> ReviewerEvent:
+    """Build the report event for a reviewer's resolution."""
+    return ReviewerEvent(
+        feedback_id=feedback_id,
+        action=action,
+        created_at=datetime.now(UTC),
+        reviewer_user_id=reviewer_user_id,
+        reviewer_name=reviewer_name,
+        group_label=review.group_label,
+        question=review.question,
+        approval_scope=approval_scope,
+    )

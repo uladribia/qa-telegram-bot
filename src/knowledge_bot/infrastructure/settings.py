@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     recap_interval_hours: int = 24
     recap_language: str = "ca"
 
+    admin_report_mode: str = "always"
+    admin_report_interval_min: int = 60
+
     background_listener_enabled: bool = False
 
     direct_qa_threshold: float = 0.7
@@ -67,6 +70,17 @@ class Settings(BaseSettings):
             if model not in ALLOWED_AI_MODELS:
                 message = f"Model not allowed under the zero-cost policy: {model}"
                 raise ValueError(message)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_admin_report_mode(self) -> "Settings":
+        """Reject unknown admin report modes."""
+        if self.admin_report_mode not in {"always", "batch", "off"}:
+            message = (
+                "ADMIN_REPORT_MODE must be 'always', 'batch' or 'off', got"
+                f" {self.admin_report_mode!r}"
+            )
+            raise ValueError(message)
         return self
 
 
