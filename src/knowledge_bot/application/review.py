@@ -16,6 +16,7 @@ report itself changes nothing.
 from dataclasses import dataclass, field
 
 from knowledge_bot.domain.scope import Scope, is_global
+from knowledge_bot.ports.repositories import ConversationRepository
 from knowledge_bot.ports.review import ReviewItem, ReviewSource
 
 CORRECTION_ORIGIN = "admin_approved"
@@ -93,7 +94,7 @@ def render_review_report(entries: list[ReviewEntry]) -> str:
         if entry.global_answer is not None:
             lines.append(f"- **global**: {entry.global_answer}")
         for scope, answer in entry.variants:
-            lines.append(f"- **grup {scope}**: {answer}")
+            lines.append(f"- **{scope}**: {answer}")
         flags: list[str] = []
         if entry.under_review:
             flags.append("sota revisió")
@@ -115,6 +116,7 @@ class ReviewService:
     """Build the human knowledge review report."""
 
     source: ReviewSource
+    conversations: ConversationRepository | None = None
 
     async def review(self) -> list[ReviewEntry]:
         """Return the review entries worth human attention.
@@ -127,7 +129,24 @@ class ReviewService:
         for item in items:
             by_key.setdefault(item.canonical_key, []).append(item)
         entries = [_build_entry(group) for group in by_key.values()]
+        for entry in entries:
+            # Variant slots carry the display label from here on (frozen dataclass:
+            # the list itself stays mutable).
+            entry.variants[:] = [
+                (await self._scope_label(scope), answer)
+                for scope, answer in entry.variants
+            ]
         return [entry for entry in entries if _has_finding(entry)]
+
+    async def _scope_label(self, scope: Scope) -> str:
+        """Label a scope for the report: group title, or the id as fallback."""
+        if is_global(scope):
+            return "global"
+        if self.conversations is not None:
+            conversation = await self.conversations.get(scope)
+            if conversation is not None and conversation.title:
+                return f"grup {conversation.title}"
+        return f"grup {scope}"
 
 
 def _has_finding(entry: ReviewEntry) -> bool:

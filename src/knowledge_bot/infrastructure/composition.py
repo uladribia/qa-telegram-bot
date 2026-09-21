@@ -217,7 +217,10 @@ def build_context(env: WorkerEnv) -> AppContext:
             conversations=D1ConversationRepository(database),
             clock=clock,
         ),
-        review=ReviewService(source=D1ReviewSource(database)),
+        review=ReviewService(
+            source=D1ReviewSource(database),
+            conversations=D1ConversationRepository(database),
+        ),
         feedback=FeedbackService(
             answers=answers,
             feedback=D1FeedbackRepository(database),

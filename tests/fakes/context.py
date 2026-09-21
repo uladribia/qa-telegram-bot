@@ -136,7 +136,9 @@ def build_test_context(
             conversations=InMemoryConversationRepository(),
             clock=clock,
         ),
-        review=ReviewService(source=FakeReviewSource()),
+        review=ReviewService(
+            source=FakeReviewSource(), conversations=InMemoryConversationRepository()
+        ),
         feedback=FeedbackService(
             answers=answers,
             feedback=feedback_repo,
