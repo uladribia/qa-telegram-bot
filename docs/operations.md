@@ -38,6 +38,24 @@ curl -s -X POST "https://api.cloudflare.com/client/v4/graphql" \
 The estimate is deliberately conservative: it may refuse evals while some budget
 remains. That is the safe direction.
 
+### Hard-won operational facts (2026-09-22)
+
+- **The analytics API lags.** Hours after a heavy run it still reports less
+  than was actually spent. Never calibrate the app's estimate from it while
+  calls are still failing: on 2026-09-22 the API showed 2.6k neurons for the
+  day while the model already answered *allocation exhausted* (the previous
+  day had actually burned 10.7k). The in-app estimate tracked reality better
+  than the analytics did.
+- **The daily reset time is not confirmed to be 00:00 UTC.** After a day that
+  exceeded the free allocation, the next day ran out long before midnight. If
+  calls keep failing past 00:00 UTC, find the real reset hour with the GraphQL
+  query above and reschedule the nightly eval/reindex crons accordingly.
+- **A full reindex does not fit in one free day.** It embeds every active Q&A
+  version and every message; the first run indexed 764 Q&A + 1,444 messages
+  before the guard stopped it. The reindex is resumable by cursor (the CLI
+  prints a `resume with: --qa-after ... --msg-after ...` hint) — plan on
+  spreading a rebuild over several nights and resuming from the hint.
+
 ### Simulating a spent day
 
 ```bash
