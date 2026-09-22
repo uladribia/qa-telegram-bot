@@ -468,7 +468,7 @@ def eval_seed_versioning() -> EvalReport:
         review = published.model_copy(
             update={"source_anchor": "qa-y", "status": "in_review"}
         )
-        created, skipped, _ = await service.seed_qa([published, review])
+        created, skipped, _, _ = await service.seed_qa([published, review])
         report.check(
             created == 2 and skipped == 0, f"expected 2 created, got {created}"
         )

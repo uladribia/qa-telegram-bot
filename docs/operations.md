@@ -154,6 +154,31 @@ burned 8,979 real neurons for 764 Q&A + 1,444 messages in a single hour
   refusing with 429 *before* any call is the cheap failure — treat it as such,
   don't work around it.
 
+### Authorizing a full reindex
+
+A full reindex is for **substantial knowledge-base changes only**: the initial
+WhatsApp import, a scope or metadata change, an embedding-model change, or a
+suspected stale index. Routine additions do not need it — seeding indexes new
+and renewed Q&A incrementally (~4 neurons each), and approved corrections
+reindex their single version automatically.
+
+When a full rebuild is genuinely needed, ask the user first, with the budget
+stated up front:
+
+1. Count the records the rebuild will touch:
+
+   ```bash
+   npx wrangler d1 execute knowledge-bot --remote --yes --command \
+     "SELECT (SELECT COUNT(*) FROM qa_items qi JOIN qa_versions qv ON qi.current_version_id = qv.id WHERE qi.status = 'active') AS qa, (SELECT COUNT(*) FROM messages WHERE text IS NOT NULL AND text != '') AS messages"
+   ```
+
+2. Report the estimate: **~4 real neurons per record** (measured: 8,979
+   neurons for 2,208 records on 2026-09-21), so a 2,000-record base is most of
+   a free day's budget. The in-app guard estimate runs ~4× higher and trips
+   first — that is expected.
+3. Wait for the user's explicit yes. If it cannot fit in the remaining day,
+  propose batching over several nights with the resume cursors instead.
+
 The gate exits non-zero when a suite fails, with a one-line reason per failure.
 
 ---

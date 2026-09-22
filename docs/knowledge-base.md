@@ -48,18 +48,19 @@ Parse the page into a JSON file, then push it to the deployed Worker.
 uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
 
 # 2. Push it into D1 through the Worker (global by default; pass --scope with a
-#    group chat id to make the entries visible only in that group)
+#    group chat id to make the entries visible only in that group).
+#    New and renewed entries are indexed incrementally as part of the seed:
+#    ~4 neurons each, no full rebuild needed.
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json
-
-# 3. Rebuild the derived index
-make reindex
 ```
 
 The parser is generic, not tied to one site. It is configured for the headings and
 answer shapes the page uses; if a different page yields too few entries it refuses
 to write rather than seeding nonsense (the floor is 30 entries).
 
-**Then**: `make reindex`, or the new knowledge is invisible to retrieval.
+**Then**: nothing — the seed indexes what it created. A full `make reindex` is
+not needed for routine additions, and is a user-authorized operation reserved
+for substantial changes (see [operations.md](operations.md)).
 
 The parser stores the **exact anchored URL** for each entry, which is what
 citations show.
@@ -71,8 +72,12 @@ citations show.
 ```bash
 uv run kb import-whatsapp data/raw/whatsapp.txt --out data/seed/whatsapp.jsonl
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --messages data/seed/whatsapp.jsonl
-make reindex
 ```
+
+Imported messages are **not** auto-indexed: an export is typically thousands of
+messages, so indexing it is a full rebuild — a substantial change that needs the
+user's explicit authorization and the budget ritual in
+[operations.md](operations.md).
 
 The parser handles iOS one-digit dates and 12-hour AM/PM timestamps. Authors are
 stored as they appear in the export, so a contact saved without a name shows up as
@@ -115,7 +120,8 @@ npx wrangler d1 execute knowledge-bot --remote --yes \
   --command "UPDATE qa_items SET scope='<group-chat-id>' WHERE id IN (SELECT qa_id FROM qa_versions WHERE origin='auto_generated')"
 ```
 
-Then `make reindex` so the derived index picks up the new scopes.
+Then `make reindex` so the derived index picks up the new scopes (a user-
+authorized full rebuild: scope changes alter the metadata of every record).
 
 ---
 
@@ -162,8 +168,10 @@ the latest update prevails, and no old version is ever deleted.
 ```bash
 uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json --renew
-make reindex
 ```
+
+Renewed entries are indexed incrementally by the seed itself (~4 neurons each);
+no full reindex is needed.
 
 A renewal that lands after an approved correction supersedes it (latest wins);
 the correction stays in the version history, and the divergence shows up in the
@@ -224,6 +232,12 @@ make reindex                       # or: uv run kb reindex
 
 `make reindex` reads every active Q&A version and every message with text,
 re-embeds them, and upserts into Vectorize with the metadata retrieval filters on.
+
+**It is rarely the right tool.** Incremental paths cover routine changes: the
+seed indexes the Q&A it creates or renews (~4 neurons each), and an approved
+correction or a revert reindexes its single version automatically. A full
+rebuild is a user-authorized operation for substantial changes only — see the
+authorization ritual in [operations.md](operations.md).
 
 Two things to expect:
 
