@@ -27,7 +27,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Quan respon",
     "question": "Per què no contestes missatges que no són per tu?",
-    "answer": "Perquè sóc discret per disseny: només responc quan m'adresses explícitament, de quatre maneres: mencionant-me (@nom_del_bot ...), responent a un missatge meu, escrivint-m'ho en privat, o fent servir l'ordre /ask. Una pregunta al grup sense cap d'aquests senyals no genera resposta, per no interrompre les converses normals. Les preguntes no adreçades es poden recollir al resum periòdic si està activat.",
+    "answer": "Perquè sóc discret per disseny: només responc quan m'adresses explícitament, de quatre maneres: mencionant-me (@nom_del_bot ...), responent a un missatge meu, escrivint-m'ho en privat, o fent servir l'ordre /ask. Una pregunta al grup sense cap d'aquests senyals no genera resposta, per no interrompre les converses normals. Cap grup rep resums: les preguntes no adreçades es recullen al resum diari que rep l'admin per missatge privat.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },

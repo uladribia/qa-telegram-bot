@@ -100,9 +100,11 @@ def build_test_context(
     )
     recap = RecapService(
         answers=answers,
+        conversations=InMemoryConversationRepository(),
         state=InMemoryRecapStateRepository(),
         transport=transport,
         clock=clock,
+        admin_user_id="1",
         enabled=recap_enabled,
         interval_hours=24,
         language="ca",

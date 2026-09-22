@@ -203,9 +203,11 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         recap=RecapService(
             answers=answers,
+            conversations=D1ConversationRepository(database),
             state=D1RecapStateRepository(database),
             transport=transport,
             clock=clock,
+            admin_user_id=settings.admin_telegram_user_id or None,
             enabled=settings.recap_enabled,
             interval_hours=settings.recap_interval_hours,
             language=settings.recap_language,

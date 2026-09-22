@@ -2016,15 +2016,20 @@ No fer rollback del Q&A perquè l'edició visual falli.
 
 # 26.1. Resum periòdic de preguntes
 
-Per evitar omplir el xat i perquè les preguntes no respostes no es perdin, el bot
-publica un resum periòdic al grup.
+Per evitar omplir els xats i perquè les preguntes no respostes no es perdin, el
+bot envia un resum diari de preguntes **a l'admin, per missatge privat**.
+*(Amend 2026-09-22: el pla original publicava el resum al grup; amb multi-grup
+això filtrava preguntes entre grups i interrompia xats on el bot no havia
+respost res. L'admin és l'única destinació del resum.)*
 
 ## Contingut
 
-- Preguntes fetes durant la finestra i la resposta donada.
+- Preguntes fetes durant la finestra a qualsevol grup registrat, etiquetades
+amb el grup d'origen, i la resposta donada.
 - Preguntes **sense resposta** (abstenció) marcades com a pendents.
 - Per a les preguntes pendents, el resum ha d'intentar donar-hi resposta (un cop
 existeixi el pipeline de resposta); mentrestant es mostren com a pendents.
+- Els grups mai reben resums.
 
 ## Configuració
 
@@ -2044,8 +2049,8 @@ Decisió: **disparador oportunista**. A cada update acceptat, abans o després d
 processar el missatge, es comprova `is_recap_due(...)` i, si toca, es publica el
 resum. Un sol Worker, gratuït i event-driven.
 
-Estat: taula `recap_state(conversation_id, last_sent_at)` per no enviar-lo més
-d'un cop per interval.
+Estat: taula `recap_state(conversation_id, last_sent_at)` — clau única `admin`
+per no enviar-lo més d'un cop per interval.
 
 (Opcional futur: un programador extern pot cridar `POST /internal/recap` amb
 `X-Internal-Key` per cobrir dies sense activitat.)

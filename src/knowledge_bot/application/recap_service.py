@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
-"""Build, render, and schedule the periodic recap of asked questions.
+"""Build, render, and schedule the daily question summary for the admin.
 
-The bot answers only when addressed, so unanswered questions (abstentions) are
-collected and surfaced in the recap instead of being retried inline. The recap
-is a pure transformation over stored answers; delivery goes through the
+Groups never receive summaries. The admin receives one recap per interval
+covering every conversation's questions, each tagged with the group it came
+from, so unanswered questions are surfaced without interrupting any chat. The
+recap is a pure transformation over stored answers; delivery goes through the
 transport port.
 
 Python Workers have no cron handler, so the recap is sent opportunistically:
@@ -18,10 +19,15 @@ from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.policies import is_recap_due
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import BotAnswerRepository, RecapStateRepository
+from knowledge_bot.ports.repositories import (
+    BotAnswerRepository,
+    ConversationRepository,
+    RecapStateRepository,
+)
 from knowledge_bot.ports.transport import MessageTransport
 
 DEFAULT_RECAP_LANGUAGE = "ca"
+ADMIN_STATE_KEY = "admin"
 
 _RECAP_TEXTS: dict[str, dict[str, str]] = {
     "ca": {
@@ -44,6 +50,7 @@ class RecapEntry:
     question: str
     answer: str | None
     answered: bool
+    group_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +72,7 @@ def build_recap(
     *,
     window_start: datetime,
     window_end: datetime,
+    group_labels: dict[str, str] | None = None,
 ) -> Recap:
     """Build a recap from the answers recorded in a window.
 
@@ -72,10 +80,13 @@ def build_recap(
         answers: Stored bot answers within the window.
         window_start: Inclusive start of the window.
         window_end: Exclusive end of the window.
+        group_labels: Optional ``conversation_id -> display label`` mapping,
+            used to tag each entry with the group it came from.
 
     Returns:
         The recap, ordered by answer time.
     """
+    labels = group_labels or {}
     entries = [
         RecapEntry(
             question=answer.question,
@@ -83,6 +94,7 @@ def build_recap(
             if answer.answer_mode is AnswerMode.ABSTENTION
             else answer.answer,
             answered=answer.answer_mode is not AnswerMode.ABSTENTION,
+            group_label=labels.get(answer.conversation_id),
         )
         for answer in sorted(answers, key=lambda item: item.created_at)
     ]
@@ -110,53 +122,63 @@ def render_recap(recap: Recap, *, language: str = DEFAULT_RECAP_LANGUAGE) -> str
         return f"{header}\n{texts['empty']}"
     lines = [header]
     for entry in recap.entries:
+        prefix = f"[{entry.group_label}] " if entry.group_label else ""
         if entry.answered:
-            lines.append(f"\u2022 {entry.question}\n  \u2192 {entry.answer}")
+            lines.append(f"\u2022 {prefix}{entry.question}\n  \u2192 {entry.answer}")
         else:
-            lines.append(f"\u2022 {entry.question}\n  \u2192 {texts['pending']}")
+            lines.append(
+                f"\u2022 {prefix}{entry.question}\n  \u2192 {texts['pending']}"
+            )
     return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
 class RecapService:
-    """Send the periodic recap opportunistically."""
+    """Send the daily question summary to the admin, opportunistically."""
 
     answers: BotAnswerRepository
+    conversations: ConversationRepository
     state: RecapStateRepository
     transport: MessageTransport
     clock: Clock
+    admin_user_id: str | None = None
     enabled: bool = True
     interval_hours: int = 24
     language: str = DEFAULT_RECAP_LANGUAGE
 
-    async def maybe_send(self, conversation_id: str) -> bool:
-        """Send the recap when it is due.
-
-        Args:
-            conversation_id: The conversation to recap and post to.
+    async def maybe_send(self) -> bool:
+        """Send the admin recap when it is due.
 
         Returns:
-            ``True`` when a recap was sent, ``False`` when it was disabled or
-            not yet due.
+            ``True`` when a recap was sent, ``False`` when it was disabled,
+            missing an admin, or not yet due.
         """
-        if not self.enabled:
+        if not self.enabled or not self.admin_user_id:
             return False
         now = self.clock.now()
         if not is_recap_due(
-            await self.state.get_last_sent_at(conversation_id),
+            await self.state.get_last_sent_at(ADMIN_STATE_KEY),
             now,
             interval_hours=self.interval_hours,
         ):
             return False
         window_start = now - timedelta(hours=self.interval_hours)
+        answers = await self.answers.list_between(window_start, now)
+        labels = {
+            answer.conversation_id: label
+            for answer in answers
+            if (conversation := await self.conversations.get(answer.conversation_id))
+            and (label := conversation.title or answer.conversation_id)
+        }
         recap = build_recap(
-            await self.answers.list_between(window_start, now),
+            answers,
             window_start=window_start,
             window_end=now,
+            group_labels=labels,
         )
         await self.transport.send_message(
-            conversation_id,
+            self.admin_user_id,
             render_recap(recap, language=self.language),
         )
-        await self.state.set_last_sent_at(conversation_id, now)
+        await self.state.set_last_sent_at(ADMIN_STATE_KEY, now)
         return True
