@@ -49,12 +49,12 @@ remains. That is the safe direction.
 - **The daily reset time is not confirmed to be 00:00 UTC.** After a day that
   exceeded the free allocation, the next day ran out long before midnight. If
   calls keep failing past 00:00 UTC, find the real reset hour with the GraphQL
-  query above and reschedule the nightly eval/reindex crons accordingly.
+  query above and re-run the eval gate manually once the quota is back.
 - **A full reindex does not fit in one free day.** It embeds every active Q&A
   version and every message; the first run indexed 764 Q&A + 1,444 messages
   before the guard stopped it. The reindex is resumable by cursor (the CLI
-  prints a `resume with: --qa-after ... --msg-after ...` hint) — plan on
-  spreading a rebuild over several nights and resuming from the hint.
+  prints a `resume with: --qa-after ... --msg-after ...` hint) — run it in
+  authorized, supervised batches over several nights, resuming from the hint.
 
 ### Simulating a spent day
 
@@ -141,13 +141,15 @@ burned 8,979 real neurons for 764 Q&A + 1,444 messages in a single hour
 (2026-09-21). Rules:
 
 - Run them **only with the user's explicit authorization**, one suite at a
-  time, and only for a concrete reason: an acceptance gate, a suspected
-  regression, or a calibration decision. Never for curiosity or iteration.
+  time, and only for **substantive changes that can affect answer quality**
+  (a threshold change, a prompt change, a model change, a retrieval change) —
+  never for curiosity, iteration, or scheduled maintenance.
 - **Never retry a failed live eval automatically.** Every retry is a fresh
   full burn; six retries of a degraded-model run can spend a whole day's
   budget. Diagnose, then re-run manually.
-- Never put the live gate in a recurring scheduled job. A one-shot, authorized
-  run with a completion marker is the most a cron may ever do.
+- **Never schedule them.** No recurring or one-shot cron ever runs the live
+  gate or the reindex: an unattended run cannot ask for authorization, and a
+  failing one burns quota while nobody watches.
 - A failed run still burns the calls it made before failing. The guard
   refusing with 429 *before* any call is the cheap failure — treat it as such,
   don't work around it.

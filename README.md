@@ -72,9 +72,9 @@ Routes: `GET /healthz`; key-guarded `POST /internal/{recap,report,reindex,revert
 **1. The AI budget is real and shared.** The free plan allows 10,000 neurons per
 day. When it runs out the bot can answer nothing until the next reset. Live
 evals and reindex are the big consumers and are refused early by a guard; user
-questions are never refused. Run them **only with explicit authorization**, one
-suite at a time, and never auto-retry a failed run. Details in
-[docs/operations.md](docs/operations.md).
+questions are never refused. Run them **only with explicit authorization, for
+substantive changes that can affect answer quality** — never scheduled, never
+auto-retried. Details in [docs/operations.md](docs/operations.md).
 
 **2. D1 is the source of truth.** Vectorize is a derived index, rebuildable at any
 time from D1. Never store anything that exists only in the index.
