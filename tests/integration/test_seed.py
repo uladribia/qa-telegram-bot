@@ -65,7 +65,7 @@ def _entry(
 async def test_seed_qa_creates_item_and_version() -> None:
     """A published entry becomes an active item with a version."""
     service, items, versions = _service()
-    created, skipped, _ = await service.seed_qa([_entry("qa-1")])
+    created, skipped, _, _ = await service.seed_qa([_entry("qa-1")])
     assert (created, skipped) == (1, 0)
     item = await items.get_by_canonical_key("qa-1")
     assert item is not None
@@ -96,21 +96,38 @@ async def test_seeding_is_idempotent() -> None:
     """Re-seeding the same snapshot skips existing entries."""
     service, _, _ = _service()
     await service.seed_qa([_entry("qa-1")])
-    created, skipped, _ = await service.seed_qa([_entry("qa-1")])
+    created, skipped, _, _ = await service.seed_qa([_entry("qa-1")])
     assert (created, skipped) == (0, 1)
+
+
+async def test_seed_returns_version_ids_needing_indexing() -> None:
+    """Created and renewed versions are reported for incremental indexing."""
+    service, items, versions = _service()
+    created, _, _, first_ids = await service.seed_qa([_entry("qa-1")])
+    assert created == 1
+    item = await items.get_by_canonical_key("qa-1")
+    assert item is not None and item.current_version_id in first_ids
+    created, _, renewed, second_ids = await service.seed_qa(
+        [_entry("qa-1", answer="R v2.")], renew=True
+    )
+    assert (created, renewed) == (0, 1)
+    assert second_ids != first_ids
+    updated = await items.get_by_canonical_key("qa-1")
+    assert updated is not None and updated.current_version_id in second_ids
+    assert await versions.get(first_ids[0]) is not None
 
 
 async def test_seed_qa_is_scoped_per_group() -> None:
     """A group-scoped seed coexists with the global entry of the same key."""
     service, items, _ = _service()
-    created, _, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
+    created, _, _, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
     assert created == 1
     item = await items.get_by_canonical_key("qa-1", "-100")
     assert item is not None
     assert item.scope == "-100"
     # The global scope stays untouched and re-seeding is still idempotent.
     assert await items.get_by_canonical_key("qa-1") is None
-    created, skipped, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
+    created, skipped, _, _ = await service.seed_qa([_entry("qa-1")], scope="-100")
     assert (created, skipped) == (0, 1)
 
 
@@ -141,13 +158,13 @@ async def test_renew_updates_changed_entries_append_only() -> None:
     assert first_version_id is not None
 
     # Unchanged entry: skipped even with renew.
-    created, skipped, renewed = await service.seed_qa(
+    created, skipped, renewed, _ = await service.seed_qa(
         [_entry("qa-1", question="Què?,", answer="R v1.")], renew=True
     )
     assert (created, skipped, renewed) == (0, 1, 0)
 
     # Changed answer: new version wins, the old one is kept.
-    created, skipped, renewed = await service.seed_qa(
+    created, skipped, renewed, _ = await service.seed_qa(
         [_entry("qa-1", question="Què?,", answer="R v2.")], renew=True
     )
     assert (created, skipped, renewed) == (0, 0, 1)
@@ -187,7 +204,7 @@ async def test_renewed_web_beats_an_older_approved_correction() -> None:
             created_at=NOW,
         )
     )
-    created, skipped, renewed = await service.seed_qa(
+    created, skipped, renewed, _ = await service.seed_qa(
         [_entry(key, question="P?", answer="Web renovat.")], renew=True
     )
     assert (created, skipped, renewed) == (0, 0, 1)

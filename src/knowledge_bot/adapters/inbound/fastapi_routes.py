@@ -299,11 +299,18 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not isinstance(scope, str) or not scope.strip():
             scope = "global"
         renew = bool(payload.get("renew", False))
-        created, skipped, renewed = await context.seed.seed_qa(qa_entries, scope, renew)
+        created, skipped, renewed, version_ids = await context.seed.seed_qa(
+            qa_entries, scope, renew
+        )
+        indexed = 0
+        for version_id in version_ids:
+            if await context.reindex.reindex_qa_version(version_id):
+                indexed += 1
         message_count = await context.seed.seed_messages(messages, scope)
         return {
             "qa": created,
             "qa_skipped": skipped,
+            "indexed": indexed,
             "qa_renewed": renewed,
             "messages": message_count,
         }

@@ -24,22 +24,42 @@ from pathlib import Path
 import httpx
 import yaml
 
-from knowledge_bot.application.answer_question import render_source_line
-from knowledge_bot.application.feedback import canonical_key_for
+from knowledge_bot.application.answer_question import AnswerService, render_source_line
+from knowledge_bot.application.feedback import (
+    GROUP_SCOPE,
+    FeedbackService,
+    canonical_key_for,
+)
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.application.retrieval import Evidence
+from knowledge_bot.application.retrieval import (
+    Evidence,
+    RetrievalService,
+    RetrievedEvidence,
+)
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.contracts.seed import SeedQA
+from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
+from knowledge_bot.domain.enums import AnswerMode, QAOrigin, QAStatus
 from knowledge_bot.domain.policies import is_ask_command
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.ports.generator import GenerationOutput
+from tests.fakes.ai import (
+    FakeEmbedder,
+    FakeGenerator,
+    FakeVectorStore,
+)
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
+    InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
+    InMemoryFeedbackRepository,
     InMemoryMessageRepository,
+    InMemoryQAEvidenceRepository,
     InMemoryQAItemRepository,
     InMemoryQAVersionRepository,
     InMemorySourceRepository,
 )
-from tests.fakes.support import FrozenClock
+from tests.fakes.support import FrozenClock, RecordingTransport
 
 EVALS_DIR = Path(__file__).resolve().parents[1] / "evals"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -166,6 +186,256 @@ def eval_citation_format() -> EvalReport:
     return report
 
 
+def _conflict_evidence(case: dict[str, object]) -> list[Evidence]:
+    """Build Evidence items from a conflicts.yaml case."""
+    raw_evidence = case.get("evidence")
+    items = []
+    for index, raw in enumerate(raw_evidence if isinstance(raw_evidence, list) else []):
+        assert isinstance(raw, dict)
+        raw_authority = raw.get("authority", 0)
+        authority = int(raw_authority) if isinstance(raw_authority, (int, float)) else 0
+        items.append(
+            Evidence(
+                source_id=f"ev-{case.get('id', index)}-{index}",
+                label="Grup" if authority < 100 else "Q&A",
+                text=str(raw.get("text", "")),
+                authority=authority,
+                similarity=0.6,
+            )
+        )
+    return items
+
+
+def eval_conflicts() -> EvalReport:
+    """Conflict behaviour (spec §42), verified offline.
+
+    The gate's deterministic half: a model "insufficient" verdict always
+    abstains, and the evidence handed to the model carries each source's
+    authority intact (the prompt tells the model to prefer higher authority).
+    """
+    report = EvalReport(name="conflicts/gate")
+    for case in load_cases("conflicts.yaml"):
+        assert isinstance(case, dict)
+        case_id = str(case.get("id", "?"))
+        expected = case.get("expected") or {}
+        assert isinstance(expected, dict)
+        generator = FakeGenerator(GenerationOutput(status="insufficient"))
+        service = AnswerService(
+            retrieval=RetrievalService(
+                embedder=FakeEmbedder(), vectors=FakeVectorStore()
+            ),
+            generator=generator,
+            answers=InMemoryBotAnswerRepository(),
+            transport=RecordingTransport(),
+            clock=FrozenClock(NOW),
+        )
+        question = str(case.get("question", ""))
+        retrieved = RetrievedEvidence(messages=_conflict_evidence(case))
+        outcome = asyncio.run(service.decide(question, retrieved))
+        if "status" in expected:
+            report.check(
+                outcome.mode is AnswerMode.ABSTENTION,
+                f"{case_id}: expected abstention on insufficient, got {outcome.mode}",
+            )
+        if "use_authority" in expected:
+            request = generator.requests[-1]
+            wanted_value = expected.get("use_authority")
+            wanted = int(wanted_value) if isinstance(wanted_value, (int, float)) else 0
+            carried = [item.authority for item in request.evidence]
+            report.check(
+                wanted in carried,
+                f"{case_id}: authority {wanted} not carried to the model: {carried}",
+            )
+            strongest = max(request.evidence, key=lambda item: item.authority)
+            report.check(
+                wanted == strongest.authority,
+                f"{case_id}: expected {wanted} to be the highest authority",
+            )
+    return report
+
+
+def _correction_flow(
+    answers: InMemoryBotAnswerRepository,
+) -> tuple[FeedbackService, InMemoryQAItemRepository, InMemoryQAVersionRepository]:
+    """Wire a FeedbackService to in-memory fakes for the corrections eval."""
+    items = InMemoryQAItemRepository()
+    versions = InMemoryQAVersionRepository()
+    service = FeedbackService(
+        answers=answers,
+        feedback=InMemoryFeedbackRepository(),
+        qa_items=items,
+        qa_versions=versions,
+        evidence=InMemoryQAEvidenceRepository(),
+        conversations=InMemoryConversationRepository(),
+        clock=FrozenClock(NOW),
+    )
+    return service, items, versions
+
+
+def eval_corrections() -> EvalReport:
+    """Correction-flow eval (spec §43): six deterministic scenarios, 100% pass.
+
+    Every case is an in-process flow over fakes: no model, no network. The
+    YAML set documents the expected case list; the flow is verified in code
+    because each scenario is a sequence of service calls, not static data.
+    """
+    report = EvalReport(name="corrections/flow")
+    cases = load_cases("corrections.yaml")
+    report.check(len(cases) == 6, f"expected 6 correction cases, got {len(cases)}")
+    question = "Com es demana l'equipament?"
+
+    async def run() -> None:
+        # 1. auto answer -> correction -> approve
+        answers = InMemoryBotAnswerRepository()
+        await answers.add(
+            BotAnswer(
+                id="ans:m1",
+                conversation_id="-100",
+                question=question,
+                answer="Resposta antiga.",
+                answer_mode=AnswerMode.DIRECT_QA,
+                created_at=NOW,
+                user_message_id="m1",
+            )
+        )
+        service, items, versions = _correction_flow(answers)
+        started = await service.start("ans:m1", "reporter")
+        assert started is not None
+        await service.propose(started.id, "La llista la passa l'entrenador.")
+        version = await service.approve(started.id, GROUP_SCOPE)
+        report.check(
+            version is not None
+            and version.authority == 100
+            and version.origin is QAOrigin.ADMIN_APPROVED,
+            "case 1 (auto answer): approval did not create an authoritative version",
+        )
+
+        # 2. web answer -> local override (fresh fakes, web-seeded item)
+        answers = InMemoryBotAnswerRepository()
+        await answers.add(
+            BotAnswer(
+                id="ans:m1",
+                conversation_id="-100",
+                question=question,
+                answer="Resposta antiga.",
+                answer_mode=AnswerMode.DIRECT_QA,
+                created_at=NOW,
+                user_message_id="m1",
+            )
+        )
+        service, items, versions = _correction_flow(answers)
+        key = canonical_key_for(question)
+        qa_id = f"qa-{key}"
+        await items.add(
+            QAItem(
+                id=qa_id,
+                canonical_key=key,
+                canonical_question=question,
+                status=QAStatus.ACTIVE,
+                created_at=NOW,
+                updated_at=NOW,
+                current_version_id="qav-web-1",
+            )
+        )
+        await versions.add(
+            QAVersion(
+                id="qav-web-1",
+                qa_id=qa_id,
+                answer="Resposta del web.",
+                authority=90,
+                origin=QAOrigin.WEB_SEED,
+                created_at=NOW,
+            )
+        )
+        started = await service.start("ans:m1", None)
+        assert started is not None
+        await service.propose(started.id, "Resposta corregida.")
+        override = await service.approve(started.id, GLOBAL_SCOPE)
+        report.check(
+            override is not None
+            and override.supersedes_version_id == "qav-web-1"
+            and override.qa_id == qa_id,
+            "case 2 (web override): approval did not supersede the web version",
+        )
+        report.check(
+            await versions.get("qav-web-1") is not None,
+            "case 2 (web override): the superseded web version was deleted",
+        )
+
+        # 3. correction -> reject (the override feedback is reused)
+        rejected = await service.reject(started.id)
+        report.check(
+            rejected is not None and rejected.status.value == "rejected",
+            "case 3 (reject): the proposal was not rejected",
+        )
+
+        # 4. correction -> admin edit -> approve
+        answers = InMemoryBotAnswerRepository()
+        await answers.add(
+            BotAnswer(
+                id="ans:m2",
+                conversation_id="-100",
+                question=question,
+                answer="Resposta antiga.",
+                answer_mode=AnswerMode.DIRECT_QA,
+                created_at=NOW,
+                user_message_id="m2",
+            )
+        )
+        service, items, versions = _correction_flow(answers)
+        started = await service.start("ans:m2", None)
+        assert started is not None
+        await service.propose(started.id, "proposta del reporter")
+        await service.admin_edit(started.id, "text editat per l'admin")
+        edited = await service.approve(started.id, GROUP_SCOPE)
+        report.check(
+            edited is not None and edited.answer == "text editat per l'admin",
+            "case 4 (admin edit): the edited text did not win",
+        )
+
+        # 5+6. two corrections in sequence; the newest stays current
+        answers = InMemoryBotAnswerRepository()
+        for index in (3, 4):
+            await answers.add(
+                BotAnswer(
+                    id=f"ans:m{index}",
+                    conversation_id="-100",
+                    question=question,
+                    answer=f"Resposta antiga {index}.",
+                    answer_mode=AnswerMode.DIRECT_QA,
+                    created_at=NOW,
+                    user_message_id=f"m{index}",
+                )
+            )
+        service, items, versions = _correction_flow(answers)
+        first = await service.start("ans:m3", None)
+        assert first is not None
+        await service.propose(first.id, "Primera correcció.")
+        first_version = await service.approve(first.id, GROUP_SCOPE)
+        second = await service.start("ans:m4", None)
+        assert second is not None
+        await service.propose(second.id, "Segona correcció.")
+        second_version = await service.approve(second.id, GROUP_SCOPE)
+        assert first_version is not None and second_version is not None
+        report.check(
+            second_version.qa_id == first_version.qa_id
+            and second_version.supersedes_version_id == first_version.id,
+            "case 5 (sequential): the second correction did not supersede the first",
+        )
+        item = await items.get(second_version.qa_id)
+        report.check(
+            item is not None and item.current_version_id == second_version.id,
+            "case 6 (newest wins): the current version is not the last approved one",
+        )
+        report.check(
+            await versions.get(first_version.id) is not None,
+            "case 6 (newest wins): the earlier version was destroyed",
+        )
+
+    asyncio.run(run())
+    return report
+
+
 def eval_seed_versioning() -> EvalReport:
     """Seeding creates items with versions and marks in-review entries."""
     report = EvalReport(name="seed/versioning")
@@ -198,7 +468,7 @@ def eval_seed_versioning() -> EvalReport:
         review = published.model_copy(
             update={"source_anchor": "qa-y", "status": "in_review"}
         )
-        created, skipped, _ = await service.seed_qa([published, review])
+        created, skipped, _, _ = await service.seed_qa([published, review])
         report.check(
             created == 2 and skipped == 0, f"expected 2 created, got {created}"
         )
@@ -227,6 +497,8 @@ def run_offline() -> list[EvalReport]:
         eval_abstention_set(),
         eval_citation_format(),
         eval_seed_versioning(),
+        eval_conflicts(),
+        eval_corrections(),
     ]
 
 

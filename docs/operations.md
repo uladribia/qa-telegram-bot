@@ -38,6 +38,24 @@ curl -s -X POST "https://api.cloudflare.com/client/v4/graphql" \
 The estimate is deliberately conservative: it may refuse evals while some budget
 remains. That is the safe direction.
 
+### Hard-won operational facts (2026-09-22)
+
+- **The analytics API lags.** Hours after a heavy run it still reports less
+  than was actually spent. Never calibrate the app's estimate from it while
+  calls are still failing: on 2026-09-22 the API showed 2.6k neurons for the
+  day while the model already answered *allocation exhausted* (the previous
+  day had actually burned 10.7k). The in-app estimate tracked reality better
+  than the analytics did.
+- **The daily reset time is not confirmed to be 00:00 UTC.** After a day that
+  exceeded the free allocation, the next day ran out long before midnight. If
+  calls keep failing past 00:00 UTC, find the real reset hour with the GraphQL
+  query above and re-run the eval gate manually once the quota is back.
+- **A full reindex does not fit in one free day.** It embeds every active Q&A
+  version and every message; the first run indexed 764 Q&A + 1,444 messages
+  before the guard stopped it. The reindex is resumable by cursor (the CLI
+  prints a `resume with: --qa-after ... --msg-after ...` hint) — run it in
+  authorized, supervised batches over several nights, resuming from the hint.
+
 ### Simulating a spent day
 
 ```bash
@@ -117,8 +135,51 @@ make eval-live            # measure only
 make eval-live-reindex    # measure + rebuild first
 ```
 
-Run the live gate **at most once or twice a day** — it is the largest quota
-consumer. It exits non-zero when a suite fails, with a one-line reason per failure.
+**The live gate and `kb reindex` are quota-destructive operations.** One full
+live eval is ~30-50 model calls (~1,500-3,000 neurons); a reindex attempt
+burned 8,979 real neurons for 764 Q&A + 1,444 messages in a single hour
+(2026-09-21). Rules:
+
+- Run them **only with the user's explicit authorization**, one suite at a
+  time, and only for **substantive changes that can affect answer quality**
+  (a threshold change, a prompt change, a model change, a retrieval change) —
+  never for curiosity, iteration, or scheduled maintenance.
+- **Never retry a failed live eval automatically.** Every retry is a fresh
+  full burn; six retries of a degraded-model run can spend a whole day's
+  budget. Diagnose, then re-run manually.
+- **Never schedule them.** No recurring or one-shot cron ever runs the live
+  gate or the reindex: an unattended run cannot ask for authorization, and a
+  failing one burns quota while nobody watches.
+- A failed run still burns the calls it made before failing. The guard
+  refusing with 429 *before* any call is the cheap failure — treat it as such,
+  don't work around it.
+
+### Authorizing a full reindex
+
+A full reindex is for **substantial knowledge-base changes only**: the initial
+WhatsApp import, a scope or metadata change, an embedding-model change, or a
+suspected stale index. Routine additions do not need it — seeding indexes new
+and renewed Q&A incrementally (~4 neurons each), and approved corrections
+reindex their single version automatically.
+
+When a full rebuild is genuinely needed, ask the user first, with the budget
+stated up front:
+
+1. Count the records the rebuild will touch:
+
+   ```bash
+   npx wrangler d1 execute knowledge-bot --remote --yes --command \
+     "SELECT (SELECT COUNT(*) FROM qa_items qi JOIN qa_versions qv ON qi.current_version_id = qv.id WHERE qi.status = 'active') AS qa, (SELECT COUNT(*) FROM messages WHERE text IS NOT NULL AND text != '') AS messages"
+   ```
+
+2. Report the estimate: **~4 real neurons per record** (measured: 8,979
+   neurons for 2,208 records on 2026-09-21), so a 2,000-record base is most of
+   a free day's budget. The in-app guard estimate runs ~4× higher and trips
+   first — that is expected.
+3. Wait for the user's explicit yes. If it cannot fit in the remaining day,
+  propose batching over several nights with the resume cursors instead.
+
+The gate exits non-zero when a suite fails, with a one-line reason per failure.
 
 ---
 

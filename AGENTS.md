@@ -166,6 +166,15 @@ Rules:
 - Answer quality is verified by **evals**, not unit tests. Eval thresholds in the
   plan are acceptance criteria. Keep the distinction: tests prove the code works;
   evals prove the answers are good.
+- Live evals and reindex burn the shared daily AI budget (~1.5-3k and ~9k
+  neurons respectively). Run them **only when the user explicitly authorizes
+  it, for substantive changes that can affect answer quality** (thresholds,
+  prompts, models, retrieval) or a **substantially changed knowledge base**, one
+  suite at a time, **never auto-retried and never scheduled**. Before a full
+  reindex, count the records and state the neuron estimate, then wait for the
+  user's yes (ritual in docs/operations.md). Prefer the incremental paths: seed
+  auto-indexes what it creates, and approved corrections reindex one version.
+  The guard's 429 is the cheap failure; respect it.
 - Idempotency matters: processing the same inbound event twice must not duplicate
   state. Cover it in integration tests for each ingest path.
 

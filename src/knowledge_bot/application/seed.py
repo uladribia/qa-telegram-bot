@@ -96,7 +96,7 @@ class SeedService:
         entries: list[SeedQA],
         scope: Scope = GLOBAL_SCOPE,
         renew: bool = False,
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int, int, list[str]]:
         """Persist a batch of seed Q&A entries.
 
         Without ``renew``, existing entries are skipped (idempotent import).
@@ -110,11 +110,14 @@ class SeedService:
             renew: Update changed entries instead of skipping them.
 
         Returns:
-            A tuple of (created, skipped, renewed).
+            A tuple of (created, skipped, renewed, version_ids), where
+            ``version_ids`` are the current versions that need indexing: the
+            newly created and the renewed ones.
         """
         created = 0
         skipped = 0
         renewed = 0
+        version_ids: list[str] = []
         now = self.clock.now()
         for entry in entries:
             await self._ensure_web_seed_source(entry.source_url)
@@ -125,6 +128,9 @@ class SeedService:
                     skipped += 1
                     continue
                 if await self._renew_item(existing, entry, now):
+                    item = await self.qa_items.get_by_canonical_key(key, scope)
+                    assert item is not None and item.current_version_id
+                    version_ids.append(item.current_version_id)
                     renewed += 1
                 else:
                     skipped += 1
@@ -157,8 +163,9 @@ class SeedService:
                     source_url=_anchored(entry.source_url, entry.source_anchor),
                 )
             )
+            version_ids.append(version_id)
             created += 1
-        return created, skipped, renewed
+        return created, skipped, renewed, version_ids
 
     async def _renew_item(self, item: QAItem, entry: SeedQA, now: datetime) -> bool:
         """Add a newer web version to an existing item when the answer changed.

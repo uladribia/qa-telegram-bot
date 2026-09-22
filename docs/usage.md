@@ -144,10 +144,13 @@ every one of them, configured with `ADMIN_REPORT_MODE`:
 
 - `always` (default): one private report per resolution — who, which group,
   which question, what they did (approved global / approved group / edited /
-  rejected), and when.
+  rejected), and when. Every report ends with the day's estimated AI usage
+  (neurons spent against the daily limit, and the estimated call count) so the
+  admin sees how close the quota is without checking Cloudflare.
 - `batch`: one consolidated report every `ADMIN_REPORT_INTERVAL_MIN` minutes.
   Like the recap, the check is opportunistic on inbound events; an external
-  scheduler can also poke `POST /internal/report`.
+  scheduler can also poke `POST /internal/report`. The usage line is included
+  here too.
 - `off`: no reports. Events are still recorded in D1.
 
 The report is read-only. Rolling a correction back is a CLI operation only

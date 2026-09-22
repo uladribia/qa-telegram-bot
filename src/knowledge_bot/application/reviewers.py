@@ -12,6 +12,7 @@ reject. Only the admin may nominate or remove reviewers, and only via the
 
 from dataclasses import dataclass
 
+from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.ports.clock import Clock
@@ -23,6 +24,10 @@ from knowledge_bot.ports.repositories import (
 from knowledge_bot.ports.transport import MessageTransport
 
 REPORT_HEADER = "\U0001f4cb Correccions revisades ({count}):"
+REPORT_SPEND = (
+    "\n\U0001f916 Consum d'IA avui: {neurons:.0f} / {limit:.0f} neurones "
+    "en {calls} crides (estimat)."
+)
 
 _ACTION_LABELS: dict[str, str] = {
     "approved": "aprovada",
@@ -67,11 +72,17 @@ def render_reviewer_list(reviewers: list[Reviewer]) -> str:
     return "Revisors:\n" + "\n".join(labels)
 
 
-def render_report(events: list[ReviewerEvent]) -> str:
+def render_report(
+    events: list[ReviewerEvent],
+    *,
+    spend: tuple[float, float, int] | None = None,
+) -> str:
     """Render the admin report over resolved corrections.
 
     Args:
         events: The resolved corrections to report, ordered.
+        spend: Optional ``(neurons, limit, calls)`` estimated AI usage of the
+            day, appended as a final line when given.
 
     Returns:
         A read-only Catalan summary; the admin cannot act on it from here.
@@ -86,6 +97,9 @@ def render_report(events: list[ReviewerEvent]) -> str:
             f'{event.group_label or "?"} \u00b7 "{event.question or "?"}"\n'
             f"  {action}{target} \u00b7 {event.created_at:%d/%m %H:%M}"
         )
+    if spend is not None:
+        neurons, limit, calls = spend
+        lines.append(REPORT_SPEND.format(neurons=neurons, limit=limit, calls=calls))
     return "\n".join(lines)
 
 
@@ -211,6 +225,7 @@ class ReviewerReportService:
     admin_user_id: str
     mode: str = "always"
     interval_min: int = 60
+    budget: AiBudget | None = None
 
     async def record(self, event: ReviewerEvent) -> None:
         """Record one reviewer resolution and report it if the mode says so.
@@ -240,7 +255,16 @@ class ReviewerReportService:
         await self._send(pending)
         return True
 
+    async def _spend(self) -> tuple[float, float, int] | None:
+        """Return today's estimated ``(neurons, limit, calls)``, or ``None``."""
+        if self.budget is None:
+            return None
+        neurons, calls = await self.budget.usage_today()
+        return (neurons, self.budget.daily_neurons, calls)
+
     async def _send(self, events: list[ReviewerEvent]) -> None:
-        await self.transport.send_message(self.admin_user_id, render_report(events))
+        await self.transport.send_message(
+            self.admin_user_id, render_report(events, spend=await self._spend())
+        )
         await self.events.mark_reported([event.feedback_id for event in events])
         await self.state.set_last_sent_at(self.clock.now())

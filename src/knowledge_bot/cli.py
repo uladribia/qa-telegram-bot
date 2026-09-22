@@ -134,7 +134,7 @@ def seed(
         typer.echo("Nothing to seed: pass --qa and/or --messages")
         raise typer.Exit(code=1)
     messages_payload = cast("list[dict[str, object]]", payload.get("messages") or [])
-    totals = {"qa": 0, "qa_skipped": 0, "qa_renewed": 0, "messages": 0}
+    totals = {"qa": 0, "qa_skipped": 0, "qa_renewed": 0, "messages": 0, "indexed": 0}
     if "qa" in payload:
         totals.update(
             _post_seed(
@@ -153,7 +153,8 @@ def seed(
         typer.echo(f"  seeded {start + len(chunk)}/{len(messages_payload)} messages")
     typer.echo(
         f"qa={totals['qa']} qa_skipped={totals['qa_skipped']} "
-        f"qa_renewed={totals['qa_renewed']} messages={totals['messages']}"
+        f"qa_renewed={totals['qa_renewed']} messages={totals['messages']} "
+        f"indexed={totals.get('indexed', 0)}"
     )
 
 
