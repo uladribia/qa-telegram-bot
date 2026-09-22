@@ -244,5 +244,7 @@ Two things to expect:
 - It **costs AI quota**. On the free plan 10k neurons/day, a full rebuild is a
   large bite — don't run it casually. See [operations.md](operations.md).
 - Vectorize is **eventually consistent**. Right after a reindex, queries can read
-  stale metadata for about a minute. If results look impossible, wait and retry
-  before believing them.
+  stale metadata, and fresh upserts can be unqueryable for a while: usually
+  about a minute, but measured up to ~25 minutes under free-tier load
+  (2026-09-22). If results look impossible, wait and retry before believing
+  them.
