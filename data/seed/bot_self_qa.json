@@ -110,5 +110,13 @@
     "answer": "No. Sóc un bot de coneixement d'un sol tema: el club. Només responc amb el que hi ha a la meva base de coneixement, i d'això em surto. Si em preguntes per qualsevol altra cosa, t'abstindré en lloc d'inventar.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
+    "section": "Corregir una resposta",
+    "question": "Qui és el revisor del meu grup?",
+    "answer": "Els revisors els tria l'admin del bot: ho fa des del grup, responent a un missatge de la persona amb l'ordre /reviewer, i també pot nomenar un revisor global o treure'n un. Si vols saber qui revisa les correccions del teu grup, pregunta-li directament a l'admin.",
+    "status": "published",
+    "retrieved_at": "2026-09-21T00:00:00Z"
   }
 ]
