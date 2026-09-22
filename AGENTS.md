@@ -166,6 +166,11 @@ Rules:
 - Answer quality is verified by **evals**, not unit tests. Eval thresholds in the
   plan are acceptance criteria. Keep the distinction: tests prove the code works;
   evals prove the answers are good.
+- Live evals and reindex burn the shared daily AI budget (~1.5-3k and ~9k
+  neurons respectively). Run them **only when the user explicitly authorizes
+  it**, one suite at a time, and **never auto-retry a failed run** — every
+  retry re-burns the full cost. The guard's 429 is the cheap failure; respect
+  it.
 - Idempotency matters: processing the same inbound event twice must not duplicate
   state. Cover it in integration tests for each ingest path.
 

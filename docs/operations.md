@@ -135,8 +135,24 @@ make eval-live            # measure only
 make eval-live-reindex    # measure + rebuild first
 ```
 
-Run the live gate **at most once or twice a day** — it is the largest quota
-consumer. It exits non-zero when a suite fails, with a one-line reason per failure.
+**The live gate and `kb reindex` are quota-destructive operations.** One full
+live eval is ~30-50 model calls (~1,500-3,000 neurons); a reindex attempt
+burned 8,979 real neurons for 764 Q&A + 1,444 messages in a single hour
+(2026-09-21). Rules:
+
+- Run them **only with the user's explicit authorization**, one suite at a
+  time, and only for a concrete reason: an acceptance gate, a suspected
+  regression, or a calibration decision. Never for curiosity or iteration.
+- **Never retry a failed live eval automatically.** Every retry is a fresh
+  full burn; six retries of a degraded-model run can spend a whole day's
+  budget. Diagnose, then re-run manually.
+- Never put the live gate in a recurring scheduled job. A one-shot, authorized
+  run with a completion marker is the most a cron may ever do.
+- A failed run still burns the calls it made before failing. The guard
+  refusing with 429 *before* any call is the cheap failure — treat it as such,
+  don't work around it.
+
+The gate exits non-zero when a suite fails, with a one-line reason per failure.
 
 ---
 
