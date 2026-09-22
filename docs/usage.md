@@ -160,15 +160,18 @@ The report is read-only. Rolling a correction back is a CLI operation only
 
 ## The periodic recap
 
-To stop unanswered questions being lost, the bot can post a periodic summary of
-the window's questions, marking the ones it could not answer as pending.
+To stop unanswered questions being lost, the bot sends the **admin** a daily
+summary of every group's questions, each tagged with the group it came from and
+the ones it could not answer marked as pending. **Groups never receive
+summaries** — posting them in a group leaked other groups' questions and
+interrupted chats where the bot had answered nothing.
 
 Configured with `RECAP_ENABLED`, `RECAP_INTERVAL_HOURS`, `RECAP_LANGUAGE`.
 
 It is checked **opportunistically** on inbound updates, because a Cloudflare
 Python Worker only exposes a `fetch` handler — there is no cron. If nothing at all
-happens in the group, no recap is due; an external scheduler can poke
-`POST /internal/recap` with the internal key.
+happens anywhere, no recap is due; an external scheduler can poke
+`POST /internal/recap` with the internal key to force the check.
 
 ---
 

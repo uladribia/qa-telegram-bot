@@ -187,13 +187,11 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         request: Request,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
-        """Force the opportunistic recap check from an external scheduler."""
+        """Force the opportunistic admin recap check from an external scheduler."""
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        sent = False
-        for chat_id in context.settings.allowed_chat_ids:
-            sent = (await context.recap.maybe_send(chat_id)) or sent
+        sent = await context.recap.maybe_send()
         return {"status": "sent" if sent else "skipped"}
 
     @app.post("/internal/report")
@@ -404,7 +402,7 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     result = await context.ingestor.ingest(message)
     if action is IntakeAction.ANSWER and result.created:
         await context.answer.answer(message)
-    await context.recap.maybe_send(message.conversation_id)
+    await context.recap.maybe_send()
     await context.reviewer_report.maybe_send()
     return action.value
 
