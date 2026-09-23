@@ -11,6 +11,7 @@ from knowledge_bot.adapters.outbound.telegram import FEEDBACK_BUTTON
 from knowledge_bot.application.feedback import (
     PROPOSAL_ACK,
     PROPOSAL_PROMPT,
+    proposal_prompt,
     render_review,
 )
 from knowledge_bot.domain.entities import BotAnswer
@@ -88,7 +89,7 @@ def test_button_press_prompts_the_reporter_privately() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_started"}
-    assert transport.force_replies == [("555", PROPOSAL_PROMPT)]
+    assert transport.force_replies == [("555", proposal_prompt("Resposta antiga."))]
     assert not any(
         chat == "555" and "group" in text for chat, text in transport.messages
     )
