@@ -234,12 +234,14 @@ def test_flag_prompt_fails_with_an_alert_when_dm_is_unreachable() -> None:
     assert feedback.proposal_prompt_message_id is None
 
 
-def test_the_dm_prompt_repeats_the_flagged_answer() -> None:
-    """The private proposal prompt shows the answer being corrected."""
+def test_the_dm_prompt_repeats_the_flagged_question_and_answer() -> None:
+    """The private proposal prompt shows the question and answer corrected."""
     context, transport = build_test_context()
     asyncio.run(_seed_answer(context))
     _open_proposal(_client(context))
     prompt = transport.force_replies[0][1]
+    assert "Pregunta original:" in prompt
+    assert "Com es demana l'equipament?" in prompt
     assert "Resposta actual:" in prompt
     assert "Resposta antiga." in prompt
 

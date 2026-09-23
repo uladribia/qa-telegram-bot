@@ -45,19 +45,25 @@ PROPOSAL_PROMPT = (
 PROPOSAL_ACK = "Gràcies. Ho he enviat a revisió."
 
 
-def proposal_prompt(current_answer: str) -> str:
+def proposal_prompt(question: str | None, current_answer: str) -> str:
     """Build the private prompt a reporter sees after flagging an answer.
 
     Args:
-        current_answer: The text of the answer being corrected, repeated so
+        question: The original question the answer replied to, repeated so
             the reporter has the context in front of them.
+        current_answer: The text of the answer being corrected, repeated for
+            the same reason.
 
     Returns:
-        The prompt text, ending with the current answer.
+        The prompt text, ending with the original question and the current
+        answer when known.
     """
-    if not current_answer:
-        return PROPOSAL_PROMPT
-    return f"{PROPOSAL_PROMPT}\n\nResposta actual:\n{current_answer}"
+    blocks = [PROPOSAL_PROMPT]
+    if question:
+        blocks.append(f"Pregunta original:\n{question}")
+    if current_answer:
+        blocks.append(f"Resposta actual:\n{current_answer}")
+    return "\n\n".join(blocks)
 
 
 EDIT_PROMPT = "Envia'm el text correcte."

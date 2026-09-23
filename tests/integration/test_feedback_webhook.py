@@ -89,7 +89,12 @@ def test_button_press_prompts_the_reporter_privately() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_started"}
-    assert transport.force_replies == [("555", proposal_prompt("Resposta antiga."))]
+    assert transport.force_replies == [
+        (
+            "555",
+            proposal_prompt("Com es demana l'equipament?", "Resposta antiga."),
+        )
+    ]
     assert not any(
         chat == "555" and "group" in text for chat, text in transport.messages
     )
