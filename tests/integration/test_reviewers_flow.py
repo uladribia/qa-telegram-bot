@@ -128,11 +128,12 @@ def _nominate_reviewer(context: AppContext, client: TestClient) -> None:
 
 def _open_proposal(client: TestClient) -> int:
     """Start a correction and return the prompt message id to reply to."""
-    client.post(
+    response = client.post(
         "/telegram/webhook",
         json=_callback("feedback:start:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
+    assert response.json() == {"status": "feedback_started"}
     return 1
 
 
@@ -224,9 +225,23 @@ def test_flag_prompt_fails_with_an_alert_when_dm_is_unreachable() -> None:
     assert response.json() == {"status": "feedback_prompt_undelivered"}
     assert transport.force_replies == []
     assert transport.callback_alerts == [("cb-1", transport.callback_alerts[0][1])]
+    assert any(
+        chat == "-100" and "https://t.me/bot" in text
+        for chat, text in transport.messages
+    )
     feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.proposal_prompt_message_id is None
+
+
+def test_the_dm_prompt_repeats_the_flagged_answer() -> None:
+    """The private proposal prompt shows the answer being corrected."""
+    context, transport = build_test_context()
+    asyncio.run(_seed_answer(context))
+    _open_proposal(_client(context))
+    prompt = transport.force_replies[0][1]
+    assert "Resposta actual:" in prompt
+    assert "Resposta antiga." in prompt
 
 
 def test_unreachable_reviewer_is_reported_to_the_admin() -> None:

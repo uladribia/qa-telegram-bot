@@ -21,11 +21,11 @@ from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
     GROUP_SCOPE,
     PROPOSAL_ACK,
-    PROPOSAL_PROMPT,
     REVIEW_REJECTED,
     CorrectionRequest,
     callback_action,
     callback_target,
+    proposal_prompt,
     render_review,
 )
 from knowledge_bot.application.intake import IntakeAction, decide_intake
@@ -131,6 +131,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
                 callback.data,
                 callback.sender_chat_id,
                 callback.sender_name,
+                callback.conversation_id,
             )
             return {"status": status}
         message = normalize_message(update, context.identity)
@@ -561,6 +562,7 @@ async def _handle_callback(
     data: str | None,
     reporter_chat_id: str | None,
     reporter_name: str | None = None,
+    group_chat_id: str | None = None,
 ) -> str:
     """Route an inline-button press through the correction flow.
 
@@ -570,6 +572,7 @@ async def _handle_callback(
         data: The callback payload.
         reporter_chat_id: The private chat to prompt for the proposal.
         reporter_name: The reporter's display name, cited as the author.
+        group_chat_id: The chat the button lives in, for fallback notices.
 
     Returns:
         A short status string.
@@ -585,21 +588,29 @@ async def _handle_callback(
         )
         if feedback is None:
             return "ignored"
+        answer = await context.feedback.answers.get(target)
         prompt_id = await context.transport.send_force_reply(
-            reporter_chat_id or "", PROPOSAL_PROMPT
+            reporter_chat_id or "", proposal_prompt(answer.answer if answer else "")
         )
         if prompt_id is not None:
             await context.feedback_repo.save(
                 replace(feedback, proposal_prompt_message_id=prompt_id)
             )
-        else:
-            await context.transport.answer_callback(
-                callback_id,
-                _must_start_bot_alert(reporter_name or ""),
+            await context.transport.answer_callback(callback_id)
+            return "feedback_started"
+        await context.transport.answer_callback(
+            callback_id,
+            _must_start_bot_alert(reporter_name or ""),
+        )
+        username = context.identity.bot_username
+        if group_chat_id is not None and username:
+            await context.transport.send_message(
+                group_chat_id,
+                "\u26a0\ufe0f Per corregir, obre primer un xat privat amb el bot: "
+                f"https://t.me/{username} "
+                "(despr\u00e9s torna a pr\u00e9mer el bot\u00f3).",
             )
-            return "feedback_prompt_undelivered"
-        await context.transport.answer_callback(callback_id)
-        return "feedback_started"
+        return "feedback_prompt_undelivered"
     # Confirming a correction is only for its reviewer (the group's reviewer,
     # the global reviewer, or the admin), enforced here on the server.
     review = await context.feedback.correction_request(target)

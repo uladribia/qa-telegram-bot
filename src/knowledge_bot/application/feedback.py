@@ -43,6 +43,23 @@ PROPOSAL_PROMPT = (
     "Què corregiries? Escriu la resposta correcta o explica què està malament."
 )
 PROPOSAL_ACK = "Gràcies. Ho he enviat a revisió."
+
+
+def proposal_prompt(current_answer: str) -> str:
+    """Build the private prompt a reporter sees after flagging an answer.
+
+    Args:
+        current_answer: The text of the answer being corrected, repeated so
+            the reporter has the context in front of them.
+
+    Returns:
+        The prompt text, ending with the current answer.
+    """
+    if not current_answer:
+        return PROPOSAL_PROMPT
+    return f"{PROPOSAL_PROMPT}\n\nResposta actual:\n{current_answer}"
+
+
 EDIT_PROMPT = "Envia'm el text correcte."
 REVIEW_REJECTED = "\u274c Correcci\u00f3 rebutjada."
 

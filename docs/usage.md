@@ -86,6 +86,7 @@ discussion.
 ```text
 1. Group      Quim presses  [⚠️ Està malament?]  on the wrong answer
 2. DM to Quim the bot asks: "Què corregiries? Escriu la resposta correcta…"
+   and repeats the answer being corrected, for context.
 3. DM to Quim Quim writes the correction → "Gràcies. Ho he enviat a revisió."
 4. DM to the group's reviewer (or the global reviewer, or the admin)
               the bot forwards the proposal with [🌐 Aprovar global] [👥 Aprovar grup]
@@ -100,8 +101,9 @@ Telegram only lets a bot DM someone who has **opened a private chat with it at
 least once** (pressed Start on its profile). Anyone who wants to flag answers or
 serve as a reviewer must do that first; otherwise the bot cannot reach them.
 When it happens anyway, the bot says so instead of failing silently: the button
-press shows a popup asking to open the chat first, and the admin is told when a
-review could not be delivered to its reviewer.
+press shows a popup asking to open the chat first, the group gets a message
+with a direct `t.me` link to the bot, and the admin is told when a review could
+not be delivered to its reviewer.
 
 Who may do what:
 

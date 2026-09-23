@@ -43,7 +43,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Com corregeixo una resposta equivocada?",
-    "answer": "Prem el botó \"⚠️ Està malament?\" que hi ha sota la resposta. Et preguntaré per missatge privat què corregiries: escriu la resposta correcta o explica què està malament. La proposta arriba al revisor del grup (o a l'admin si no n'hi ha), que pot aprovar-la, editar-la o rebutjar-la. Si s'aprova, es publica una nova versió de la resposta (l'anterior no s'esborra mai) i les properes preguntes equivalents ja surten corregides. Tot el tràmit passa per xats privats; el grup no en veu la discussió. Important: perquè pugui escriure't en privat, has d'haver obert abans un xat privat amb el bot (Start al seu perfil); si no, no podré enviar-te la pregunta.",
+    "answer": "Prem el botó \"⚠️ Està malament?\" que hi ha sota la resposta. Et preguntaré per missatge privat què corregiries, repetint-te la resposta a corregir: escriu la resposta correcta o explica què està malament. La proposta arriba al revisor del grup (o a l'admin si no n'hi ha), que pot aprovar-la, editar-la o rebutjar-la. Si s'aprova, es publica una nova versió de la resposta (l'anterior no s'esborra mai) i les properes preguntes equivalents ja surten corregides. Tot el tràmit passa per xats privats; el grup no en veu la discussió. Important: perquè pugui escriure't en privat, has d'haver obert abans un xat privat amb el bot (Start al seu perfil); si no, no podré enviar-te la pregunta i el grup rebrà un enllaç per obrir-m'el.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
