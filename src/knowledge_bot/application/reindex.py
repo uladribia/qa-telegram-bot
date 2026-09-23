@@ -120,8 +120,14 @@ class ReindexService:
     ) -> list[VectorRecord]:
         if not messages:
             return []
+        # A reply matched to its parent question is embedded together, so the
+        # pair retrieves as one unit instead of an orphaned answer.
+        texts = [
+            f"{message.question}\n{message.text}" if message.question else message.text
+            for message in messages
+        ]
         embeddings = await self.embedder.embed(
-            [message.text[:_MAX_EMBED_CHARS] for message in messages]
+            [text[:_MAX_EMBED_CHARS] for text in texts]
         )
         return [
             VectorRecord(
@@ -134,6 +140,7 @@ class ReindexService:
                     "authority": message.authority,
                     "scope": message.conversation_id,
                     "text": message.text[:_MAX_METADATA_CHARS],
+                    "question": message.question,
                     "author": message.author,
                     "date": message.date,
                 },

@@ -97,6 +97,16 @@ def _opt_int(value: object) -> int | None:
     return None if value is None else int(cast(int, value))
 
 
+def _opt_float(value: object) -> float | None:
+    """Return a float score, or ``None`` when the column is missing."""
+    if value is None:
+        return None
+    try:
+        return float(cast(float, value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _opt_dt(value: object) -> datetime | None:
     return None if value is None else _dt(value)
 
@@ -299,8 +309,9 @@ class D1MessageRepository:
                 "INSERT INTO messages"
                 " (id, source_id, conversation_id, external_id, sender_hash,"
                 " sender_name, sender_is_admin, sent_at, text, content_type,"
-                " reply_to_message_id, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " reply_to_message_id, created_at,"
+                " intent_label, intent_score, context_question)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 message.id,
@@ -315,6 +326,9 @@ class D1MessageRepository:
                 message.content_type.value,
                 message.reply_to_message_id,
                 _iso(message.created_at),
+                message.intent_label,
+                message.intent_score,
+                message.context_question,
             )
             .run()
         )
@@ -341,6 +355,30 @@ class D1MessageRepository:
             .first()
         )
         return _message(row) if row is not None else None
+
+    async def listener_stats_between(
+        self, start: datetime, end: datetime
+    ) -> tuple[int, int]:
+        """Return ``(ingested, paired)`` listener counts in ``[start, end)``."""
+        ingested = _row(
+            await self._db.prepare(
+                "SELECT COUNT(*) AS n FROM messages"
+                " WHERE intent_label IS NOT NULL"
+                " AND created_at >= ? AND created_at < ?"
+            )
+            .bind(_iso(start), _iso(end))
+            .first()
+        )
+        paired = _row(
+            await self._db.prepare(
+                "SELECT COUNT(*) AS n FROM messages"
+                " WHERE context_question IS NOT NULL"
+                " AND created_at >= ? AND created_at < ?"
+            )
+            .bind(_iso(start), _iso(end))
+            .first()
+        )
+        return (_count(ingested), _count(paired))
 
 
 class D1AttachmentRepository:
@@ -473,6 +511,14 @@ class D1RecapStateRepository:
         )
 
 
+def _count(value: dict[str, object] | None) -> int:
+    """Return the ``n`` of a ``COUNT(*)`` row, or ``0`` when missing."""
+    if value is None:
+        return 0
+    raw = value.get("n", 0)
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else 0
+
+
 def _message(row: dict[str, object]) -> Message:
     return Message(
         id=str(row["id"]),
@@ -487,6 +533,9 @@ def _message(row: dict[str, object]) -> Message:
         sender_name=_opt_str(row["sender_name"]),
         text=_opt_str(row["text"]),
         reply_to_message_id=_opt_str(row["reply_to_message_id"]),
+        intent_label=_opt_str(row.get("intent_label")),
+        intent_score=_opt_float(row.get("intent_score")),
+        context_question=_opt_str(row.get("context_question")),
     )
 
 
@@ -624,7 +673,7 @@ class D1SearchIndexSource:
         """Return the messages with text to index, in id-order batches."""
         query = (
             "SELECT id, source_id, conversation_id, text,"
-            " sender_hash, sender_name, sent_at"
+            " sender_hash, sender_name, sent_at, context_question"
             " FROM messages WHERE text IS NOT NULL AND text != ''"
         )
         params: list[object] = []
@@ -645,6 +694,7 @@ class D1SearchIndexSource:
                 conversation_id=str(row["conversation_id"]),
                 author=_sender_label(row["sender_name"], row["sender_hash"]),
                 date=_datetime_part(row["sent_at"]),
+                question=_opt_str(row.get("context_question")),
             )
             for row in _rows(result)
         ]
@@ -940,6 +990,18 @@ class D1FeedbackRepository:
     async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
         """Return the feedback awaiting an admin edit reply to a prompt message."""
         return await self._find("edit_prompt_message_id", message_id)
+
+    async def list_between(self, start: datetime, end: datetime) -> list[Feedback]:
+        """Return the correction proposals created in ``[start, end)``."""
+        result = (
+            await self._db.prepare(
+                "SELECT * FROM feedback WHERE created_at >= ? AND created_at < ?"
+                " ORDER BY created_at"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        return [_feedback(row) for row in _rows(result)]
 
     async def _find(self, column: str, message_id: str) -> Feedback | None:
         row = _row(

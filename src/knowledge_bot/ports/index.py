@@ -37,6 +37,7 @@ class IndexableMessage:
     conversation_id: str
     author: str | None = None
     date: str | None = None
+    question: str | None = None
 
 
 @runtime_checkable

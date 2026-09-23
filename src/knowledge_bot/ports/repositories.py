@@ -76,6 +76,16 @@ class MessageRepository(Protocol):
         """Return a message by its idempotency key, if present."""
         ...
 
+    async def listener_stats_between(
+        self, start: datetime, end: datetime
+    ) -> tuple[int, int]:
+        """Return ``(ingested, paired)`` listener counts in ``[start, end)``.
+
+        Only messages classified by the background listener count as
+        ingested; ``paired`` counts those matched to a parent question.
+        """
+        ...
+
 
 @runtime_checkable
 class AttachmentRepository(Protocol):
@@ -176,6 +186,10 @@ class FeedbackRepository(Protocol):
 
     async def find_by_edit_prompt(self, message_id: str) -> Feedback | None:
         """Return the feedback awaiting an admin edit reply to a prompt message."""
+        ...
+
+    async def list_between(self, start: datetime, end: datetime) -> list[Feedback]:
+        """Return the correction proposals created in ``[start, end)``."""
         ...
 
 

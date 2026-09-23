@@ -2,12 +2,15 @@
 """Integration tests for the Telegram webhook route (in-memory fakes)."""
 
 import asyncio
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
 from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.infrastructure.composition import AppContext
+from tests.fakes.ai import FakeEmbedder
 from tests.fakes.context import WEBHOOK_SECRET, build_test_context
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
@@ -28,17 +31,23 @@ def _update(
     chat_id: int = -100,
     chat_type: str = "supergroup",
     from_id: int = 111,
+    reply_to: int | None = None,
 ) -> dict[str, object]:
-    return {
-        "update_id": 1,
-        "message": {
-            "message_id": message_id,
+    message: dict[str, object] = {
+        "message_id": message_id,
+        "date": 1789000000,
+        "chat": {"id": chat_id, "type": chat_type},
+        "from": {"id": from_id, "is_bot": False},
+        "text": text,
+    }
+    if reply_to is not None:
+        message["reply_to_message"] = {
+            "message_id": reply_to,
             "date": 1789000000,
             "chat": {"id": chat_id, "type": chat_type},
-            "from": {"id": from_id, "is_bot": False},
-            "text": text,
-        },
-    }
+            "from": {"id": from_id + 1, "is_bot": False},
+        }
+    return {"update_id": 1, "message": message}
 
 
 def test_invalid_secret_is_rejected() -> None:
@@ -95,6 +104,100 @@ def test_listener_ingests_unaddressed_messages() -> None:
     )
     assert response.json() == {"status": "ingest"}
     assert _stored(context) is not None
+
+
+def _listener_context(tag: str, **vectors: list[float]) -> AppContext:
+    """Build a listener context with a tiny-prototype classifier."""
+    context, _ = build_test_context(background_listener_enabled=True)
+    embedder = FakeEmbedder(by_text=dict(vectors))
+    return replace(
+        context,
+        classifier=MessageClassifier(
+            embedder=embedder,
+            prototypes={
+                "question": (f"qp-{tag}",),
+                "knowledge_update": (f"up-{tag}",),
+                "correction": (f"cp-{tag}",),
+                "chitchat": (f"cc-{tag}",),
+            },
+        ),
+    )
+
+
+_Q = [1.0, 0.0]
+_U = [0.0, 1.0]
+
+
+def test_listener_discards_pure_chitchat() -> None:
+    """Clear-cut chitchat is dropped before storage."""
+    context = _listener_context(
+        "discard",
+        **{
+            "gràcies, cracks!": _Q,
+            "qp-discard": _U,
+            "up-discard": _U,
+            "cp-discard": _U,
+            "cc-discard": _Q,
+        },
+    )
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("gràcies, cracks!"),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ignored_chitchat"}
+    assert _stored(context) is None
+
+
+def test_listener_labels_kept_context() -> None:
+    """A chatty message with a real signal is kept with its intent label."""
+    context = _listener_context(
+        "labels",
+        **{
+            "gràcies, demà a les sis?": [0.7, 0.7],
+            "qp-labels": _Q,
+            "up-labels": _U,
+            "cp-labels": _U,
+            "cc-labels": _Q,
+        },
+    )
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("gràcies, demà a les sis?"),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    stored = _stored(context)
+    assert stored is not None
+    assert stored.intent_label == "question"
+
+
+def test_listener_matches_a_reply_to_its_parent_question() -> None:
+    """An answer-like reply to a stored question is paired with it."""
+    context = _listener_context(
+        "pair",
+        **{
+            "a quina hora entrenen?": _Q,
+            "finalment a les sis": [0.9, 0.4],
+            "qp-pair": _Q,
+            "up-pair": _Q,
+            "cp-pair": _U,
+            "cc-pair": _U,
+        },
+    )
+    client = _client(context)
+    parent = client.post(
+        "/telegram/webhook",
+        json=_update("a quina hora entrenen?", message_id=20),
+        headers=SECRET_HEADER,
+    )
+    assert parent.json() == {"status": "ingest"}
+    reply = _update("finalment a les sis", message_id=21, reply_to=20)
+    response = client.post("/telegram/webhook", json=reply, headers=SECRET_HEADER)
+    assert response.json() == {"status": "ingest_pair"}
+    stored = asyncio.run(context.ingestor.messages.get("-100:21"))
+    assert stored is not None
+    assert stored.context_question == "a quina hora entrenen?"
 
 
 def test_reprocessing_the_same_update_is_idempotent() -> None:

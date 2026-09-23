@@ -40,6 +40,11 @@ class Settings(BaseSettings):
 
     background_listener_enabled: bool = False
 
+    classifier_chitchat_discard_threshold: float = 0.80
+    classifier_keep_signal_threshold: float = 0.45
+    classifier_question_match_threshold: float = 0.60
+    classifier_answer_match_threshold: float = 0.55
+
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
     qa_top_k: int = 5
@@ -69,6 +74,21 @@ class Settings(BaseSettings):
         for model in (self.embedding_model, self.generation_model):
             if model not in ALLOWED_AI_MODELS:
                 message = f"Model not allowed under the zero-cost policy: {model}"
+                raise ValueError(message)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_classifier_thresholds(self) -> "Settings":
+        """Reject classifier thresholds outside the similarity range."""
+        for name in (
+            "classifier_chitchat_discard_threshold",
+            "classifier_keep_signal_threshold",
+            "classifier_question_match_threshold",
+            "classifier_answer_match_threshold",
+        ):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                message = f"{name} must be between 0 and 1, got {value!r}"
                 raise ValueError(message)
         return self
 
