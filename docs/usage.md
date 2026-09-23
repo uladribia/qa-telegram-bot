@@ -96,6 +96,13 @@ discussion.
 7. DM to Quim "Gràcies per la correcció" (private thank-you)
 ```
 
+Telegram only lets a bot DM someone who has **opened a private chat with it at
+least once** (pressed Start on its profile). Anyone who wants to flag answers or
+serve as a reviewer must do that first; otherwise the bot cannot reach them.
+When it happens anyway, the bot says so instead of failing silently: the button
+press shows a popup asking to open the chat first, and the admin is told when a
+review could not be delivered to its reviewer.
+
 Who may do what:
 
 - **Anyone in the group** can flag an answer and propose a correction.
@@ -135,7 +142,8 @@ used):
 | Remove the global reviewer | any chat | `/reviewer off global` |
 
 Nominating again replaces the previous reviewer of that scope; there is no
-history — it is an operational role, not knowledge.
+history — it is an operational role, not knowledge. The bot itself can never be
+nominated: replying `/reviewer` to one of its messages is refused.
 
 ### The admin report on reviewer corrections
 

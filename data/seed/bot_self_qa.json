@@ -43,7 +43,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Com corregeixo una resposta equivocada?",
-    "answer": "Prem el botó \"⚠️ Està malament?\" que hi ha sota la resposta. Et preguntaré per missatge privat què corregiries: escriu la resposta correcta o explica què està malament. La proposta arriba a l'admin, que pot aprovar-la, editar-la o rebutjar-la. Si s'aprova, es publica una nova versió de la resposta (l'anterior no s'esborra mai) i les properes preguntes equivalents ja surten corregides. Tot el tràmit passa per xats privats; el grup no en veu la discussió.",
+    "answer": "Prem el botó \"⚠️ Està malament?\" que hi ha sota la resposta. Et preguntaré per missatge privat què corregiries: escriu la resposta correcta o explica què està malament. La proposta arriba al revisor del grup (o a l'admin si no n'hi ha), que pot aprovar-la, editar-la o rebutjar-la. Si s'aprova, es publica una nova versió de la resposta (l'anterior no s'esborra mai) i les properes preguntes equivalents ja surten corregides. Tot el tràmit passa per xats privats; el grup no en veu la discussió. Important: perquè pugui escriure't en privat, has d'haver obert abans un xat privat amb el bot (Start al seu perfil); si no, no podré enviar-te la pregunta.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -51,7 +51,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Qui pot aprovar una correcció?",
-    "answer": "Només l'admin del bot, i ho comprovo al servidor: una confirmació d'una altra persona s'ignora, no només s'amaga. Tothom, en canvi, pot marcar una resposta com a incorrecta i proposar la correcció: per fer una proposta no cal cap permís especial.",
+    "answer": "El revisor del grup on va sorgir la correcció; si el grup no en té, el revisor global; si no n'hi ha cap, l'admin. Ho comprovo al servidor: una confirmació d'una altra persona s'ignora, no només s'amaga. Tothom, en canvi, pot marcar una resposta com a incorrecta i proposar la correcció: per fer una proposta no cal cap permís especial.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -115,7 +115,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Qui és el revisor del meu grup?",
-    "answer": "Els revisors els tria l'admin del bot: ho fa des del grup, responent a un missatge de la persona amb l'ordre /reviewer, i també pot nomenar un revisor global o treure'n un. Si vols saber qui revisa les correccions del teu grup, pregunta-li directament a l'admin.",
+    "answer": "Els revisors els tria l'admin del bot: ho fa des del grup, responent a un missatge de la persona amb l'ordre /reviewer, i també pot nomenar un revisor global o treure'n un. El bot mateix no pot ser revisor: si l'admin em respon a mi, ho refuso. Si vols saber qui revisa les correccions del teu grup, pregunta-li directament a l'admin.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   }

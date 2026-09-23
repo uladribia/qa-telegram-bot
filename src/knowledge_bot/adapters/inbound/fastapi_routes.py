@@ -57,6 +57,41 @@ def _reviewer_confirmed(scope: str, name: str) -> str:
     return f"\u2705 {name} \u00e9s ara el {target}."
 
 
+REVIEWER_BOT_REFUSED = (
+    "\u26a0\ufe0f No pots nomenar el bot com a revisor: respon al missatge "
+    "d'una persona."
+)
+
+
+def _must_start_bot_alert(name: str) -> str:
+    """Build the alert shown when a DM to a user could not be delivered."""
+    return (
+        f"{name}, abans has d'obrir un xat privat amb el bot "
+        "(prem Start al seu perfil) i torna-ho a provar."
+    )
+
+
+async def _deliver_review(
+    context: AppContext, destination: str, text: str, feedback_id: str
+) -> None:
+    """Send a review to its reviewer and tell the admin if that fails.
+
+    Args:
+        context: The application context.
+        destination: The reviewer's private chat id.
+        text: The rendered review.
+        feedback_id: The correction under review.
+    """
+    sent = await context.transport.send_review(destination, text, feedback_id)
+    admin = context.settings.admin_telegram_user_id
+    if sent is None and admin and destination != admin:
+        await context.transport.send_message(
+            admin,
+            "\u26a0\ufe0f No he pogut enviar una correcci\u00f3 al revisor per DM: "
+            "ha d'obrir primer un xat privat amb el bot.",
+        )
+
+
 def create_app(resolve_context: ContextResolver) -> FastAPI:
     """Build the FastAPI application.
 
@@ -426,6 +461,11 @@ async def _handle_reviewer_command(
     """
     if not message.sender_is_admin:
         return "ignored"
+    if message.is_reply_to_bot:
+        await context.transport.send_message(
+            message.conversation_id, REVIEWER_BOT_REFUSED
+        )
+        return "reviewer_bot_refused"
     action, is_global = parse_reviewer_command(message.text or "")
     scope = GLOBAL_SCOPE if is_global else message.conversation_id
     chat = message.conversation_id
@@ -491,8 +531,8 @@ async def _handle_feedback_reply(
         destination = await context.router.destination(review.group_chat_id)
         review = await context.feedback.correction_request(feedback.id)
         if destination is not None and review is not None:
-            await context.transport.send_review(
-                destination, render_review(review), feedback.id
+            await _deliver_review(
+                context, destination, render_review(review), feedback.id
             )
         return "reviewer_edited"
     feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
@@ -509,8 +549,8 @@ async def _handle_feedback_reply(
     if review is not None:
         destination = await context.router.destination(review.group_chat_id)
         if destination is not None:
-            await context.transport.send_review(
-                destination, render_review(review), proposed.id
+            await _deliver_review(
+                context, destination, render_review(review), proposed.id
             )
     return "proposed"
 
@@ -552,6 +592,12 @@ async def _handle_callback(
             await context.feedback_repo.save(
                 replace(feedback, proposal_prompt_message_id=prompt_id)
             )
+        else:
+            await context.transport.answer_callback(
+                callback_id,
+                _must_start_bot_alert(reporter_name or ""),
+            )
+            return "feedback_prompt_undelivered"
         await context.transport.answer_callback(callback_id)
         return "feedback_started"
     # Confirming a correction is only for its reviewer (the group's reviewer,
