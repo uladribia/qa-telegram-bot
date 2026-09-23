@@ -47,6 +47,6 @@ class MessageTransport(Protocol):
         """Ask for a reply, returning the prompt message id for correlation."""
         ...
 
-    async def answer_callback(self, callback_id: str) -> None:
-        """Acknowledge an inline-button press."""
+    async def answer_callback(self, callback_id: str, alert: str | None = None) -> None:
+        """Acknowledge an inline-button press, optionally showing an alert."""
         ...

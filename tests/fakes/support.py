@@ -67,9 +67,19 @@ class RecordingTransport:
         self.edits: list[tuple[str, str, str]] = []
         self.force_replies: list[tuple[str, str]] = []
         self.reviews: list[tuple[str, str, str]] = []
+        self.callback_alerts: list[tuple[str, str]] = []
+        #: Chat ids that simulate an unreachable DM target (user never
+        #: started a private chat with the bot).
+        self.dead_chats: frozenset[str] = frozenset()
+
+    def _reachable(self, conversation_id: str) -> bool:
+        """Return whether a DM to this chat would succeed."""
+        return conversation_id not in self.dead_chats
 
     async def send_message(self, conversation_id: str, text: str) -> str | None:
         """Record a message."""
+        if not self._reachable(conversation_id):
+            return None
         self.messages.append((conversation_id, text))
         return str(len(self.messages))
 
@@ -89,6 +99,8 @@ class RecordingTransport:
 
     async def send_force_reply(self, conversation_id: str, text: str) -> str | None:
         """Record a force-reply prompt."""
+        if not self._reachable(conversation_id):
+            return None
         self.force_replies.append((conversation_id, text))
         return str(len(self.force_replies))
 
@@ -96,11 +108,15 @@ class RecordingTransport:
         self, conversation_id: str, text: str, feedback_id: str
     ) -> str | None:
         """Record an admin review message."""
+        if not self._reachable(conversation_id):
+            return None
         self.reviews.append((conversation_id, text, feedback_id))
         return str(len(self.reviews))
 
-    async def answer_callback(self, callback_id: str) -> None:
+    async def answer_callback(self, callback_id: str, alert: str | None = None) -> None:
         """Record a callback acknowledgement."""
+        if alert is not None:
+            self.callback_alerts.append((callback_id, alert))
         return
 
 

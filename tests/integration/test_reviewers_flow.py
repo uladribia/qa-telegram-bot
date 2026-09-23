@@ -173,6 +173,79 @@ def test_reviewer_without_reply_lists_current_reviewers() -> None:
     assert any("Revisors:" in text for _, text in transport.messages)
 
 
+def test_admin_cannot_nominate_the_bot() -> None:
+    """Replying /reviewer to a bot message is refused, not stored."""
+    context, transport = build_test_context()
+    bot_reply: dict[str, object] = {
+        "message_id": 41,
+        "date": 1789000000,
+        "chat": {"id": -100, "type": "supergroup"},
+        "from": {"id": 999, "is_bot": True, "first_name": "BHC Q&A"},
+        "text": "resposta",
+    }
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_group_message("/reviewer", from_id=ADMIN_ID, reply_to=bot_reply),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "reviewer_bot_refused"}
+    assert asyncio.run(context.reviewers.reviewers.get(ALLOWED_CHAT_ID)) is None
+    assert any("No pots nomenar el bot" in text for _, text in transport.messages)
+
+
+def test_flagging_twice_reuses_the_open_feedback() -> None:
+    """A second press on the same answer reuses the row instead of colliding."""
+    context, transport = build_test_context()
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    _open_proposal(client)
+    response = client.post(
+        "/telegram/webhook",
+        json=_callback("feedback:start:ans:-100:10", from_id=777, first_name="Joana"),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "feedback_started"}
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    assert feedback is not None
+    assert feedback.reporter_chat_id == "777"
+    assert len(transport.force_replies) == 2
+
+
+def test_flag_prompt_fails_with_an_alert_when_dm_is_unreachable() -> None:
+    """A presser who never started the bot gets an alert, not silence."""
+    context, transport = build_test_context()
+    transport.dead_chats = frozenset({"555"})
+    asyncio.run(_seed_answer(context))
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_callback("feedback:start:ans:-100:10", from_id=555),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "feedback_prompt_undelivered"}
+    assert transport.force_replies == []
+    assert transport.callback_alerts == [("cb-1", transport.callback_alerts[0][1])]
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    assert feedback is not None
+    assert feedback.proposal_prompt_message_id is None
+
+
+def test_unreachable_reviewer_is_reported_to_the_admin() -> None:
+    """When the reviewer's DM fails, the admin is told instead of nobody."""
+    context, transport = build_test_context()
+    transport.dead_chats = frozenset({str(REVIEWER_ID)})
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    _nominate_reviewer(context, client)
+    prompt_id = _open_proposal(client)
+    client.post(
+        "/telegram/webhook",
+        json=_reply("Resposta corregida.", reply_to=prompt_id),
+        headers=SECRET_HEADER,
+    )
+    assert transport.reviews == []
+    assert any(chat == "1" and "revisor" in text for chat, text in transport.messages)
+
+
 def test_reviewer_off_removes_the_group_reviewer() -> None:
     """`/reviewer off` clears the group's reviewer."""
     context, _ = build_test_context()

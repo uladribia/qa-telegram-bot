@@ -169,6 +169,15 @@ class TelegramTransport:
         )
         return self._message_id(response)
 
-    async def answer_callback(self, callback_id: str) -> None:
-        """Acknowledge an inline-button press."""
-        await self._post("answerCallbackQuery", {"callback_query_id": callback_id})
+    async def answer_callback(self, callback_id: str, alert: str | None = None) -> None:
+        """Acknowledge an inline-button press, optionally showing an alert.
+
+        Args:
+            callback_id: The callback to acknowledge.
+            alert: Optional text shown to the presser as a popup.
+        """
+        payload: dict[str, object] = {"callback_query_id": callback_id}
+        if alert:
+            payload["text"] = alert
+            payload["show_alert"] = True
+        await self._post("answerCallbackQuery", payload)

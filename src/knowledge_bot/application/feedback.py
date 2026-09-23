@@ -186,8 +186,24 @@ class FeedbackService:
         answer = await self.answers.get(answer_id)
         if answer is None:
             return None
+        # The id is deterministic, so re-flagging the same answer would collide
+        # on insert. Reuse the live row for the new presser; a resolved row
+        # gets a fresh, timestamped id so history stays intact.
+        existing = await self.feedback.get(f"fb:{answer_id}")
+        if existing is not None and existing.resolved_at is None:
+            feedback = replace(
+                existing,
+                reporter_chat_id=reporter_chat_id,
+                reporter_name=reporter_name,
+            )
+            await self.feedback.save(feedback)
+            return feedback
         feedback = Feedback(
-            id=f"fb:{answer_id}",
+            id=(
+                f"fb:{answer_id}:{int(self.clock.now().timestamp())}"
+                if existing is not None
+                else f"fb:{answer_id}"
+            ),
             bot_answer_id=answer_id,
             status=FeedbackStatus.AWAITING_PROPOSAL,
             created_at=self.clock.now(),
