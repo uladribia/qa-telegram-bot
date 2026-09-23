@@ -59,6 +59,9 @@ class Message:
     sender_name: str | None = None
     text: str | None = None
     reply_to_message_id: str | None = None
+    intent_label: str | None = None
+    intent_score: float | None = None
+    context_question: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

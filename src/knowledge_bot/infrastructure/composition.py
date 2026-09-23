@@ -8,6 +8,7 @@ from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
+from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import GroupRegistrar
 from knowledge_bot.application.ingest import MessageIngestor
@@ -73,6 +74,7 @@ class AppContext:
     settings: Settings
     identity: TelegramIdentity
     ingestor: MessageIngestor
+    classifier: MessageClassifier
     answer: AnswerService
     recap: RecapService
     reindex: ReindexService
@@ -144,6 +146,14 @@ def build_context(env: WorkerEnv) -> AppContext:
         admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always") or "always",
         admin_report_interval_min=_int(env, "ADMIN_REPORT_INTERVAL_MIN", 60),
         background_listener_enabled=_flag(env, "BACKGROUND_LISTENER_ENABLED", False),
+        classifier_chitchat_discard_threshold=_float(
+            env, "CLASSIFIER_CHITCHAT_DISCARD", 0.80
+        ),
+        classifier_keep_signal_threshold=_float(env, "CLASSIFIER_KEEP_SIGNAL", 0.45),
+        classifier_question_match_threshold=_float(
+            env, "CLASSIFIER_QUESTION_MATCH", 0.60
+        ),
+        classifier_answer_match_threshold=_float(env, "CLASSIFIER_ANSWER_MATCH", 0.55),
         direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
         synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
         qa_top_k=_int(env, "QA_TOP_K", 5),
@@ -172,6 +182,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         WorkersAIGenerator(env.AI, settings.generation_model), budget
     )
     vectors = VectorizeStore(env.VECTORIZE)
+    listener_messages = D1MessageRepository(database)
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -184,8 +195,15 @@ def build_context(env: WorkerEnv) -> AppContext:
         ingestor=MessageIngestor(
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),
-            messages=D1MessageRepository(database),
+            messages=listener_messages,
             attachments=D1AttachmentRepository(database),
+        ),
+        classifier=MessageClassifier(
+            embedder=embedder,
+            chitchat_discard_threshold=(settings.classifier_chitchat_discard_threshold),
+            keep_signal_threshold=settings.classifier_keep_signal_threshold,
+            question_match_threshold=(settings.classifier_question_match_threshold),
+            answer_match_threshold=settings.classifier_answer_match_threshold,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
@@ -211,6 +229,9 @@ def build_context(env: WorkerEnv) -> AppContext:
             enabled=settings.recap_enabled,
             interval_hours=settings.recap_interval_hours,
             language=settings.recap_language,
+            budget=budget,
+            feedback=D1FeedbackRepository(database),
+            messages=listener_messages,
         ),
         reindex=ReindexService(
             source=D1SearchIndexSource(database),

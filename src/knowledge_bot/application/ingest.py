@@ -47,12 +47,19 @@ class MessageIngestor:
         self,
         message: NormalizedMessage,
         source_scope: Scope = GLOBAL_SCOPE,
+        *,
+        intent_label: str | None = None,
+        intent_score: float | None = None,
+        context_question: str | None = None,
     ) -> IngestResult:
         """Persist a normalized message and its attachments.
 
         Args:
             message: The normalized inbound message.
             source_scope: Scope for the backing source row, if newly created.
+            intent_label: The listener's winning intent label, if classified.
+            intent_score: The winning label's similarity score, if classified.
+            context_question: The matched parent question, for paired answers.
 
         Returns:
             The stored message id and whether it was newly created.
@@ -94,6 +101,9 @@ class MessageIngestor:
                 sender_name=message.sender_name,
                 text=message.text,
                 reply_to_message_id=message.reply_to_message_id,
+                intent_label=intent_label,
+                intent_score=intent_score,
+                context_question=context_question,
             )
         )
         if not created:

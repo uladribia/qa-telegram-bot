@@ -17,9 +17,20 @@ from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 class FakeEmbedder:
     """An embedder that returns the same fixed vector for every text."""
 
-    def __init__(self, vector: list[float] | None = None) -> None:
-        """Create an embedder with a fixed output vector."""
+    def __init__(
+        self,
+        vector: list[float] | None = None,
+        by_text: dict[str, list[float]] | None = None,
+    ) -> None:
+        """Create an embedder with a fixed output vector.
+
+        Args:
+            vector: The default vector, used for every text.
+            by_text: Optional per-text vectors, for tests that need
+                different texts to score differently.
+        """
         self.vector = vector if vector is not None else [1.0, 0.0]
+        self.by_text = by_text or {}
         self.calls: list[list[str]] = []
         self.fail = False
 
@@ -28,7 +39,7 @@ class FakeEmbedder:
         if self.fail:
             raise ModelUnavailableError("embedding")
         self.calls.append(texts)
-        return [list(self.vector) for _ in texts]
+        return [list(self.by_text.get(text, self.vector)) for text in texts]
 
 
 def _matches(metadata: dict[str, object], filters: dict[str, object] | None) -> bool:

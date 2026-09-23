@@ -15,6 +15,7 @@ posts it at most once per interval.
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.policies import is_recap_due
@@ -22,6 +23,8 @@ from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
     ConversationRepository,
+    FeedbackRepository,
+    MessageRepository,
     RecapStateRepository,
 )
 from knowledge_bot.ports.transport import MessageTransport
@@ -34,13 +37,76 @@ _RECAP_TEXTS: dict[str, dict[str, str]] = {
         "header": "Resum de preguntes ({start} - {end})",
         "empty": "No hi ha preguntes en aquest període.",
         "pending": "(sense resposta encara)",
+        "activity": (
+            "\U0001f4ca Activitat: context capturat: {ingested} missatges"
+            " ({paired} parelles pregunta-resposta);"
+            " IA avui: {neurons:.0f} / {limit:.0f} neurones en {calls} crides;"
+            " preguntes: {asked} (ben resoltes: {correct},"
+            " marcades com a incorrectes: {incorrect},"
+            " sense resposta: {unsolved})"
+        ),
     },
     "es": {
         "header": "Resumen de preguntas ({start} - {end})",
         "empty": "No hay preguntas en este período.",
         "pending": "(sin respuesta todavía)",
+        "activity": (
+            "\U0001f4ca Actividad: contexto capturado: {ingested} mensajes"
+            " ({paired} pares pregunta-respuesta);"
+            " IA hoy: {neurons:.0f} / {limit:.0f} neuronas en {calls} llamadas;"
+            " preguntas: {asked} (bien resueltas: {correct},"
+            " marcadas como incorrectas: {incorrect},"
+            " sin respuesta: {unsolved})"
+        ),
     },
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityStats:
+    """Listener, spend, and question outcomes over a recap window.
+
+    ``incorrect`` counts answered questions flagged as wrong at least once;
+    ``correct`` is answered and never flagged. Both are observed proxies,
+    not quality judgements.
+    """
+
+    ingested: int
+    paired: int
+    neurons: float
+    neuron_limit: float
+    calls: int
+    asked: int
+    correct: int
+    incorrect: int
+    unsolved: int
+
+
+def render_activity(
+    stats: ActivityStats, *, language: str = DEFAULT_RECAP_LANGUAGE
+) -> str:
+    """Render the activity footer of a recap.
+
+    Args:
+        stats: The window statistics.
+        language: Language code for the fixed strings; unknown codes fall
+            back to Catalan.
+
+    Returns:
+        A one-paragraph activity summary.
+    """
+    texts = _RECAP_TEXTS.get(language, _RECAP_TEXTS[DEFAULT_RECAP_LANGUAGE])
+    return texts["activity"].format(
+        ingested=stats.ingested,
+        paired=stats.paired,
+        neurons=stats.neurons,
+        limit=stats.neuron_limit,
+        calls=stats.calls,
+        asked=stats.asked,
+        correct=stats.correct,
+        incorrect=stats.incorrect,
+        unsolved=stats.unsolved,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +211,9 @@ class RecapService:
     enabled: bool = True
     interval_hours: int = 24
     language: str = DEFAULT_RECAP_LANGUAGE
+    budget: AiBudget | None = None
+    feedback: FeedbackRepository | None = None
+    messages: MessageRepository | None = None
 
     async def maybe_send(self) -> bool:
         """Send the admin recap when it is due.
@@ -176,9 +245,40 @@ class RecapService:
             window_end=now,
             group_labels=labels,
         )
-        await self.transport.send_message(
-            self.admin_user_id,
-            render_recap(recap, language=self.language),
-        )
+        text = render_recap(recap, language=self.language)
+        stats = await self._activity(window_start, now, answers)
+        if stats is not None:
+            text = f"{text}\n\n{render_activity(stats, language=self.language)}"
+        await self.transport.send_message(self.admin_user_id, text)
         await self.state.set_last_sent_at(ADMIN_STATE_KEY, now)
         return True
+
+    async def _activity(
+        self, window_start: datetime, now: datetime, answers: list[BotAnswer]
+    ) -> ActivityStats | None:
+        """Build the activity stats, or ``None`` when stores are unwired."""
+        if self.budget is None or self.feedback is None or self.messages is None:
+            return None
+        flagged = {
+            item.bot_answer_id
+            for item in await self.feedback.list_between(window_start, now)
+        }
+        solved = [
+            answer
+            for answer in answers
+            if answer.answer_mode in (AnswerMode.DIRECT_QA, AnswerMode.SYNTHESIS)
+        ]
+        incorrect = sum(1 for answer in solved if answer.id in flagged)
+        ingested, paired = await self.messages.listener_stats_between(window_start, now)
+        neurons, calls = await self.budget.usage_today()
+        return ActivityStats(
+            ingested=ingested,
+            paired=paired,
+            neurons=neurons,
+            neuron_limit=self.budget.daily_neurons,
+            calls=calls,
+            asked=len(answers),
+            correct=len(solved) - incorrect,
+            incorrect=incorrect,
+            unsolved=len(answers) - len(solved),
+        )

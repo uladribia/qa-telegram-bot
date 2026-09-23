@@ -180,6 +180,13 @@ interrupted chats where the bot had answered nothing.
 
 Configured with `RECAP_ENABLED`, `RECAP_INTERVAL_HOURS`, `RECAP_LANGUAGE`.
 
+Every recap ends with an activity footer: listener context captured in the
+window (messages kept, and question-answer pairs matched), today's estimated
+AI spend in neurons and calls, and the question outcomes — asked, solved
+well (answered, never flagged), flagged as wrong, and unanswered. The
+solved/flagged split is an observed proxy, not a quality judgement: an
+answer nobody flagged counts as solved well.
+
 It is checked **opportunistically** on inbound updates, because a Cloudflare
 Python Worker only exposes a `fetch` handler — there is no cron. If nothing at all
 happens anywhere, no recap is due; an external scheduler can poke

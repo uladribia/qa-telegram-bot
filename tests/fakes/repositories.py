@@ -106,6 +106,20 @@ class InMemoryMessageRepository:
         message_id = self._external.get((source_id, external_id))
         return self._items.get(message_id) if message_id is not None else None
 
+    async def listener_stats_between(
+        self, start: datetime, end: datetime
+    ) -> tuple[int, int]:
+        """Return ``(ingested, paired)`` listener counts in ``[start, end)``."""
+        ingested = paired = 0
+        for message in self._items.values():
+            if not start <= message.created_at < end:
+                continue
+            if message.intent_label is not None:
+                ingested += 1
+            if message.context_question is not None:
+                paired += 1
+        return (ingested, paired)
+
 
 class InMemoryAttachmentRepository:
     """Dict-backed implementation of ``AttachmentRepository``."""
@@ -258,6 +272,14 @@ class InMemoryFeedbackRepository:
             if feedback.edit_prompt_message_id == message_id:
                 return feedback
         return None
+
+    async def list_between(self, start: datetime, end: datetime) -> list[Feedback]:
+        """Return the correction proposals created in ``[start, end)``."""
+        return [
+            feedback
+            for feedback in self._items.values()
+            if start <= feedback.created_at < end
+        ]
 
 
 class InMemoryReviewerRepository:

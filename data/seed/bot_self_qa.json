@@ -104,6 +104,14 @@
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
   {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/knowledge-base.md",
+    "section": "Afegir coneixement parlant amb el bot",
+    "question": "Aprens del que es parla al grup?",
+    "answer": "Sí, quan l'admin té activada l'escolta del grup: guardo els missatges que no són per mi com a context, i només descarto la xerrameca clara (un \"gràcies!\", una rialla). Si algú respon la pregunta d'una altra persona, ho guardo com a parella pregunta-resposta. Tot això té autoritat baixa: una correcció aprovada o el Q&A oficial sempre hi passen per sobre. I mai no responc els missatges que no m'adrecen explícitament.",
+    "status": "published",
+    "retrieved_at": "2026-09-21T00:00:00Z"
+  },
+  {
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Límits",
     "question": "Ets un assistent intel·ligent general?",

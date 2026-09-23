@@ -17,6 +17,7 @@ from knowledge_bot.adapters.inbound.telegram import (
     normalize_callback,
     normalize_message,
 )
+from knowledge_bot.application.classifier import QUESTION, IntentScores
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
     GROUP_SCOPE,
@@ -49,6 +50,9 @@ ContextResolver = Callable[[Request], AppContext]
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
+
+# Longest parent question text stored on a matched pair reply.
+_MAX_LISTENER_QUESTION_CHARS = 500
 
 
 def _reviewer_confirmed(scope: str, name: str) -> str:
@@ -414,6 +418,72 @@ async def _require_evaluation_budget(context: AppContext) -> None:
     )
 
 
+async def _handle_background_message(
+    context: AppContext, message: NormalizedMessage
+) -> str:
+    """Classify and ingest an unaddressed group message.
+
+    Only clear-cut chitchat is discarded; everything else is kept as
+    context, and a reply that answers a parent question is matched into a
+    question-answer pair. Media-only messages carry no text to score, so
+    they are kept unlabeled.
+
+    Args:
+        context: The application context.
+        message: The unaddressed inbound message.
+
+    Returns:
+        A short status string.
+    """
+    text = (message.text or "").strip()
+    if not text:
+        await context.ingestor.ingest(message)
+        return "ingest"
+    scores = await context.classifier.classify(text)
+    if not context.classifier.should_keep(scores):
+        return "ignored_chitchat"
+    label, score = scores.best()
+    context_question = await _match_parent_question(context, message, scores)
+    await context.ingestor.ingest(
+        message,
+        intent_label=label,
+        intent_score=score,
+        context_question=context_question,
+    )
+    await context.recap.maybe_send()
+    await context.reviewer_report.maybe_send()
+    return "ingest_pair" if context_question is not None else "ingest"
+
+
+async def _match_parent_question(
+    context: AppContext, message: NormalizedMessage, scores: IntentScores
+) -> str | None:
+    """Return the parent question text when a reply answers a question.
+
+    Args:
+        context: The application context.
+        message: The reply being ingested.
+        scores: The reply's intent scores.
+
+    Returns:
+        The parent question text, or ``None`` when this is no clear pair.
+    """
+    if message.reply_to_message_id is None:
+        return None
+    if not context.classifier.is_answer_like(scores):
+        return None
+    parent = await context.ingestor.messages.get(
+        f"{message.conversation_id}:{message.reply_to_message_id}"
+    )
+    if parent is None or not parent.text:
+        return None
+    if parent.intent_label != QUESTION:
+        return None
+    if (parent.intent_score or 0.0) < context.classifier.question_match_threshold:
+        return None
+    return parent.text[:_MAX_LISTENER_QUESTION_CHARS]
+
+
 async def _handle_message(context: AppContext, message: NormalizedMessage) -> str:
     """Route a normalized message: reviewer commands, feedback replies, intake."""
     if (
@@ -438,11 +508,14 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     )
     if action is IntakeAction.IGNORE:
         return "ignored"
+    if action is IntakeAction.INGEST:
+        return await _handle_background_message(context, message)
     result = await context.ingestor.ingest(message)
     if action is IntakeAction.ANSWER and result.created:
         await context.answer.answer(message)
     await context.recap.maybe_send()
     await context.reviewer_report.maybe_send()
+    return "answer" if action is IntakeAction.ANSWER else "ingest"
     return action.value
 
 
