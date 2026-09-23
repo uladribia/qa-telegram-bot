@@ -244,8 +244,8 @@ def test_the_dm_prompt_repeats_the_flagged_answer() -> None:
     assert "Resposta antiga." in prompt
 
 
-def test_unreachable_reviewer_is_reported_to_the_admin() -> None:
-    """When the reviewer's DM fails, the admin is told instead of nobody."""
+def test_unreachable_reviewer_sends_the_review_to_the_admin() -> None:
+    """When the reviewer's DM fails, the admin gets the actionable review."""
     context, transport = build_test_context()
     transport.dead_chats = frozenset({str(REVIEWER_ID)})
     asyncio.run(_seed_answer(context))
@@ -257,8 +257,12 @@ def test_unreachable_reviewer_is_reported_to_the_admin() -> None:
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
-    assert transport.reviews == []
-    assert any(chat == "1" and "revisor" in text for chat, text in transport.messages)
+    assert all(chat != str(REVIEWER_ID) for chat, _, _ in transport.reviews)
+    admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
+    assert any(
+        "revisor no té" in text and "Correcció proposada" in text
+        for text in admin_reviews
+    )
 
 
 def test_reviewer_off_removes_the_group_reviewer() -> None:

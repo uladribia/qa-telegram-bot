@@ -51,7 +51,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Qui pot aprovar una correcció?",
-    "answer": "El revisor del grup on va sorgir la correcció; si el grup no en té, el revisor global; si no n'hi ha cap, l'admin. Ho comprovo al servidor: una confirmació d'una altra persona s'ignora, no només s'amaga. Tothom, en canvi, pot marcar una resposta com a incorrecta i proposar la correcció: per fer una proposta no cal cap permís especial.",
+    "answer": "El revisor del grup on va sorgir la correcció; si el grup no en té, el revisor global; si no n'hi ha cap, l'admin. Ho comprovo al servidor: una confirmació d'una altra persona s'ignora, no només s'amaga. Tothom, en canvi, pot marcar una resposta com a incorrecta i proposar la correcció: per fer una proposta no cal cap permís especial. Si no puc enviar la revisió al revisor perquè encara no té un xat privat amb mi, l'admin la rep directament amb els botons i se'n pot ocupar ell.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },

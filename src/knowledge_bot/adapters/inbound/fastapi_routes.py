@@ -74,7 +74,7 @@ def _must_start_bot_alert(name: str) -> str:
 async def _deliver_review(
     context: AppContext, destination: str, text: str, feedback_id: str
 ) -> None:
-    """Send a review to its reviewer and tell the admin if that fails.
+    """Send a review to its reviewer, or back to the admin on failure.
 
     Args:
         context: The application context.
@@ -85,10 +85,13 @@ async def _deliver_review(
     sent = await context.transport.send_review(destination, text, feedback_id)
     admin = context.settings.admin_telegram_user_id
     if sent is None and admin and destination != admin:
-        await context.transport.send_message(
+        # The admin may always confirm, so send the actionable review (buttons
+        # included) instead of leaving the proposal stuck for everyone.
+        await context.transport.send_review(
             admin,
-            "\u26a0\ufe0f No he pogut enviar una correcci\u00f3 al revisor per DM: "
-            "ha d'obrir primer un xat privat amb el bot.",
+            "\u26a0\ufe0f El revisor no t\u00e9 encara un xat privat amb el bot; "
+            "revises-la tu.\n\n" + text,
+            feedback_id,
         )
 
 
