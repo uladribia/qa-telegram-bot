@@ -86,7 +86,8 @@ discussion.
 ```text
 1. Group      Quim presses  [⚠️ Està malament?]  on the wrong answer
 2. DM to Quim the bot asks: "Què corregiries? Escriu la resposta correcta…"
-   and repeats the answer being corrected, for context.
+   and repeats the original question and the answer being corrected, for
+   context.
 3. DM to Quim Quim writes the correction → "Gràcies. Ho he enviat a revisió."
 4. DM to the group's reviewer (or the global reviewer, or the admin)
               the bot forwards the proposal with [🌐 Aprovar global] [👥 Aprovar grup]

@@ -593,7 +593,11 @@ async def _handle_callback(
             return "ignored"
         answer = await context.feedback.answers.get(target)
         prompt_id = await context.transport.send_force_reply(
-            reporter_chat_id or "", proposal_prompt(answer.answer if answer else "")
+            reporter_chat_id or "",
+            proposal_prompt(
+                answer.question if answer else None,
+                answer.answer if answer else "",
+            ),
         )
         if prompt_id is not None:
             await context.feedback_repo.save(
