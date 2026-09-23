@@ -102,8 +102,9 @@ least once** (pressed Start on its profile). Anyone who wants to flag answers or
 serve as a reviewer must do that first; otherwise the bot cannot reach them.
 When it happens anyway, the bot says so instead of failing silently: the button
 press shows a popup asking to open the chat first, the group gets a message
-with a direct `t.me` link to the bot, and the admin is told when a review could
-not be delivered to its reviewer.
+with a direct `t.me` link to the bot, and if a review cannot be delivered to
+its reviewer, the admin receives the full review — buttons included — and may
+resolve it themselves.
 
 Who may do what:
 
