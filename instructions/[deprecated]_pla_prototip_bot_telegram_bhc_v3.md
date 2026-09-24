@@ -16,8 +16,9 @@
 > amb memòria per instància i indexa immediatament només evidència elegible. Els
 > missatges ajornats tenen un processador explícit i limitat. Les autoritzacions
 > de revisió apliquen l'abast al servidor i els revisors locals no poden
-> aprovar globalment. La commit atòmica de correccions i la resta de la
-> refactorització continuen en curs.
+> aprovar globalment. La decisió de correcció commits atòmicament a SQL i
+> després refresca la projecció derivada. La resta de la refactorització
+> continua en curs.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

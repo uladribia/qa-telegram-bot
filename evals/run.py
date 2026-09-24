@@ -61,6 +61,7 @@ from tests.fakes.repositories import (
     InMemorySourceRepository,
 )
 from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 EVALS_DIR = Path(__file__).resolve().parents[1] / "evals"
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -261,13 +262,19 @@ def _correction_flow(
     """Wire a FeedbackService to in-memory fakes for the corrections eval."""
     items = InMemoryQAItemRepository()
     versions = InMemoryQAVersionRepository()
+    feedback = InMemoryFeedbackRepository()
     service = FeedbackService(
         answers=answers,
-        feedback=InMemoryFeedbackRepository(),
+        feedback=feedback,
         qa_items=items,
         qa_versions=versions,
-        evidence=InMemoryQAEvidenceRepository(),
         conversations=InMemoryConversationRepository(),
+        commits=InMemoryCorrectionCommitStore(
+            items,
+            versions,
+            InMemoryQAEvidenceRepository(),
+            feedback,
+        ),
         clock=FrozenClock(NOW),
     )
     return service, items, versions

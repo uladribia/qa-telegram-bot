@@ -6,6 +6,7 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
@@ -36,6 +37,7 @@ from knowledge_bot.domain.enums import (
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.review import ReviewItem
+from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from knowledge_bot.ports.vector_store import VectorRecord
 
 
@@ -66,6 +68,10 @@ class D1Database(Protocol):
 
     def prepare(self, sql: str) -> D1Statement:
         """Prepare a statement."""
+        ...
+
+    async def batch(self, statements: Sequence[D1Statement]) -> object:
+        """Execute statements in one transaction."""
         ...
 
 
@@ -1125,6 +1131,92 @@ class D1AiUsageRepository:
         if row is None:
             return (0.0, 0)
         return (float(cast(float, row["neurons"])), int(cast(int, row["calls"])))
+
+
+class D1CorrectionCommitStore:
+    """D1 transactional implementation of correction decisions."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def approve(self, command: ApproveCorrectionCommand) -> QAVersion:
+        """Commit version, current pointer, evidence, and feedback atomically."""
+        version = command.version
+        item = command.item
+        evidence = command.evidence
+        feedback = command.feedback
+        await self._db.batch(
+            [
+                self._db.prepare(
+                    "INSERT INTO qa_versions"
+                    " (id, qa_id, answer, authority, confidence, origin, created_by,"
+                    " supersedes_version_id, created_at, source_url, source_anchor,"
+                    " author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                ).bind(
+                    version.id,
+                    version.qa_id,
+                    version.answer,
+                    version.authority,
+                    version.confidence,
+                    version.origin,
+                    version.created_by,
+                    version.supersedes_version_id,
+                    _iso(version.created_at),
+                    version.source_url,
+                    version.source_anchor,
+                    version.author,
+                ),
+                self._db.prepare(
+                    "UPDATE qa_items SET canonical_question = ?, status = ?,"
+                    " current_version_id = ?, updated_at = ? WHERE id = ?"
+                ).bind(
+                    item.canonical_question,
+                    item.status.value,
+                    item.current_version_id,
+                    _iso(item.updated_at),
+                    item.id,
+                ),
+                self._db.prepare(
+                    "INSERT INTO qa_evidence"
+                    " (qa_version_id, evidence_type, evidence_id) VALUES (?, ?, ?)"
+                ).bind(
+                    evidence.qa_version_id,
+                    evidence.evidence_type.value,
+                    evidence.evidence_id,
+                ),
+                self._db.prepare(
+                    "UPDATE feedback SET status = ?, proposed_answer = ?,"
+                    " admin_edited_answer = ?, resolved_at = ? WHERE id = ?"
+                ).bind(
+                    feedback.status.value,
+                    feedback.proposed_answer,
+                    feedback.admin_edited_answer,
+                    _iso(feedback.resolved_at)
+                    if feedback.resolved_at is not None
+                    else None,
+                    feedback.id,
+                ),
+            ]
+        )
+        return version
+
+    async def reject(self, feedback: Feedback) -> Feedback:
+        """Persist one rejected feedback decision."""
+        await (
+            self._db.prepare(
+                "UPDATE feedback SET status = ?, resolved_at = ? WHERE id = ?"
+            )
+            .bind(
+                feedback.status.value,
+                _iso(feedback.resolved_at)
+                if feedback.resolved_at is not None
+                else None,
+                feedback.id,
+            )
+            .run()
+        )
+        return feedback
 
 
 class D1FeedbackRepository:

@@ -31,10 +31,10 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1BotAnswerRepository,
     D1ChannelBindingRepository,
     D1ConversationRepository,
+    D1CorrectionCommitStore,
     D1Database,
     D1FeedbackRepository,
     D1MessageRepository,
-    D1QAEvidenceRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
     D1RecapStateRepository,
@@ -201,6 +201,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    correction_commits = D1CorrectionCommitStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
         chitchat_discard_threshold=settings.classifier_chitchat_discard_threshold,
@@ -299,8 +300,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             feedback=D1FeedbackRepository(database),
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
-            evidence=D1QAEvidenceRepository(database),
             conversations=D1ConversationRepository(database),
+            commits=correction_commits,
             clock=clock,
         ),
         feedback_repo=D1FeedbackRepository(database),

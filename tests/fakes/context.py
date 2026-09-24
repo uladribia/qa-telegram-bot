@@ -36,6 +36,7 @@ from tests.fakes.ai import (
 )
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 WEBHOOK_SECRET = "secret"
@@ -143,6 +144,12 @@ def build_test_context(
         recap_enabled=recap_enabled,
     )
     classifier = MessageClassifier(embedder=embedder)
+    correction_commits = InMemoryCorrectionCommitStore(
+        backend.qa_items,
+        backend.qa_versions,
+        backend.qa_evidence,
+        feedback_repo,
+    )
     identity = TelegramIdentity(
         allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
@@ -198,8 +205,8 @@ def build_test_context(
             feedback=feedback_repo,
             qa_items=backend.qa_items,
             qa_versions=backend.qa_versions,
-            evidence=backend.qa_evidence,
             conversations=backend.conversations,
+            commits=correction_commits,
             clock=clock,
         ),
         feedback_repo=feedback_repo,

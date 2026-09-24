@@ -173,8 +173,10 @@ The normal path, and the only one that produces a human-approved answer:
 3. The admin gets it privately and approves / edits / rejects.
 
 An approval creates a **new version** with the proposer's name and the proposal
-date, and supersedes the old one. Nothing is overwritten, so every answer stays
-auditable back to its source. At approval the reviewer also chooses the
+date, and supersedes the old one. The version, current pointer, evidence link,
+and feedback decision commit in one SQL transaction; a failed write rolls back
+all four. The derived vector refresh happens afterward. Nothing is overwritten,
+so every answer stays auditable back to its source. At approval the reviewer also chooses the
 **scope**: 🌐 global (all groups) or 👥 a group-only variant of the answer; in
 its group the variant outranks the global answer. See [usage.md](usage.md) for
 the flow, including how the admin nominates reviewers with `/reviewer`.
