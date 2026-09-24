@@ -5,10 +5,12 @@ Ingestion is idempotent: re-processing the same inbound event (Telegram may
 retry webhooks) must not duplicate state.
 """
 
+import json
 from dataclasses import dataclass
 
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import Attachment, Conversation, Message, Source
+from knowledge_bot.domain.enums import ClassificationStatus, IndexStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
@@ -43,6 +45,11 @@ class MessageIngestor:
         intent_label: str | None = None,
         intent_score: float | None = None,
         context_question: str | None = None,
+        classification_status: ClassificationStatus = (
+            ClassificationStatus.NOT_CLASSIFIED
+        ),
+        intent_scores: dict[str, float] | None = None,
+        index_status: IndexStatus = IndexStatus.NOT_INDEXED,
     ) -> IngestResult:
         """Persist a normalized message and its attachments.
 
@@ -52,6 +59,9 @@ class MessageIngestor:
             intent_label: The listener's winning intent label, if classified.
             intent_score: The winning label's similarity score, if classified.
             context_question: The matched parent question, for paired answers.
+            classification_status: Background classification lifecycle state.
+            intent_scores: All intent similarities for audit/debugging.
+            index_status: Evidence-index lifecycle state.
 
         Returns:
             The stored message id and whether it was newly created.
@@ -89,6 +99,7 @@ class MessageIngestor:
                 sent_at=message.timestamp,
                 created_at=message.timestamp,
                 sender_is_admin=message.sender_is_admin,
+                sender_authority=message.sender_authority,
                 external_id=message.source_message_id,
                 sender_hash=message.sender_id,
                 sender_name=message.sender_name,
@@ -97,6 +108,13 @@ class MessageIngestor:
                 intent_label=intent_label,
                 intent_score=intent_score,
                 context_question=context_question,
+                classification_status=classification_status,
+                intent_scores_json=(
+                    json.dumps(intent_scores, sort_keys=True)
+                    if intent_scores is not None
+                    else None
+                ),
+                index_status=index_status,
             )
         )
         if not created:

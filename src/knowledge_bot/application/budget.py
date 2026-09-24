@@ -15,6 +15,7 @@ the quota really is gone.
 
 from dataclasses import dataclass
 
+from knowledge_bot.domain.enums import AiWorkClass
 from knowledge_bot.ports.budget import AiUsageRepository
 from knowledge_bot.ports.clock import Clock
 
@@ -26,6 +27,8 @@ class AiSpend:
     neurons: float
     limit: float
     evaluation_ceiling: float
+    background_ceiling: float
+    maintenance_ceiling: float
 
     @property
     def exhausted(self) -> bool:
@@ -46,6 +49,8 @@ class AiBudget:
     clock: Clock
     daily_neurons: float = 10_000.0
     reserve_fraction: float = 0.25
+    background_fraction: float = 0.50
+    maintenance_fraction: float = 0.70
     embed_neurons_per_char: float = 0.015
     chat_neurons_per_char: float = 0.020
 
@@ -64,6 +69,8 @@ class AiBudget:
             neurons=neurons,
             limit=self.daily_neurons,
             evaluation_ceiling=self._ceiling(),
+            background_ceiling=self.daily_neurons * self.background_fraction,
+            maintenance_ceiling=self.daily_neurons * self.maintenance_fraction,
         )
 
     def estimate_embedding(self, characters: int) -> float:
@@ -95,3 +102,12 @@ class AiBudget:
     async def evaluation_allowed(self) -> bool:
         """Return whether an expensive admin run may start."""
         return (await self.spend()).evaluation_allowed
+
+    async def work_allowed(self, work_class: AiWorkClass) -> bool:
+        """Return whether estimated spend permits one work class."""
+        spend = await self.spend()
+        if work_class is AiWorkClass.USER:
+            return True
+        if work_class is AiWorkClass.BACKGROUND:
+            return spend.neurons < spend.background_ceiling
+        return spend.neurons < spend.maintenance_ceiling

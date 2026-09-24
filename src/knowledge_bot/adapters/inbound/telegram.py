@@ -185,6 +185,10 @@ def normalize_message(
         and str(reply.from_user.id if reply.from_user else "") == identity.bot_id
     )
     external_id = f"{chat.id}:{message.message_id}"
+    sender_is_admin = (
+        identity.admin_user_id is not None
+        and str(sender.id if sender else "") == identity.admin_user_id
+    )
     return NormalizedMessage(
         id=external_id,
         source=SourceDescriptor(
@@ -196,8 +200,8 @@ def normalize_message(
         principal_id=principal_id("telegram", str(sender.id))
         if sender is not None
         else None,
-        sender_is_admin=identity.admin_user_id is not None
-        and str(sender.id if sender else "") == identity.admin_user_id,
+        sender_is_admin=sender_is_admin,
+        sender_authority=95 if sender_is_admin else None,
         timestamp=datetime.fromtimestamp(message.date, tz=UTC),
         content_type=content_type,
         source_message_id=external_id,

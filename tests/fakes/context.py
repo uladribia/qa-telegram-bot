@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
@@ -100,6 +101,7 @@ def build_test_context(
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
+    projection_manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
         sources=backend.sources,
@@ -153,13 +155,23 @@ def build_test_context(
         clock=clock,
         ingestor=ingestor,
         classifier=MessageClassifier(embedder=embedder),
+        background_indexer=BackgroundIndexer(
+            messages=ingestor.messages,
+            conversations=backend.conversations,
+            sources=backend.sources,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=projection_manifest,
+            clock=clock,
+            answer_threshold=0.55,
+        ),
         answer=answer,
         recap=recap,
         reindex=ReindexService(
             source=FakeSearchIndexSource(),
             embedder=embedder,
             vectors=vectors,
-            manifest=InMemorySearchProjectionRepository(),
+            manifest=projection_manifest,
             clock=clock,
         ),
         seed=SeedService(

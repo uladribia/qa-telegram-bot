@@ -150,6 +150,13 @@ class InMemoryMessageRepository:
         """Return a message by id, if present."""
         return self._items.get(message_id)
 
+    async def save(self, message: Message) -> None:
+        """Persist classification and indexing state changes."""
+        if message.id not in self._items:
+            error = f"unknown message: {message.id}"
+            raise KeyError(error)
+        self._items[message.id] = message
+
     async def get_by_external_id(
         self, source_id: str, external_id: str
     ) -> Message | None:

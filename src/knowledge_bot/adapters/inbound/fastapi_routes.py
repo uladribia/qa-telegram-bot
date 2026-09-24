@@ -40,7 +40,12 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import ReviewerEvent
-from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.domain.enums import (
+    AiWorkClass,
+    AnswerMode,
+    ClassificationStatus,
+    IndexStatus,
+)
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
@@ -469,19 +474,45 @@ async def _handle_background_message(
     """
     text = (message.text or "").strip()
     if not text:
-        await context.ingestor.ingest(message)
+        await context.ingestor.ingest(
+            message,
+            classification_status=ClassificationStatus.NO_TEXT,
+            index_status=IndexStatus.NOT_ELIGIBLE,
+        )
         return "ingest"
-    scores = await context.classifier.classify(text)
-    if not context.classifier.should_keep(scores):
-        return "ignored_chitchat"
-    label, score = scores.best()
+    if not await context.budget.work_allowed(AiWorkClass.BACKGROUND):
+        await context.ingestor.ingest(
+            message,
+            classification_status=ClassificationStatus.DEFERRED_BUDGET,
+            index_status=IndexStatus.NOT_INDEXED,
+        )
+        return "ingest"
+    classification = await context.classifier.classify(text)
+    scores = classification.scores
+    label = classification.best_label.value
+    score = classification.best_score
     context_question = await _match_parent_question(context, message, scores)
-    await context.ingestor.ingest(
+    status = (
+        ClassificationStatus.PREFILTER_CHITCHAT
+        if not classification.embedding
+        else ClassificationStatus.CLASSIFIED
+    )
+    result = await context.ingestor.ingest(
         message,
         intent_label=label,
         intent_score=score,
         context_question=context_question,
+        classification_status=status,
+        intent_scores={
+            "question": scores.question,
+            "knowledge_update": scores.knowledge_update,
+            "correction": scores.correction,
+            "chitchat": scores.chitchat,
+        },
+        index_status=IndexStatus.NOT_ELIGIBLE,
     )
+    if result.created:
+        await context.background_indexer.process(message.id, classification.embedding)
     await context.recap.maybe_send()
     await context.reviewer_report.maybe_send()
     return "ingest_pair" if context_question is not None else "ingest"

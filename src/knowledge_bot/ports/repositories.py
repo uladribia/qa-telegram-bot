@@ -104,6 +104,10 @@ class MessageRepository(Protocol):
         """Return a message by id, if present."""
         ...
 
+    async def save(self, message: Message) -> None:
+        """Persist classification and indexing state changes."""
+        ...
+
     async def get_by_external_id(
         self, source_id: str, external_id: str
     ) -> Message | None:
