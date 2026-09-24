@@ -114,6 +114,12 @@ class MessageRepository(Protocol):
         """Return a message by its idempotency key, if present."""
         ...
 
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
+        ...
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:

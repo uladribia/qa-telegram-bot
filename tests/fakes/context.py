@@ -142,6 +142,7 @@ def build_test_context(
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )
+    classifier = MessageClassifier(embedder=embedder)
     identity = TelegramIdentity(
         allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
@@ -154,11 +155,12 @@ def build_test_context(
         identity=identity,
         clock=clock,
         ingestor=ingestor,
-        classifier=MessageClassifier(embedder=embedder),
+        classifier=classifier,
         background_indexer=BackgroundIndexer(
             messages=ingestor.messages,
             conversations=backend.conversations,
             sources=backend.sources,
+            classifier=classifier,
             embedder=embedder,
             vectors=vectors,
             manifest=projection_manifest,

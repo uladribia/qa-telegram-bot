@@ -362,6 +362,24 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             "messages": message_count,
         }
 
+    @app.post("/internal/background/process-backlog")
+    async def internal_process_background_backlog(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int]:
+        """Process a bounded batch of budget-deferred background messages."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
+            raise HTTPException(status_code=429, detail="maintenance budget exhausted")
+        payload = await request.json()
+        limit = int(payload.get("limit", 100)) if isinstance(payload, dict) else 100
+        processed = await context.background_indexer.process_backlog(
+            max(1, min(limit, 1000))
+        )
+        return {"processed": processed}
+
     @app.post("/internal/groups")
     async def internal_groups(
         request: Request,

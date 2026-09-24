@@ -15,7 +15,10 @@ character-based estimate (the `ai_budget` table, tuned by the `AI_*` settings). 
 **25% reserve is held back for real user traffic**. Background classification
 stops at 50% estimated spend (`AI_BACKGROUND_BUDGET_FRACTION`); maintenance
 stops at 70% (`AI_MAINTENANCE_BUDGET_FRACTION`). Deferred background messages
-remain stored and are not retried automatically.
+remain stored and are not retried automatically. Process them only through an
+explicit bounded maintenance request to
+`POST /internal/background/process-backlog` with `{"limit": 100}` (maximum
+1000). The request is refused at the 70% maintenance ceiling.
 
 Consequences, by design:
 

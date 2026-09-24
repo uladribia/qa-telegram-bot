@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Index only background messages that are actual evidence."""
 
+import json
 from dataclasses import replace
 
+from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
-from knowledge_bot.domain.enums import IndexStatus, IntentLabel
+from knowledge_bot.domain.enums import ClassificationStatus, IndexStatus, IntentLabel
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.embedder import Embedder
@@ -25,6 +27,7 @@ class BackgroundIndexer:
         messages: MessageRepository,
         conversations: ConversationRepository,
         sources: SourceRepository,
+        classifier: MessageClassifier,
         embedder: Embedder,
         vectors: VectorStore,
         manifest: SearchProjectionRepository,
@@ -35,11 +38,53 @@ class BackgroundIndexer:
         self._messages = messages
         self._conversations = conversations
         self._sources = sources
+        self._classifier = classifier
         self._embedder = embedder
         self._vectors = vectors
         self._manifest = manifest
         self._clock = clock
         self._answer_threshold = answer_threshold
+
+    async def process_backlog(self, limit: int) -> int:
+        """Classify and index a bounded batch of budget-deferred messages."""
+        messages = await self._messages.list_by_classification_status(
+            ClassificationStatus.DEFERRED_BUDGET.value, limit
+        )
+        for message in messages:
+            if not message.text:
+                await self._messages.save(
+                    replace(
+                        message,
+                        classification_status=ClassificationStatus.NO_TEXT,
+                        index_status=IndexStatus.NOT_ELIGIBLE,
+                    )
+                )
+                continue
+            classification = await self._classifier.classify(message.text)
+            scores = classification.scores
+            updated = replace(
+                message,
+                intent_label=classification.best_label.value,
+                intent_score=classification.best_score,
+                classification_status=(
+                    ClassificationStatus.PREFILTER_CHITCHAT
+                    if not classification.embedding
+                    else ClassificationStatus.CLASSIFIED
+                ),
+                intent_scores_json=json.dumps(
+                    {
+                        "question": scores.question,
+                        "knowledge_update": scores.knowledge_update,
+                        "correction": scores.correction,
+                        "chitchat": scores.chitchat,
+                    },
+                    sort_keys=True,
+                ),
+                index_status=IndexStatus.NOT_ELIGIBLE,
+            )
+            await self._messages.save(updated)
+            await self.process(message.id, classification.embedding)
+        return len(messages)
 
     async def process(
         self, message_id: str, message_embedding: tuple[float, ...]

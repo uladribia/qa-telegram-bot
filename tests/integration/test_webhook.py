@@ -234,6 +234,35 @@ def test_listener_persists_budget_deferred_message_without_ai() -> None:
     assert matches == []
 
 
+def test_bounded_backlog_processes_deferred_background_messages() -> None:
+    """An explicit bounded request handles deferred background messages."""
+    context = build_test_context(
+        background_listener_enabled=True,
+        spent_neurons=6_000.0,
+    )[0]
+    client = _client(context)
+    response = client.post(
+        "/telegram/webhook",
+        json=_update("recordem que demà hi ha entrenament", message_id=28),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    usage = context.budget.usage
+    assert isinstance(usage, InMemoryAiUsageRepository)
+    usage.seed("2026-09-19", 0.0)
+
+    processed = client.post(
+        "/internal/background/process-backlog",
+        json={"limit": 10},
+        headers={"X-Internal-Key": "internal"},
+    )
+
+    assert processed.json() == {"processed": 1}
+    stored = _stored(context, "-100:28")
+    assert stored is not None
+    assert stored.classification_status.value == "classified"
+
+
 def test_listener_indexes_relevant_background_evidence_immediately() -> None:
     """A standalone knowledge update becomes searchable without a full rebuild."""
     context = _listener_context(

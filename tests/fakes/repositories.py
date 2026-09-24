@@ -164,6 +164,20 @@ class InMemoryMessageRepository:
         message_id = self._external.get((source_id, external_id))
         return self._items.get(message_id) if message_id is not None else None
 
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
+        matching = sorted(
+            (
+                message
+                for message in self._items.values()
+                if message.classification_status.value == status
+            ),
+            key=lambda message: message.created_at,
+        )
+        return matching[:limit]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:

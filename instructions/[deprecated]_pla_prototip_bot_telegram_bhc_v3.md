@@ -13,8 +13,11 @@
 > declarades pels connectors ja estan separats de Telegram. La identitat
 > semàntica i la projecció estable de vectors ja estan implementades en el
 > mateix treball. L'escolta de fons ja desa els missatges acceptats, classifica
-> amb memòria per instància i indexa immediatament només evidència elegible. La
-> revisió d'autoritzacions i la resta de la refactorització continuen en curs.
+> amb memòria per instància i indexa immediatament només evidència elegible. Els
+> missatges ajornats tenen un processador explícit i limitat. Les autoritzacions
+> de revisió apliquen l'abast al servidor i els revisors locals no poden
+> aprovar globalment. La commit atòmica de correccions i la resta de la
+> refactorització continuen en curs.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

@@ -496,6 +496,20 @@ class D1MessageRepository:
         )
         return _message(row) if row is not None else None
 
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
+        result = (
+            await self._db.prepare(
+                "SELECT * FROM messages WHERE classification_status = ?"
+                " ORDER BY created_at LIMIT ?"
+            )
+            .bind(status, limit)
+            .run()
+        )
+        return [_message(row) for row in _rows(result)]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:

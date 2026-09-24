@@ -201,6 +201,13 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    classifier = MessageClassifier(
+        embedder=embedder,
+        chitchat_discard_threshold=settings.classifier_chitchat_discard_threshold,
+        keep_signal_threshold=settings.classifier_keep_signal_threshold,
+        question_match_threshold=settings.classifier_question_match_threshold,
+        answer_match_threshold=settings.classifier_answer_match_threshold,
+    )
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -217,17 +224,12 @@ def build_context(env: WorkerEnv) -> AppContext:
             messages=listener_messages,
             attachments=D1AttachmentRepository(database),
         ),
-        classifier=MessageClassifier(
-            embedder=embedder,
-            chitchat_discard_threshold=(settings.classifier_chitchat_discard_threshold),
-            keep_signal_threshold=settings.classifier_keep_signal_threshold,
-            question_match_threshold=(settings.classifier_question_match_threshold),
-            answer_match_threshold=settings.classifier_answer_match_threshold,
-        ),
+        classifier=classifier,
         background_indexer=BackgroundIndexer(
             messages=listener_messages,
             conversations=listener_conversations,
             sources=listener_sources,
+            classifier=classifier,
             embedder=embedder,
             vectors=vectors,
             manifest=projection_manifest,
