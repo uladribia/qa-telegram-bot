@@ -10,7 +10,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import GroupRegistrar
+from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -28,6 +28,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AiUsageRepository,
     D1AttachmentRepository,
     D1BotAnswerRepository,
+    D1ChannelBindingRepository,
     D1ConversationRepository,
     D1Database,
     D1FeedbackRepository,
@@ -42,6 +43,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ReviewSource,
     D1SearchIndexSource,
     D1SourceRepository,
+    D1SpaceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
 from knowledge_bot.infrastructure.cloudflare.vectorize import (
@@ -81,7 +83,7 @@ class AppContext:
     recap: RecapService
     reindex: ReindexService
     seed: SeedService
-    groups: GroupRegistrar
+    spaces: SpaceDirectory
     review: ReviewService
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
@@ -253,9 +255,11 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             clock=clock,
         ),
-        groups=GroupRegistrar(
+        spaces=SpaceDirectory(
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),
+            spaces=D1SpaceRepository(database),
+            bindings=D1ChannelBindingRepository(database),
             clock=clock,
         ),
         review=ReviewService(

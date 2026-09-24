@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Build an ``AppContext`` from in-memory fakes for HTTP tests."""
 
+import asyncio
 from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
@@ -8,7 +9,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import GroupRegistrar
+from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -21,6 +22,7 @@ from knowledge_bot.application.reviewers import (
     ReviewerRouter,
 )
 from knowledge_bot.application.seed import SeedService
+from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
@@ -39,6 +41,29 @@ ALLOWED_CHAT_ID = "-100"
 ALLOWED_CHAT_IDS = "-100,-200"
 BOT_ID = "999"
 BOT_USERNAME = "bot"
+SPACE_A = "sp_" + "1" * 32
+SPACE_B = "sp_" + "2" * 32
+
+
+async def _seed_test_bindings(backend: InMemoryBackend) -> None:
+    """Seed the two Telegram groups used by the default test context."""
+    values = ((ALLOWED_CHAT_ID, SPACE_A), ("-200", SPACE_B))
+    for chat_id, space_id in values:
+        if await backend.spaces.get(space_id) is None:
+            await backend.spaces.add(
+                Space(id=space_id, title=f"Group {chat_id}", created_at=DEFAULT_NOW)
+            )
+        if await backend.bindings.get("telegram", chat_id) is None:
+            await backend.bindings.add(
+                ChannelBinding(
+                    channel="telegram",
+                    external_conversation_id=chat_id,
+                    conversation_id=chat_id,
+                    space_id=space_id,
+                    title=f"Group {chat_id}",
+                    created_at=DEFAULT_NOW,
+                )
+            )
 
 
 def build_test_context(
@@ -65,6 +90,7 @@ def build_test_context(
         The context and the recording transport used by the recap/answer services.
     """
     backend = backend or InMemoryBackend()
+    asyncio.run(_seed_test_bindings(backend))
     if spent_neurons:
         backend.ai_usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
     answers = backend.answers
@@ -140,9 +166,11 @@ def build_test_context(
             ingestor=ingestor,
             clock=clock,
         ),
-        groups=GroupRegistrar(
+        spaces=SpaceDirectory(
             sources=backend.sources,
             conversations=backend.conversations,
+            spaces=backend.spaces,
+            bindings=backend.bindings,
             clock=clock,
         ),
         review=ReviewService(

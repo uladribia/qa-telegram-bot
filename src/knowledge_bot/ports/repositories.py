@@ -11,6 +11,7 @@ from typing import Protocol, runtime_checkable
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
+    ChannelBinding,
     Conversation,
     Feedback,
     Message,
@@ -20,8 +21,41 @@ from knowledge_bot.domain.entities import (
     Reviewer,
     ReviewerEvent,
     Source,
+    Space,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
+
+
+@runtime_checkable
+class SpaceRepository(Protocol):
+    """Persistence for logical spaces."""
+
+    async def add(self, space: Space) -> None:
+        """Persist a new space."""
+        ...
+
+    async def get(self, space_id: str) -> Space | None:
+        """Return a space by id, if present."""
+        ...
+
+
+@runtime_checkable
+class ChannelBindingRepository(Protocol):
+    """Persistence for external channel bindings."""
+
+    async def get(
+        self, channel: str, external_conversation_id: str
+    ) -> ChannelBinding | None:
+        """Return a binding, if present."""
+        ...
+
+    async def add(self, binding: ChannelBinding) -> None:
+        """Persist a new binding."""
+        ...
+
+    async def save(self, binding: ChannelBinding) -> None:
+        """Persist changes to an existing binding."""
+        ...
 
 
 @runtime_checkable

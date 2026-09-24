@@ -136,7 +136,7 @@ class ReindexService:
                 metadata={
                     "kind": "message",
                     "object_id": message.message_id,
-                    "source_type": message.source_type,
+                    "source_kind": message.source_kind,
                     "authority": message.authority,
                     "scope": message.conversation_id,
                     "text": message.text[:_MAX_METADATA_CHARS],

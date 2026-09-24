@@ -6,6 +6,12 @@
 > Les instruccions, arquitectura, fluxos, models, persistència i proves descrits
 > aquí poden ser obsolets i no s'han d'aplicar sense contrastar-los amb el pla v2
 > i amb el codi/docs vigents. Es conserva únicament com a context històric.
+>
+> **Estat de la implementació v2 (2026-09-24):** la correcció immediata de
+> provenance, idempotència, rellotge i errors de Telegram ja està implementada
+> a `refactor/v2-correctness`. La refactorització d'espais, bindings de canal i
+> fonts declarades pels connectors està en curs. Aquest document històric no
+> descriu cap d'aquests comportaments com a sistema actual.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;

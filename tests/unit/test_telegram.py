@@ -46,7 +46,7 @@ def test_text_message_normalization() -> None:
     """A plain text message becomes a normalized text message."""
     normalized = normalize_message(_update(), IDENTITY)
     assert normalized is not None
-    assert normalized.source_type == "telegram"
+    assert normalized.source.kind == "telegram"
     assert normalized.text == "hola"
     assert normalized.content_type is ContentType.TEXT
     assert normalized.timestamp == datetime.fromtimestamp(1789000000, tz=UTC)

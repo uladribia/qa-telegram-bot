@@ -34,6 +34,26 @@ domain/ and application/  →  must NOT import fastapi, workers, Telegram libs,
 `application/` depends on `ports/` Protocols, never on concrete adapters. Convert
 external payloads to Pydantic at the adapter boundary, as early as possible.
 
+### Connector-owned source provenance
+
+Connectors declare a validated `SourceDescriptor` for every normalized message:
+
+```text
+source.id        durable source-instance identity
+source.kind      open connector-defined provenance label
+source.authority  connector-declared base authority
+```
+
+`domain/`, `application/`, and `ports/` do not contain a registry of Telegram,
+WhatsApp, web, or future connector names. They do not derive a source id or base
+authority from a channel name. Telegram, WhatsApp, and other adapters own their
+external payload parsing, source identity, authority declaration, principal
+conversion, and delivery/routing details. The shared space/binding service only
+accepts opaque channel and external identifiers.
+
+Architecture tests enforce both the import boundary and the absence of known
+connector source literals in the core.
+
 ---
 
 ## Everyday workflow

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
+    InMemoryChannelBindingRepository,
     InMemoryConversationRepository,
     InMemoryFeedbackRepository,
     InMemoryMessageRepository,
@@ -15,6 +16,7 @@ from tests.fakes.repositories import (
     InMemoryReviewerEventRepository,
     InMemoryReviewerRepository,
     InMemorySourceRepository,
+    InMemorySpaceRepository,
 )
 from tests.fakes.support import (
     InMemoryAiUsageRepository,
@@ -28,6 +30,10 @@ class InMemoryBackend:
     """Own one instance of every stateful test store."""
 
     sources: InMemorySourceRepository = field(default_factory=InMemorySourceRepository)
+    spaces: InMemorySpaceRepository = field(default_factory=InMemorySpaceRepository)
+    bindings: InMemoryChannelBindingRepository = field(
+        default_factory=InMemoryChannelBindingRepository
+    )
     conversations: InMemoryConversationRepository = field(
         default_factory=InMemoryConversationRepository
     )

@@ -15,11 +15,10 @@ from knowledge_bot.domain.entities import Feedback, QAEvidence, QAItem, QAVersio
 from knowledge_bot.domain.enums import (
     EvidenceType,
     FeedbackStatus,
-    QAOrigin,
     QAStatus,
 )
 from knowledge_bot.domain.policies import Authority
-from knowledge_bot.domain.scope import Scope
+from knowledge_bot.domain.scope import Scope, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
@@ -131,13 +130,11 @@ class CorrectionRequest:
     proposed_answer: str
     group_label: str | None = None
     current_origin: str | None = None
-    group_chat_id: str | None = None
+    origin_space_id: str | None = None
 
 
 _CURRENT_ORIGIN_LABEL: dict[str, str] = {
-    "web_seed": "web",
-    "admin_approved": "correcció aprovada",
-    "auto_generated": "generada del grup",
+    "human_approved": "correcció aprovada",
 }
 
 
@@ -153,7 +150,7 @@ def current_origin_label(origin: str | None) -> str:
     """
     if origin is None:
         return "síntesi del grup"
-    return _CURRENT_ORIGIN_LABEL.get(origin, origin)
+    return _CURRENT_ORIGIN_LABEL.get(origin, origin.replace("_", " "))
 
 
 def render_review(request: CorrectionRequest) -> str:
@@ -358,7 +355,7 @@ class FeedbackService:
             proposed_answer=proposal,
             group_label=group_label,
             current_origin=await self._current_origin(feedback.qa_id),
-            group_chat_id=answer.conversation_id,
+            origin_space_id=answer.space_id,
         )
 
     async def _current_origin(self, qa_ref: str | None) -> str | None:
@@ -374,7 +371,7 @@ class FeedbackService:
         if cited is None or cited.current_version_id is None:
             return None
         version = await self.qa_versions.get(cited.current_version_id)
-        return version.origin.value if version is not None else None
+        return version.origin if version is not None else None
 
     async def approve(self, feedback_id: str, scope: Scope) -> QAVersion | None:
         """Approve a proposal as a new answer version in the chosen scope.
@@ -405,7 +402,9 @@ class FeedbackService:
         answer = await self.answers.get(feedback.bot_answer_id)
         question = answer.question if answer is not None else ""
         target_scope = (
-            answer.conversation_id if scope == GROUP_SCOPE and answer else scope
+            scope_for_space(answer.space_id)
+            if scope == GROUP_SCOPE and answer is not None and answer.space_id
+            else scope
         )
         qa_id = await self._resolve_target(feedback, question, target_scope, now)
         item = await self.qa_items.get(qa_id)
@@ -416,7 +415,7 @@ class FeedbackService:
             qa_id=qa_id,
             answer=answer_text,
             authority=int(Authority.ADMIN_APPROVED),
-            origin=QAOrigin.ADMIN_APPROVED,
+            origin="human_approved",
             created_at=feedback.proposed_at or now,
             created_by=feedback.reporter_name or "admin",
             author=feedback.reporter_name or "admin",

@@ -9,7 +9,7 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
-from knowledge_bot.contracts.messages import NormalizedMessage
+from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
@@ -125,9 +125,11 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
     )
     message = NormalizedMessage(
         id="m1",
+        source=SourceDescriptor(
+            id="src:telegram:runtime", kind="telegram", authority=40
+        ),
         conversation_id="c1",
         content_type="text",
-        source_type="telegram",
         timestamp=NOW,
         text="on entrenen?",
         sender_is_admin=False,

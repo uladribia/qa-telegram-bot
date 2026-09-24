@@ -37,6 +37,11 @@ Scopes are assigned at seed time with `kb seed --scope` and set per group with
 A correction always outranks the original. Originals are never edited: the web
 Q&A that shipped is still there, byte for byte.
 
+Source identity and base authority are declared by the connector that imports
+or receives the material. The shared application does not contain a registry of
+channel names: a new connector can provide its own source kind and source
+instance without adding a branch to ingestion or space management.
+
 ---
 
 ## Adding knowledge from a web page
@@ -98,17 +103,23 @@ their source as belonging to one group instead of the global layer.
 
 ## Registering the served groups
 
-The bot answers in any group listed in `ALLOWED_TELEGRAM_CHAT_IDS`. Before
-seeding group-scoped knowledge (or letting retrieval scope answers), register
-each group so it exists in D1 with its title:
+A Telegram group must be both listed in `ALLOWED_TELEGRAM_CHAT_IDS` and bound to
+a logical space. The allow-list is connector configuration; the durable channel
+binding is the application-level space relationship. An allow-listed group with
+no binding is ignored.
+
+Before seeding group-scoped knowledge, register each group so the binding,
+logical space, and conversation exist with its title:
 
 ```bash
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add --chat-id -1001234567890 --title "Prebenjamins"
 ```
 
-This is idempotent; re-running with a new `--title` refreshes the name. The
-Telegram runtime source and the conversation row are created automatically on
-the first message from a registered group.
+The operation is idempotent; re-running with a new `--title` refreshes the name.
+The Telegram adapter supplies the Telegram source descriptor, while the shared
+space service stores only the opaque channel/external binding. The v2 canonical
+CLI will expose this as `kb channel bind telegram`; until that CLI phase lands,
+the authenticated internal registration endpoint performs the same operation.
 
 ## Reclassifying existing knowledge
 

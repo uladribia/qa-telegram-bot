@@ -6,10 +6,10 @@ from typing import Literal
 
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.seed import SeedService
-from knowledge_bot.contracts.messages import NormalizedMessage
+from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion
-from knowledge_bot.domain.enums import ContentType, QAOrigin, QAStatus
+from knowledge_bot.domain.enums import ContentType, QAStatus
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.repositories import (
     InMemoryQAItemRepository,
@@ -134,7 +134,9 @@ async def test_seed_messages_uses_ingest_idempotency() -> None:
     service, _, _ = _service()
     message = NormalizedMessage(
         id="m1",
-        source_type="whatsapp",
+        source=SourceDescriptor(
+            id="src:whatsapp:fixture", kind="whatsapp_import", authority=50
+        ),
         conversation_id="wa",
         sender_is_admin=False,
         timestamp=NOW,
@@ -198,7 +200,7 @@ async def test_renewed_web_beats_an_older_approved_correction() -> None:
             qa_id="qa-item-1",
             answer="Correcció aprovada.",
             authority=100,
-            origin=QAOrigin.ADMIN_APPROVED,
+            origin="human_approved",
             created_at=NOW,
         )
     )

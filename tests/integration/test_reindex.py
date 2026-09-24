@@ -20,7 +20,7 @@ async def test_reindex_embeds_qa_and_messages_with_metadata() -> None:
             IndexableMessage(
                 message_id="m1",
                 text="hola",
-                source_type="telegram",
+                source_kind="telegram",
                 authority=40,
                 conversation_id="-100",
             )
@@ -70,7 +70,9 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
         " ('telegram','telegram',NULL,NULL,NULL,40,0,'2026-01-01')"
     )
     connection.execute(
-        "INSERT INTO conversations VALUES ('-100','telegram',NULL,NULL,'2026-01-01')"
+        "INSERT INTO conversations"
+        " (id, source_id, external_id, title, created_at)"
+        " VALUES ('-100','telegram',NULL,NULL,'2026-01-01')"
     )
     connection.execute(
         "INSERT INTO messages"
@@ -121,7 +123,7 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
     assert qa[0].authority == 90
     assert qa[0].url == "https://x.test/#a1"
     assert [message.message_id for message in messages] == ["m1"]
-    assert messages[0].source_type == "telegram"
+    assert messages[0].source_kind == "telegram"
     assert messages[0].author == "Ada"
     assert messages[0].authority == 40
 
@@ -140,7 +142,7 @@ async def test_an_approved_correction_cites_its_author_not_the_web() -> None:
         "INSERT INTO qa_versions"
         " (id, qa_id, answer, authority, confidence, origin, created_by,"
         " supersedes_version_id, created_at, author) VALUES"
-        " ('v2','q1','Resposta corregida',100,NULL,'admin_approved','Ada','v1',"
+        " ('v2','q1','Resposta corregida',100,NULL,'human_approved','Ada','v1',"
         "'2026-01-02','Ada')"
     )
     connection.commit()

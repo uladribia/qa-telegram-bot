@@ -9,8 +9,6 @@ from dataclasses import dataclass
 
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import Attachment, Conversation, Message, Source
-from knowledge_bot.domain.enums import SourceType
-from knowledge_bot.domain.policies import source_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
@@ -18,12 +16,6 @@ from knowledge_bot.ports.repositories import (
     MessageRepository,
     SourceRepository,
 )
-
-_CONTRACT_SOURCES: dict[str, SourceType] = {
-    "telegram": SourceType.TELEGRAM,
-    "whatsapp": SourceType.WHATSAPP_IMPORT,
-    "web": SourceType.WEB_SEED,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,16 +56,16 @@ class MessageIngestor:
         Returns:
             The stored message id and whether it was newly created.
         """
-        source_type = _CONTRACT_SOURCES[message.source_type]
-        source_id = source_type.value
+        source = message.source
+        source_id = source.id
         if await self.sources.get(source_id) is None:
             await self.sources.add(
                 Source(
                     id=source_id,
-                    source_type=source_type,
-                    authority=int(source_authority(source_type)),
+                    source_type=source.kind,
+                    authority=source.authority,
                     created_at=message.timestamp,
-                    title=source_type.value,
+                    title=source.kind,
                     is_mutable=True,
                     scope=source_scope,
                 )
@@ -83,6 +75,7 @@ class MessageIngestor:
                 Conversation(
                     id=message.conversation_id,
                     source_id=source_id,
+                    space_id=message.space_id,
                     created_at=message.timestamp,
                     external_id=message.conversation_id,
                 )

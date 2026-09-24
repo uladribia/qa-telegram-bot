@@ -10,9 +10,10 @@ from knowledge_bot.adapters.inbound.fastapi_routes import create_app
 from knowledge_bot.application.feedback import PROPOSAL_ACK, PROPOSAL_PROMPT
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
+from knowledge_bot.domain.scope import scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
 from tests.fakes.context import (
-    ALLOWED_CHAT_ID,
+    SPACE_A,
     WEBHOOK_SECRET,
     build_test_context,
 )
@@ -21,6 +22,7 @@ SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
 NOW = datetime(2026, 9, 21, 18, 4, tzinfo=UTC)
 REVIEWER_ID = 222
 ADMIN_ID = 1
+GROUP_SCOPE = scope_for_space(SPACE_A)
 
 
 def _client(context: AppContext) -> TestClient:
@@ -104,6 +106,7 @@ async def _seed_answer(context: AppContext) -> None:
         BotAnswer(
             id="ans:-100:10",
             conversation_id="-100",
+            space_id=SPACE_A,
             question="Com es demana l'equipament?",
             answer="Resposta antiga.",
             answer_mode=AnswerMode.DIRECT_QA,
@@ -142,7 +145,7 @@ def test_admin_nominates_a_group_reviewer_by_reply() -> None:
     context, transport = build_test_context()
     client = _client(context)
     _nominate_reviewer(context, client)
-    reviewer = asyncio.run(context.reviewers.reviewers.get(ALLOWED_CHAT_ID))
+    reviewer = asyncio.run(context.reviewers.reviewers.get(GROUP_SCOPE))
     assert reviewer is not None
     assert reviewer.user_id == str(REVIEWER_ID)
     assert reviewer.name == "Pepe"
@@ -158,7 +161,7 @@ def test_non_admin_cannot_nominate() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
-    assert asyncio.run(context.reviewers.reviewers.get(ALLOWED_CHAT_ID)) is None
+    assert asyncio.run(context.reviewers.reviewers.get(GROUP_SCOPE)) is None
 
 
 def test_reviewer_without_reply_lists_current_reviewers() -> None:
@@ -190,7 +193,7 @@ def test_admin_cannot_nominate_the_bot() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "reviewer_bot_refused"}
-    assert asyncio.run(context.reviewers.reviewers.get(ALLOWED_CHAT_ID)) is None
+    assert asyncio.run(context.reviewers.reviewers.get(GROUP_SCOPE)) is None
     assert any("No pots nomenar el bot" in text for _, text in transport.messages)
 
 
@@ -278,7 +281,7 @@ def test_reviewer_off_removes_the_group_reviewer() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "reviewer_removed"}
-    assert asyncio.run(context.reviewers.reviewers.get(ALLOWED_CHAT_ID)) is None
+    assert asyncio.run(context.reviewers.reviewers.get(GROUP_SCOPE)) is None
 
 
 def test_proposal_from_the_group_goes_to_its_reviewer_not_the_admin() -> None:

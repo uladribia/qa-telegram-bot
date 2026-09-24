@@ -242,6 +242,7 @@ class AnswerService:
         record = BotAnswer(
             id=f"ans:{message.id}",
             conversation_id=message.conversation_id,
+            space_id=message.space_id,
             question=question,
             answer=outcome.answer,
             answer_mode=outcome.mode,
@@ -257,6 +258,7 @@ class AnswerService:
             record = BotAnswer(
                 id=record.id,
                 conversation_id=record.conversation_id,
+                space_id=record.space_id,
                 question=record.question,
                 answer=record.answer,
                 answer_mode=record.answer_mode,

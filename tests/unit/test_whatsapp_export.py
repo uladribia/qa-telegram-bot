@@ -23,7 +23,7 @@ def test_android_format_is_parsed() -> None:
     first = result.messages[0]
     assert first.text == "Hola!"
     assert first.content_type is ContentType.TEXT
-    assert first.source_type == "whatsapp"
+    assert first.source.kind == "whatsapp_import"
     assert first.timestamp == datetime(2026, 9, 19, 9, 32)
 
 

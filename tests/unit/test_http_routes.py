@@ -56,7 +56,8 @@ def test_groups_endpoint_registers_a_group() -> None:
         json={"chat_id": "-100", "title": "Prebenjamins"},
     )
     assert response.status_code == 200
-    assert response.json() == {"status": "registered"}
+    assert response.json()["status"] == "registered"
+    assert response.json()["space_id"].startswith("sp_")
     # Idempotent re-registration succeeds.
     response = client.post(
         "/internal/groups", headers=headers, json={"chat_id": "-100"}

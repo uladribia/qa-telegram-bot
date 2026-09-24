@@ -32,7 +32,7 @@ class IndexableMessage:
 
     message_id: str
     text: str
-    source_type: str
+    source_kind: str
     authority: int
     conversation_id: str
     author: str | None = None

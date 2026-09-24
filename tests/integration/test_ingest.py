@@ -4,8 +4,12 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.contracts.messages import AttachmentRef, NormalizedMessage
-from knowledge_bot.domain.enums import ContentType, SourceType
+from knowledge_bot.contracts.messages import (
+    AttachmentRef,
+    NormalizedMessage,
+    SourceDescriptor,
+)
+from knowledge_bot.domain.enums import ContentType
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryConversationRepository,
@@ -34,7 +38,9 @@ def _message(
 ) -> NormalizedMessage:
     return NormalizedMessage(
         id=message_id,
-        source_type="telegram",
+        source=SourceDescriptor(
+            id="src:telegram:runtime", kind="telegram", authority=40
+        ),
         conversation_id="-100",
         sender_is_admin=is_admin,
         timestamp=NOW,
@@ -51,14 +57,37 @@ async def test_ingest_creates_source_conversation_and_message() -> None:
     ingestor = _ingestor()
     result = await ingestor.ingest(_message())
     assert result.created is True
-    source = await ingestor.sources.get(SourceType.TELEGRAM.value)
+    source = await ingestor.sources.get("src:telegram:runtime")
     assert source is not None
-    assert source.source_type is SourceType.TELEGRAM
+    assert source.source_type == "telegram"
     conversation = await ingestor.conversations.get("-100")
     assert conversation is not None
     stored = await ingestor.messages.get("tg:-100:10")
     assert stored is not None
     assert stored.text == "Quan entrenen?"
+
+
+async def test_connector_declared_custom_source_is_preserved() -> None:
+    """Ingestion stores connector provenance without a channel registry."""
+    ingestor = _ingestor()
+    message = _message().model_copy(
+        update={
+            "id": "custom-1",
+            "source": SourceDescriptor(
+                id="src:matrix:room-export",
+                kind="matrix_export",
+                authority=37,
+            ),
+            "source_message_id": "matrix-event-1",
+        }
+    )
+    assert (await ingestor.ingest(message)).created is True
+    source = await ingestor.sources.get("src:matrix:room-export")
+    assert source is not None
+    assert source.source_type == "matrix_export"
+    assert source.authority == 37
+    stored = await ingestor.messages.get("custom-1")
+    assert stored is not None and stored.source_id == "src:matrix:room-export"
 
 
 async def test_reprocessing_the_same_event_does_not_duplicate() -> None:
@@ -69,7 +98,7 @@ async def test_reprocessing_the_same_event_does_not_duplicate() -> None:
     assert second.created is False
     assert await ingestor.messages.get("b") is None
     existing = await ingestor.messages.get_by_external_id(
-        SourceType.TELEGRAM.value, "-100:10"
+        "src:telegram:runtime", "-100:10"
     )
     assert existing is not None
     assert existing.id == "a"

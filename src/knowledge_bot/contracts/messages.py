@@ -2,7 +2,6 @@
 """Normalized inbound message contracts (spec §5)."""
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +21,14 @@ class AttachmentRef(BaseModel):
     processing_status: ProcessingStatus = ProcessingStatus.UNPROCESSED
 
 
+class SourceDescriptor(BaseModel):
+    """Connector-declared identity and base authority for one source."""
+
+    id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    authority: int = Field(ge=0, le=100)
+
+
 class NormalizedMessage(BaseModel):
     """Channel-independent message produced by every inbound adapter.
 
@@ -33,11 +40,13 @@ class NormalizedMessage(BaseModel):
     """
 
     id: str
-    source_type: Literal["telegram", "whatsapp", "web"]
+    source: SourceDescriptor
     conversation_id: str
     sender_is_admin: bool
     timestamp: datetime
     content_type: ContentType
+    space_id: str | None = None
+    principal_id: str | None = None
     source_message_id: str | None = None
     sender_id: str | None = None
     sender_name: str | None = None

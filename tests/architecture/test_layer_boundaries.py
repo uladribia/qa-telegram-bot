@@ -50,6 +50,15 @@ def _is_forbidden(module: str, prefixes: tuple[str, ...]) -> bool:
     )
 
 
+def _string_constants(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+
 @pytest.mark.parametrize("layer", sorted(FORBIDDEN_PREFIXES))
 def test_layer_has_no_forbidden_imports(layer: str) -> None:
     """Domain and application must not import transport or infrastructure code."""
@@ -61,3 +70,11 @@ def test_layer_has_no_forbidden_imports(layer: str) -> None:
             if _is_forbidden(module, prefixes)
         )
         assert not offending, f"{module_path} imports {offending}"
+
+
+@pytest.mark.parametrize("layer", ("domain", "application", "ports"))
+def test_core_has_no_connector_source_literals(layer: str) -> None:
+    """Connector names and source kinds are declared outside the core."""
+    forbidden = {"telegram", "whatsapp", "whatsapp_import", "web_seed"}
+    for module_path in _iter_modules(layer):
+        assert not _string_constants(module_path) & forbidden, module_path

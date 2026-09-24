@@ -13,8 +13,8 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion, Source
-from knowledge_bot.domain.enums import QAOrigin, QAStatus, SourceType
-from knowledge_bot.domain.policies import source_authority, web_seed_authority
+from knowledge_bot.domain.enums import QAStatus
+from knowledge_bot.domain.identity import source_instance_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope, is_global
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
@@ -22,8 +22,6 @@ from knowledge_bot.ports.repositories import (
     QAVersionRepository,
     SourceRepository,
 )
-
-WEB_SEED_SOURCE_ID = SourceType.WEB_SEED.value
 
 
 def _anchored(base: str | None, anchor: str | None) -> str | None:
@@ -73,21 +71,24 @@ class SeedService:
     ingestor: MessageIngestor
     clock: Clock
 
-    async def _ensure_web_seed_source(self, canonical_url: str) -> None:
-        """Create the web-seed source row that citations link to."""
-        existing = await self.sources.get(WEB_SEED_SOURCE_ID)
+    async def _ensure_source(self, entry: SeedQA) -> None:
+        """Create the source instance declared by the seed connector."""
+        source_id = source_instance_id(entry.source_kind, entry.source_url)
+        existing = await self.sources.get(source_id)
         if existing is not None:
-            if existing.canonical_url != canonical_url:
-                await self.sources.save(replace(existing, canonical_url=canonical_url))
+            if existing.canonical_url != entry.source_url:
+                await self.sources.save(
+                    replace(existing, canonical_url=entry.source_url)
+                )
             return
         await self.sources.add(
             Source(
-                id=WEB_SEED_SOURCE_ID,
-                source_type=SourceType.WEB_SEED,
-                authority=int(source_authority(SourceType.WEB_SEED)),
+                id=source_id,
+                source_type=entry.source_kind,
+                authority=entry.source_authority,
                 created_at=self.clock.now(),
-                title="Web Q&A",
-                canonical_url=canonical_url,
+                title=entry.source_kind,
+                canonical_url=entry.source_url,
             )
         )
 
@@ -120,7 +121,7 @@ class SeedService:
         version_ids: list[str] = []
         now = self.clock.now()
         for entry in entries:
-            await self._ensure_web_seed_source(entry.source_url)
+            await self._ensure_source(entry)
             key = entry.source_anchor or stable_id(entry.question)
             existing = await self.qa_items.get_by_canonical_key(key, scope)
             if existing is not None:
@@ -157,8 +158,10 @@ class SeedService:
                     id=version_id,
                     qa_id=qa_id,
                     answer=entry.answer,
-                    authority=int(web_seed_authority(in_review=in_review)),
-                    origin=QAOrigin.WEB_SEED,
+                    authority=min(entry.source_authority, 30)
+                    if in_review
+                    else entry.source_authority,
+                    origin=entry.source_kind,
                     created_at=entry.retrieved_at,
                     source_url=_anchored(entry.source_url, entry.source_anchor),
                 )
@@ -190,8 +193,10 @@ class SeedService:
             id=f"qav:{item.id}:{int(now.timestamp())}",
             qa_id=item.id,
             answer=entry.answer,
-            authority=int(web_seed_authority(in_review=in_review)),
-            origin=QAOrigin.WEB_SEED,
+            authority=min(entry.source_authority, 30)
+            if in_review
+            else entry.source_authority,
+            origin=entry.source_kind,
             created_at=now,
             supersedes_version_id=item.current_version_id,
             source_url=_anchored(entry.source_url, entry.source_anchor),

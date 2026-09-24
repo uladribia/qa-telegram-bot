@@ -15,10 +15,9 @@ from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
 from knowledge_bot.domain.enums import (
     AnswerMode,
     FeedbackStatus,
-    QAOrigin,
     QAStatus,
 )
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from tests.fakes.repositories import (
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
@@ -30,6 +29,8 @@ from tests.fakes.repositories import (
 from tests.fakes.support import FrozenClock
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
+SPACE_ID = "sp_" + "1" * 32
+GROUP_SCOPE_KEY = scope_for_space(SPACE_ID)
 
 
 async def _service() -> tuple[
@@ -59,6 +60,7 @@ async def _seed_answer(answers: InMemoryBotAnswerRepository) -> BotAnswer:
     answer = BotAnswer(
         id="ans:m1",
         conversation_id="-100",
+        space_id=SPACE_ID,
         question="Com es demana l'equipament?",
         answer="Resposta antiga.",
         answer_mode=AnswerMode.DIRECT_QA,
@@ -106,7 +108,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     version = await service.approve(started.id, GROUP_SCOPE)
     assert version is not None
     assert version.authority == 100
-    assert version.origin is QAOrigin.ADMIN_APPROVED
+    assert version.origin == "human_approved"
 
     stored_feedback = await feedback.get(started.id)
     assert stored_feedback is not None
@@ -116,7 +118,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert item is not None
     assert item.current_version_id == version.id
     assert item.status is QAStatus.ACTIVE
-    assert item.scope == "-100"
+    assert item.scope == GROUP_SCOPE_KEY
     assert item.canonical_key == canonical_key_for("Com es demana l'equipament?")
 
     assert await versions.get(version.id) is not None
@@ -145,7 +147,7 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
             qa_id=qa_id,
             answer="Resposta del web.",
             authority=90,
-            origin=QAOrigin.WEB_SEED,
+            origin="web_seed",
             created_at=NOW,
         )
     )
@@ -230,7 +232,7 @@ async def test_approving_as_group_and_global_builds_both_variants() -> None:
     assert group_version.answer == "Resposta del grup."
     group_item = await items.get(group_version.qa_id)
     assert group_item is not None
-    assert group_item.scope == "-100"
+    assert group_item.scope == GROUP_SCOPE_KEY
     # The global scope has no item yet: the group variant did not leak.
     assert (
         await items.get_by_canonical_key(

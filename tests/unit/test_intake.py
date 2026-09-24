@@ -13,7 +13,11 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 def _message(**overrides: object) -> NormalizedMessage:
     data: dict = {
         "id": "m1",
-        "source_type": "telegram",
+        "source": {
+            "id": "src:telegram:runtime",
+            "kind": "telegram",
+            "authority": 40,
+        },
         "conversation_id": "c1",
         "sender_is_admin": False,
         "timestamp": NOW,

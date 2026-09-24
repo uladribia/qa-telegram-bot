@@ -10,6 +10,8 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 EXPECTED_TABLES = {
     "sources",
+    "spaces",
+    "channel_bindings",
     "conversations",
     "messages",
     "attachments",
@@ -62,9 +64,23 @@ def _seed_source_and_conversation(connection: sqlite3.Connection) -> None:
         ("s1", "telegram", None, None, None, 95, 0, "2026-01-01"),
     )
     connection.execute(
-        "INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO conversations"
+        " (id, source_id, external_id, title, created_at) VALUES (?, ?, ?, ?, ?)",
         ("c1", "s1", None, None, "2026-01-01"),
     )
+
+
+def test_channel_binding_requires_a_space() -> None:
+    """External channel bindings cannot point at an unknown space."""
+    connection = _connect()
+    _apply(connection)
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO channel_bindings"
+            " (channel, external_conversation_id, conversation_id, space_id,"
+            " title, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("custom", "room-1", "conversation-1", "missing", None, "2026-01-01"),
+        )
 
 
 def test_feedback_routing_columns_exist() -> None:

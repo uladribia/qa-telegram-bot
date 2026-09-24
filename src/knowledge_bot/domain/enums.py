@@ -4,15 +4,6 @@
 from enum import StrEnum
 
 
-class SourceType(StrEnum):
-    """Origin of a knowledge source."""
-
-    WEB_SEED = "web_seed"
-    WHATSAPP_IMPORT = "whatsapp_import"
-    TELEGRAM = "telegram"
-    ADMIN = "admin"
-
-
 class ContentType(StrEnum):
     """Kind of message content."""
 
@@ -38,13 +29,6 @@ class QAStatus(StrEnum):
     ACTIVE = "active"
     UNDER_REVIEW = "under_review"
     SUPERSEDED = "superseded"
-
-
-class QAOrigin(StrEnum):
-    """How a Q&A version was produced."""
-
-    WEB_SEED = "web_seed"
-    ADMIN_APPROVED = "admin_approved"
 
 
 class EvidenceType(StrEnum):
