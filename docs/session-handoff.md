@@ -54,6 +54,8 @@ _Last updated: 2026-09-24 after PR #3._
 - Reviewer authorization checks actor and requested approval scope. A local
   reviewer cannot approve global knowledge.
 - Generic application endpoints exist under `/v1` and do not know Telegram.
+- Reviewer delivery failures are persisted with a configurable escalation timeout;
+  after expiry the admin can edit and approve the task through the normal flow.
 - Telegram prompt/reply interactions and answer deliveries are durable SQL state.
 - A deterministic daily report job is available at
   `POST /internal/jobs/daily-report` and from the Worker Cron handler. The full

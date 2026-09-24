@@ -276,6 +276,10 @@ class FeedbackRepository(Protocol):
         """Return the correction proposals created in ``[start, end)``."""
         ...
 
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        ...
+
 
 @runtime_checkable
 class RecapStateRepository(Protocol):

@@ -259,3 +259,6 @@ class Feedback:
     edit_prompt_message_id: str | None = None
     proposed_at: datetime | None = None
     resolved_at: datetime | None = None
+    reviewer_delivery_failed_at: datetime | None = None
+    reviewer_escalated_at: datetime | None = None
+    reviewer_destination: str | None = None

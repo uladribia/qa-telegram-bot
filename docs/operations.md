@@ -216,6 +216,17 @@ binding work — a completely dead AI binding still returns 200.
 
 ---
 
+## Reviewer delivery timeout
+
+If a reviewer cannot receive a private Telegram message, the correction remains
+pending while the bot tells the reviewer to open a private chat and tells the
+admin what will happen. `REVIEWER_ESCALATION_TIMEOUT_SECONDS` controls the
+grace period; after it expires, the review is delivered to the admin, which can
+edit and approve it normally. Set it to `0` only in tests to exercise immediate
+fallback. The timeout is included in the user-facing status message and the
+escalation is persisted, so a later webhook can complete the handover.
+
+
 ## Routine maintenance
 
 **After changing anything about embeddings, provenance or the index shape:**

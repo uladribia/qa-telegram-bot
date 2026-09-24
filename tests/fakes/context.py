@@ -81,6 +81,7 @@ def build_test_context(
     spent_neurons: float = 0.0,
     allowed_user_ids: frozenset[str] = frozenset(),
     admin_report_mode: str = "always",
+    reviewer_escalation_timeout_seconds: int = 86_400,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
@@ -92,6 +93,7 @@ def build_test_context(
             the quota guard.
         allowed_user_ids: Extra users who may open a private chat.
         admin_report_mode: How the admin is informed of reviewer resolutions.
+        reviewer_escalation_timeout_seconds: Grace period before admin fallback.
         backend: Optional shared state for tests that need to inspect or reuse it.
 
     Returns:
@@ -157,6 +159,7 @@ def build_test_context(
         allowed_telegram_chat_ids=ALLOWED_CHAT_IDS,
         admin_telegram_user_id="1",
         internal_admin_key="internal",
+        reviewer_escalation_timeout_seconds=reviewer_escalation_timeout_seconds,
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )

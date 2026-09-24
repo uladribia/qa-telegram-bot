@@ -1951,7 +1951,7 @@ global reviewer
     else admin
 ```
 
-If the selected reviewer cannot receive a private Telegram message, keep the review task pending, notify the admin, and mention the reviewer in the origin group with a privacy-safe request to open a private chat with the bot. Do not silently route the decision to another reviewer. A later retry may deliver the task after the reviewer has activated the bot.
+If the selected reviewer cannot receive a private Telegram message, keep the review task pending, notify the admin, and mention the reviewer in the origin group with a privacy-safe request to open a private chat with the bot. Persist the delivery failure and expose the configured escalation timeout in the message. If no delivery succeeds before that timeout, route the task to the admin and record the escalation; the admin may edit and approve it according to the normal scope policy. A later retry may deliver the task to the reviewer before escalation.
 
 ## 13.3 Allowed review actions
 

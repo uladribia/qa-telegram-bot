@@ -1376,8 +1376,9 @@ class D1FeedbackRepository:
                 " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id,"
                 " reporter_name, status, proposed_answer, admin_edited_answer,"
                 " proposal_prompt_message_id, edit_prompt_message_id, created_at,"
-                " proposed_at, resolved_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " proposed_at, resolved_at, reviewer_delivery_failed_at,"
+                " reviewer_escalated_at, reviewer_destination)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 feedback.id,
@@ -1398,6 +1399,13 @@ class D1FeedbackRepository:
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
+                _iso(feedback.reviewer_delivery_failed_at)
+                if feedback.reviewer_delivery_failed_at is not None
+                else None,
+                _iso(feedback.reviewer_escalated_at)
+                if feedback.reviewer_escalated_at is not None
+                else None,
+                feedback.reviewer_destination,
             )
             .run()
         )
@@ -1419,7 +1427,8 @@ class D1FeedbackRepository:
                 " reporter_chat_id = ?, reporter_name = ?, status = ?,"
                 " proposed_answer = ?, admin_edited_answer = ?,"
                 " proposal_prompt_message_id = ?, edit_prompt_message_id = ?,"
-                " proposed_at = ?, resolved_at = ? WHERE id = ?"
+                " proposed_at = ?, resolved_at = ?, reviewer_delivery_failed_at = ?,"
+                " reviewer_escalated_at = ?, reviewer_destination = ? WHERE id = ?"
             )
             .bind(
                 feedback.qa_id,
@@ -1437,6 +1446,13 @@ class D1FeedbackRepository:
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
+                _iso(feedback.reviewer_delivery_failed_at)
+                if feedback.reviewer_delivery_failed_at is not None
+                else None,
+                _iso(feedback.reviewer_escalated_at)
+                if feedback.reviewer_escalated_at is not None
+                else None,
+                feedback.reviewer_destination,
                 feedback.id,
             )
             .run()
@@ -1458,6 +1474,19 @@ class D1FeedbackRepository:
                 " ORDER BY created_at"
             )
             .bind(_iso(start), _iso(end))
+            .run()
+        )
+        return [_feedback(row) for row in _rows(result)]
+
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM feedback WHERE status = ?"
+                " AND reviewer_delivery_failed_at IS NOT NULL"
+                " AND reviewer_escalated_at IS NULL"
+            )
+            .bind(FeedbackStatus.PENDING_REVIEW.value)
             .run()
         )
         return [_feedback(row) for row in _rows(result)]
@@ -1487,6 +1516,9 @@ def _feedback(row: dict[str, object]) -> Feedback:
         edit_prompt_message_id=_opt_str(row["edit_prompt_message_id"]),
         proposed_at=_opt_dt(row["proposed_at"]),
         resolved_at=_opt_dt(row["resolved_at"]),
+        reviewer_delivery_failed_at=_opt_dt(row.get("reviewer_delivery_failed_at")),
+        reviewer_escalated_at=_opt_dt(row.get("reviewer_escalated_at")),
+        reviewer_destination=_opt_str(row.get("reviewer_destination")),
     )
 
 

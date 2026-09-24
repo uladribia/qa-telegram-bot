@@ -6,7 +6,8 @@ so the app resolves its context through a callable rather than at import time.
 """
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
@@ -109,6 +110,37 @@ def _must_start_bot_alert(name: str) -> str:
     )
 
 
+async def _escalate_overdue_reviews(context: AppContext) -> None:
+    """Route overdue reviewer deliveries to the configured admin."""
+    now = context.clock.now()
+    timeout = context.settings.reviewer_escalation_timeout_seconds
+    admin = context.settings.admin_telegram_user_id
+    if not admin:
+        return
+    for feedback in await context.feedback_repo.list_escalatable():
+        failed_at = feedback.reviewer_delivery_failed_at
+        if failed_at is None or now - failed_at < timedelta(seconds=timeout):
+            continue
+        review = await context.feedback.correction_request(feedback.id)
+        if review is None:
+            continue
+        sent = await context.transport.send_review(
+            admin,
+            render_review(review),
+            feedback.id,
+            include_global=True,
+        )
+        if sent is None:
+            continue
+        await context.feedback_repo.save(replace(feedback, reviewer_escalated_at=now))
+        if review.origin_conversation_id is not None:
+            await context.transport.send_message(
+                review.origin_conversation_id,
+                "⏰ La revisió encara no ha rebut resposta. "
+                f"Després de {timeout} s, l'admin ha rebut el cas.",
+            )
+
+
 async def _deliver_review(
     context: AppContext,
     destination: str,
@@ -116,7 +148,7 @@ async def _deliver_review(
     feedback_id: str,
     origin_space_id: str | None,
     origin_conversation_id: str | None,
-) -> None:
+) -> bool:
     """Send a review to its reviewer, or back to the admin on failure.
 
     Args:
@@ -134,13 +166,25 @@ async def _deliver_review(
         feedback_id,
         include_global=include_global,
     )
+    if sent is not None:
+        return True
     admin = context.settings.admin_telegram_user_id
-    if sent is None and destination != admin:
+    if destination != admin:
+        feedback = await context.feedback_repo.get(feedback_id)
+        if feedback is not None:
+            await context.feedback_repo.save(
+                replace(
+                    feedback,
+                    reviewer_delivery_failed_at=context.clock.now(),
+                    reviewer_destination=destination,
+                )
+            )
+        timeout = context.settings.reviewer_escalation_timeout_seconds
         if admin:
             await context.transport.send_message(
                 admin,
-                "\u26a0\ufe0f El revisor no t\u00e9 encara disponible per privat. "
-                "La correcció continua pendent; no l'has d'aprovar en el seu lloc.",
+                "⚠️ El revisor no t\u00e9 disponible per privat. "
+                f"La revisio s'escalarà a l'admin després de {timeout} s.",
             )
         if origin_conversation_id is not None:
             reviewer_name = await context.router.reviewer_name(
@@ -148,13 +192,17 @@ async def _deliver_review(
             )
             await context.transport.send_message(
                 origin_conversation_id,
-                f"\u26a0\ufe0f @{reviewer_name}, obre un xat privat amb el bot "
-                "per activar la revisio. La correccio continua pendent.",
+                f"⚠️ @{reviewer_name}, obre un xat privat amb el bot. "
+                f"Si no hi ha resposta en {timeout} s, l'admin rebrà la revisió.",
             )
+        if timeout == 0:
+            await _escalate_overdue_reviews(context)
+    return False
 
 
 async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
     """Normalize one Telegram update and dispatch its channel flow."""
+    await _escalate_overdue_reviews(context)
     callback = normalize_callback(update)
     if callback is not None:
         return await _handle_callback(
@@ -700,7 +748,11 @@ async def _handle_feedback_reply(
         ):
             return None
         await context.feedback.admin_edit(feedback.id, message.text)
-        destination = await context.router.destination(review.origin_space_id)
+        destination = (
+            context.settings.admin_telegram_user_id
+            if message.sender_is_admin
+            else await context.router.destination(review.origin_space_id)
+        )
         review = await context.feedback.correction_request(feedback.id)
         if destination is not None and review is not None:
             await _deliver_review(

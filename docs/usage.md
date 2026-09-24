@@ -109,9 +109,11 @@ serve as a reviewer must do that first; otherwise the bot cannot reach them.
 When it happens anyway, the bot says so instead of failing silently. The button
 press shows a popup asking to open the chat first and the group receives a
 direct bot link. If a review cannot be delivered privately, the task remains
-pending, the admin is notified, and the group is asked to prompt the assigned
-reviewer to open a private chat with the bot. The admin does not silently take
-over the review.
+pending for the configured timeout, the admin is notified, and the group is
+asked to prompt the assigned reviewer to open a private chat with the bot. If
+the timeout expires, the review is escalated to the admin, which can edit and
+approve it normally. The timeout is shown in the message and configured with
+`REVIEWER_ESCALATION_TIMEOUT_SECONDS`.
 
 Who may do what:
 

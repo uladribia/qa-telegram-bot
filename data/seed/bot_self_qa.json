@@ -150,5 +150,13 @@
     "answer": "Els vectors locals són una projecció derivada, no la font de veritat. Es desen a la taula local_vectors dins del volum Docker knowledge-bot-data i es poden reconstruir des de les dades SQL. Les migracions locals són idempotents i els models Ollama viuen en un volum separat.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/operations.md",
+    "section": "Reviewer delivery timeout",
+    "question": "Què passa si el revisor no pot rebre el missatge privat?",
+    "answer": "La correcció queda pendent i el bot explica a l'admin i al grup quant temps hi ha per obrir un xat privat amb el bot. Si passa el temps configurat sense entrega, la revisió s'escala a l'admin, que pot editar-la i aprovar-la normalment. El termini és REVIEWER_ESCALATION_TIMEOUT_SECONDS; en proves es pot posar a 0 per fer-ho immediat.",
+    "status": "published",
+    "retrieved_at": "2026-09-24T00:00:00Z"
   }
 ]

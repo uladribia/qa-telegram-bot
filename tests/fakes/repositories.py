@@ -24,6 +24,7 @@ from knowledge_bot.domain.entities import (
     Space,
     TelegramInteraction,
 )
+from knowledge_bot.domain.enums import FeedbackStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
@@ -409,6 +410,16 @@ class InMemoryFeedbackRepository:
             feedback
             for feedback in self._items.values()
             if start <= feedback.created_at < end
+        ]
+
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        return [
+            feedback
+            for feedback in self._items.values()
+            if feedback.status is FeedbackStatus.PENDING_REVIEW
+            and feedback.reviewer_delivery_failed_at is not None
+            and feedback.reviewer_escalated_at is None
         ]
 
 

@@ -62,6 +62,7 @@ class Settings(BaseSettings):
 
     admin_report_mode: str = "always"
     admin_report_interval_min: int = 60
+    reviewer_escalation_timeout_seconds: int = 86_400
 
     background_listener_enabled: bool = False
 
@@ -124,8 +125,14 @@ class Settings(BaseSettings):
             if getattr(self, name) < 1:
                 message = f"{name} must be at least 1"
                 raise ValueError(message)
-        if self.recap_interval_hours <= 0 or self.admin_report_interval_min <= 0:
-            message = "report intervals must be greater than zero"
+        if (
+            self.recap_interval_hours <= 0
+            or self.admin_report_interval_min <= 0
+            or self.reviewer_escalation_timeout_seconds < 0
+        ):
+            message = (
+                "report intervals must be positive and reviewer timeout non-negative"
+            )
             raise ValueError(message)
         if self.ai_daily_neuron_budget <= 0:
             message = "AI daily budget must be greater than zero"
