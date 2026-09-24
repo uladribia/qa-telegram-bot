@@ -17,8 +17,9 @@
 > missatges ajornats tenen un processador explícit i limitat. Les autoritzacions
 > de revisió apliquen l'abast al servidor i els revisors locals no poden
 > aprovar globalment. La decisió de correcció commits atòmicament a SQL i
-> després refresca la projecció derivada. La resta de la refactorització
-> continua en curs.
+> després refresca la projecció derivada. Els cossos JSON operatius ja passen per
+> models Pydantic dedicats abans d'arribar a l'aplicació. La separació de
+> rutes, API genèrica i estat durable de llibertat continua en curs.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

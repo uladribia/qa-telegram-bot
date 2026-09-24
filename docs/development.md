@@ -33,6 +33,9 @@ domain/ and application/  →  must NOT import fastapi, workers, Telegram libs,
 
 `application/` depends on `ports/` Protocols, never on concrete adapters. Convert
 external payloads to Pydantic at the adapter boundary, as early as possible.
+Operational JSON bodies now use explicit request models from
+`contracts/api.py`; malformed or out-of-range values fail with 422 before
+entering application code.
 
 ### Connector-owned source provenance
 

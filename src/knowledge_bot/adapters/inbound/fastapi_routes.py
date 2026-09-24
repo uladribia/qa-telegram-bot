@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 
 from knowledge_bot.adapters.inbound.telegram import (
     TELEGRAM_RUNTIME_SOURCE_ID,
@@ -36,8 +36,15 @@ from knowledge_bot.application.reviewers import (
     parse_reviewer_command,
     render_reviewer_list,
 )
+from knowledge_bot.contracts.api import (
+    BackgroundBacklogRequest,
+    EvalAnswerRequest,
+    RegisterGroupRequest,
+    ReindexRequest,
+    RevertRequest,
+    SeedRequest,
+)
 from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import ReviewerEvent
 from knowledge_bot.domain.enums import (
@@ -60,6 +67,12 @@ REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
 
 # Longest parent question text stored on a matched pair reply.
 _MAX_LISTENER_QUESTION_CHARS = 500
+_EMPTY_EVAL_BODY = Body(default_factory=EvalAnswerRequest)
+_EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
+_EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
+_EMPTY_SEED_BODY = Body(default_factory=SeedRequest)
+_EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
+_EMPTY_GROUP_BODY = Body(default_factory=RegisterGroupRequest)
 
 
 def _reviewer_confirmed(scope: str, name: str) -> str:
@@ -179,6 +192,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/eval/answer")
     async def internal_eval_answer(
         request: Request,
+        body: EvalAnswerRequest = _EMPTY_EVAL_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
@@ -190,9 +204,10 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        if not body.question:
+            raise HTTPException(status_code=422, detail="question required")
         await _require_evaluation_budget(context)
-        payload = await request.json()
-        question = str(payload.get("question", ""))
+        question = body.question
         try:
             preview = await context.answer.dry_run(question)
         except ModelUnavailableError:
@@ -254,6 +269,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/revert")
     async def internal_revert(
         request: Request,
+        body: RevertRequest = _EMPTY_REVERT_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Revert a Q&A item to the version its current one superseded.
@@ -263,11 +279,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        qa_item_id = (
-            str(payload.get("qa_item_id", "")) if isinstance(payload, dict) else ""
-        )
-        restored = await context.reverter.revert(qa_item_id)
+        if not body.qa_item_id:
+            raise HTTPException(status_code=422, detail="qa_item_id required")
+        restored = await context.reverter.revert(body.qa_item_id)
         if restored is None:
             raise HTTPException(status_code=404, detail="nothing to revert")
         await context.reindex.reindex_qa_version(restored.id)
@@ -276,6 +290,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/reindex")
     async def internal_reindex(
         request: Request,
+        body: ReindexRequest = _EMPTY_REINDEX_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, object]:
         """Rebuild part of the derived vector store from D1.
@@ -287,15 +302,13 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        payload = await request.json()
-        body = payload if isinstance(payload, dict) else {}
-        if not body:
+        if not body.model_fields_set:
             report = await context.reindex.rebuild()
         else:
             report = await context.reindex.reindex(
-                qa_after=body.get("qa_after"),
-                msg_after=body.get("msg_after"),
-                limit=int(body["limit"]) if body.get("limit") is not None else None,
+                qa_after=body.qa_after,
+                msg_after=body.msg_after,
+                limit=body.limit,
             )
         return {
             "qa": report.qa,
@@ -327,32 +340,21 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/seed")
     async def internal_seed(
         request: Request,
+        body: SeedRequest = _EMPTY_SEED_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Seed Q&A entries and imported messages into D1."""
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail="invalid payload")
-        qa_entries = [SeedQA.model_validate(item) for item in payload.get("qa") or []]
-        messages = [
-            NormalizedMessage.model_validate(item)
-            for item in payload.get("messages") or []
-        ]
-        scope = payload.get("scope")
-        if not isinstance(scope, str) or not scope.strip():
-            scope = "global"
-        renew = bool(payload.get("renew", False))
         created, skipped, renewed, diverged, version_ids = await context.seed.seed_qa(
-            qa_entries, scope, renew
+            body.qa, body.scope, body.renew
         )
         indexed = 0
         for version_id in version_ids:
             if await context.reindex.reindex_qa_version(version_id):
                 indexed += 1
-        message_count = await context.seed.seed_messages(messages, scope)
+        message_count = await context.seed.seed_messages(body.messages, body.scope)
         return {
             "qa": created,
             "qa_skipped": skipped,
@@ -365,6 +367,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/background/process-backlog")
     async def internal_process_background_backlog(
         request: Request,
+        body: BackgroundBacklogRequest = _EMPTY_BACKLOG_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Process a bounded batch of budget-deferred background messages."""
@@ -373,37 +376,27 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
             raise HTTPException(status_code=429, detail="maintenance budget exhausted")
-        payload = await request.json()
-        limit = int(payload.get("limit", 100)) if isinstance(payload, dict) else 100
-        processed = await context.background_indexer.process_backlog(
-            max(1, min(limit, 1000))
-        )
+        processed = await context.background_indexer.process_backlog(body.limit)
         return {"processed": processed}
 
     @app.post("/internal/groups")
     async def internal_groups(
         request: Request,
+        body: RegisterGroupRequest = _EMPTY_GROUP_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Register a served Telegram group (idempotent)."""
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        if not isinstance(payload, dict) or not str(payload.get("chat_id", "")).strip():
-            raise HTTPException(status_code=400, detail="chat_id required")
-        title = payload.get("title")
+        if not body.chat_id:
+            raise HTTPException(status_code=422, detail="chat_id required")
         space_id = await context.spaces.bind(
             channel="telegram",
-            external_conversation_id=str(payload["chat_id"]).strip(),
-            conversation_id=str(payload["chat_id"]).strip(),
-            space_id=str(payload["space_id"]).strip()
-            if isinstance(payload.get("space_id"), str)
-            and str(payload["space_id"]).strip()
-            else None,
-            title=str(title).strip()
-            if isinstance(title, str) and title.strip()
-            else None,
+            external_conversation_id=body.chat_id,
+            conversation_id=body.chat_id,
+            space_id=body.space_id,
+            title=body.title,
             source_id=TELEGRAM_RUNTIME_SOURCE_ID,
             source_kind="telegram",
             source_authority=40,

@@ -48,7 +48,7 @@ def test_groups_endpoint_registers_a_group() -> None:
         client.post(
             "/internal/groups", headers=headers, json={"chat_id": ""}
         ).status_code
-        == 400
+        == 422
     )
     response = client.post(
         "/internal/groups",
