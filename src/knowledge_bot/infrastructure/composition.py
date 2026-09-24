@@ -10,6 +10,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
+from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
@@ -32,7 +33,9 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ChannelBindingRepository,
     D1ConversationRepository,
     D1CorrectionCommitStore,
+    D1DailyReportStateRepository,
     D1Database,
+    D1DeliveryReceiptRepository,
     D1FeedbackRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -46,6 +49,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SearchProjectionRepository,
     D1SourceRepository,
     D1SpaceRepository,
+    D1TelegramInteractionRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
 from knowledge_bot.infrastructure.cloudflare.vectorize import (
@@ -60,7 +64,11 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import FeedbackRepository
+from knowledge_bot.ports.repositories import (
+    DeliveryReceiptRepository,
+    FeedbackRepository,
+    TelegramInteractionRepository,
+)
 from knowledge_bot.ports.transport import MessageTransport
 
 
@@ -90,9 +98,12 @@ class AppContext:
     review: ReviewService
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
+    delivery_receipts: DeliveryReceiptRepository
+    telegram_interactions: TelegramInteractionRepository
     reviewers: ReviewerManager
     router: ReviewerRouter
     reviewer_report: ReviewerReportService
+    daily_report: DailyReportService
     reverter: CorrectionReverter
     budget: AiBudget
     transport: MessageTransport
@@ -209,6 +220,31 @@ def build_context(env: WorkerEnv) -> AppContext:
         question_match_threshold=settings.classifier_question_match_threshold,
         answer_match_threshold=settings.classifier_answer_match_threshold,
     )
+    feedback_repo = D1FeedbackRepository(database)
+    recap = RecapService(
+        answers=answers,
+        conversations=listener_conversations,
+        state=D1RecapStateRepository(database),
+        transport=transport,
+        clock=clock,
+        admin_user_id=settings.admin_telegram_user_id or None,
+        enabled=True,
+        interval_hours=24,
+        language="ca",
+        budget=budget,
+        feedback=feedback_repo,
+        messages=listener_messages,
+    )
+    reviewer_report = ReviewerReportService(
+        events=D1ReviewerEventRepository(database),
+        state=D1ReportStateRepository(database),
+        transport=transport,
+        clock=clock,
+        admin_user_id=settings.admin_telegram_user_id,
+        mode="batch",
+        interval_min=settings.admin_report_interval_min,
+        budget=budget,
+    )
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -246,25 +282,14 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             generator=generator,
             answers=answers,
+            delivery_receipts=D1DeliveryReceiptRepository(database),
             transport=transport,
+            channel="telegram",
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
         ),
-        recap=RecapService(
-            answers=answers,
-            conversations=D1ConversationRepository(database),
-            state=D1RecapStateRepository(database),
-            transport=transport,
-            clock=clock,
-            admin_user_id=settings.admin_telegram_user_id or None,
-            enabled=settings.recap_enabled,
-            interval_hours=settings.recap_interval_hours,
-            language=settings.recap_language,
-            budget=budget,
-            feedback=D1FeedbackRepository(database),
-            messages=listener_messages,
-        ),
+        recap=recap,
         reindex=ReindexService(
             source=D1SearchIndexSource(database),
             embedder=embedder,
@@ -305,6 +330,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             clock=clock,
         ),
         feedback_repo=D1FeedbackRepository(database),
+        delivery_receipts=D1DeliveryReceiptRepository(database),
+        telegram_interactions=D1TelegramInteractionRepository(database),
         reviewers=ReviewerManager(
             reviewers=D1ReviewerRepository(database),
             clock=clock,
@@ -313,15 +340,14 @@ def build_context(env: WorkerEnv) -> AppContext:
             reviewers=D1ReviewerRepository(database),
             admin_user_id=settings.admin_telegram_user_id,
         ),
-        reviewer_report=ReviewerReportService(
-            events=D1ReviewerEventRepository(database),
-            state=D1ReportStateRepository(database),
+        reviewer_report=reviewer_report,
+        daily_report=DailyReportService(
+            recap=recap,
+            reviewer_report=reviewer_report,
+            state=D1DailyReportStateRepository(database),
             transport=transport,
             clock=clock,
-            admin_user_id=settings.admin_telegram_user_id,
-            mode=settings.admin_report_mode,
-            interval_min=settings.admin_report_interval_min,
-            budget=budget,
+            admin_principal_id=settings.admin_telegram_user_id,
         ),
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(database),

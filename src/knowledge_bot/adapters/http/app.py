@@ -6,12 +6,12 @@ so the app resolves its context through a callable rather than at import time.
 """
 
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 
+from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
     TELEGRAM_RUNTIME_SOURCE_ID,
     is_valid_webhook_secret,
@@ -38,6 +38,7 @@ from knowledge_bot.application.reviewers import (
 )
 from knowledge_bot.contracts.api import (
     BackgroundBacklogRequest,
+    DailyReportRequest,
     EvalAnswerRequest,
     RegisterGroupRequest,
     ReindexRequest,
@@ -46,7 +47,7 @@ from knowledge_bot.contracts.api import (
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.telegram import TelegramUpdate
-from knowledge_bot.domain.entities import ReviewerEvent
+from knowledge_bot.domain.entities import ReviewerEvent, TelegramInteraction
 from knowledge_bot.domain.enums import (
     AiWorkClass,
     AnswerMode,
@@ -55,6 +56,7 @@ from knowledge_bot.domain.enums import (
     ReviewAction,
 )
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
@@ -73,6 +75,7 @@ _EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
 _EMPTY_SEED_BODY = Body(default_factory=SeedRequest)
 _EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
 _EMPTY_GROUP_BODY = Body(default_factory=RegisterGroupRequest)
+_EMPTY_DAILY_REPORT_BODY = Body(default_factory=DailyReportRequest)
 
 
 def _reviewer_confirmed(scope: str, name: str) -> str:
@@ -150,6 +153,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     """
     configure_logging()
     app = FastAPI(title="knowledge-bot")
+    app.include_router(build_api_router(resolve_context))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -252,6 +256,19 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.recap.maybe_send()
+        return {"status": "sent" if sent else "skipped"}
+
+    @app.post("/internal/jobs/daily-report")
+    async def internal_daily_report(
+        request: Request,
+        body: DailyReportRequest = _EMPTY_DAILY_REPORT_BODY,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Run the same deterministic report job as the scheduled handler."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        sent = await context.daily_report.run(force=body.force)
         return {"status": "sent" if sent else "skipped"}
 
     @app.post("/internal/report")
@@ -517,8 +534,6 @@ async def _handle_background_message(
     )
     if result.created:
         await context.background_indexer.process(message.id, classification.embedding)
-    await context.recap.maybe_send()
-    await context.reviewer_report.maybe_send()
     return "ingest_pair" if context_question is not None else "ingest"
 
 
@@ -581,8 +596,6 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     result = await context.ingestor.ingest(message)
     if action is IntakeAction.ANSWER and result.created:
         await context.answer.answer(message)
-    await context.recap.maybe_send()
-    await context.reviewer_report.maybe_send()
     return "answer" if action is IntakeAction.ANSWER else "ingest"
     return action.value
 
@@ -655,9 +668,8 @@ async def _is_known_correction_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None:
         return False
-    if await context.feedback_repo.find_by_proposal_prompt(reply_to) is not None:
-        return True
-    return await context.feedback_repo.find_by_edit_prompt(reply_to) is not None
+    interaction = await context.telegram_interactions.get(reply_to)
+    return interaction is not None and interaction.consumed_at is None
 
 
 async def _handle_feedback_reply(
@@ -667,8 +679,18 @@ async def _handle_feedback_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None or message.text is None:
         return None
-    feedback = await context.feedback_repo.find_by_edit_prompt(reply_to)
-    if feedback is not None:
+    interaction = await context.telegram_interactions.consume(
+        reply_to, context.clock.now()
+    )
+    if interaction is None:
+        return None
+    if (
+        interaction.principal_id is not None
+        and interaction.principal_id != message.principal_id
+    ):
+        return None
+    feedback = await context.feedback_repo.get(interaction.object_id)
+    if feedback is not None and interaction.interaction_type == "review_edit":
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
             message.sender_user_id,
@@ -689,8 +711,7 @@ async def _handle_feedback_reply(
                 review.origin_conversation_id,
             )
         return "reviewer_edited"
-    feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
-    if feedback is None:
+    if feedback is None or interaction.interaction_type != "feedback_proposal":
         return None
     proposed = await context.feedback.propose(
         feedback.id, message.text, message.sender_name
@@ -737,12 +758,15 @@ async def _handle_callback(
     """
     action = callback_action(data)
     target = callback_target(data)
-    if action is None or target is None:
+    if action is None or target is None or reporter_chat_id is None:
         return "ignored"
     if action == "start":
         # Proposing a correction is open to any group user.
         feedback = await context.feedback.start(
-            target, None, reporter_chat_id, reporter_name
+            target,
+            principal_id("telegram", reporter_chat_id),
+            reporter_chat_id,
+            reporter_name,
         )
         if feedback is None:
             return "ignored"
@@ -755,8 +779,14 @@ async def _handle_callback(
             ),
         )
         if prompt_id is not None:
-            await context.feedback_repo.save(
-                replace(feedback, proposal_prompt_message_id=prompt_id)
+            await context.telegram_interactions.add(
+                TelegramInteraction(
+                    external_message_id=prompt_id,
+                    interaction_type="feedback_proposal",
+                    object_id=feedback.id,
+                    principal_id=principal_id("telegram", reporter_chat_id),
+                    created_at=context.clock.now(),
+                )
             )
             await context.transport.answer_callback(callback_id)
             return "feedback_started"
@@ -826,11 +856,15 @@ async def _handle_callback(
             reporter_chat_id or "", prompt
         )
         if prompt_id is not None:
-            feedback = await context.feedback_repo.get(target)
-            if feedback is not None:
-                await context.feedback_repo.save(
-                    replace(feedback, edit_prompt_message_id=prompt_id)
+            await context.telegram_interactions.add(
+                TelegramInteraction(
+                    external_message_id=prompt_id,
+                    interaction_type="review_edit",
+                    object_id=target,
+                    principal_id=principal_id("telegram", reporter_chat_id),
+                    created_at=context.clock.now(),
                 )
+            )
         await context.transport.answer_callback(callback_id)
         return "feedback_edit"
     if action == "reject":

@@ -18,9 +18,11 @@
 > de revisió apliquen l'abast al servidor i els revisors locals no poden
 > aprovar globalment. La decisió de correcció commits atòmicament a SQL i
 > després refresca la projecció derivada. Els cossos JSON operatius ja passen per
-> models Pydantic dedicats abans d'arribar a l'aplicació. L'aplicació HTTP
-> principal viu ara al paquet `adapters/http`. La separació de rutes, API
-> genèrica i estat durable continua en curs.
+> models Pydantic dedicats abors d'arribar a l'aplicació. L'aplicació HTTP
+> principal viu al paquet `adapters/http`, els fluxos genèrics `/v1/*` no
+> depenen de Telegram, els lliuraments/interaccions són durables i el resum
+> diari usa el handler programat del Worker. El finishiment de la separació
+> física de rutes i dels transports genèrics continua en curs.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

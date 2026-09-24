@@ -11,7 +11,10 @@ from knowledge_bot.domain.enums import AnswerMode, ContentType
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
-from tests.fakes.repositories import InMemoryBotAnswerRepository
+from tests.fakes.repositories import (
+    InMemoryBotAnswerRepository,
+    InMemoryDeliveryReceiptRepository,
+)
 from tests.fakes.support import FrozenClock, RecordingTransport
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -59,7 +62,9 @@ async def _service(
         ),
         generator=generator,
         answers=answers,
+        delivery_receipts=InMemoryDeliveryReceiptRepository(),
         transport=transport,
+        channel="test",
         clock=FrozenClock(NOW),
     )
     return service, answers, transport, generator
@@ -114,6 +119,20 @@ async def test_direct_qa_answer_is_sent_and_persisted() -> None:
     stored = await answers.get("ans:m1")
     assert stored is not None
     assert json.loads(stored.sources_json) == ["qa:web-item"]
+
+
+async def test_delivery_receipt_prevents_duplicate_answer_delivery() -> None:
+    """Retrying the same application answer does not send a second message."""
+    service, _, transport, generator = await _service([_qa_record()])
+    message = _message("/ask quan entrenen?")
+
+    first = await service.answer(message)
+    second = await service.answer(message)
+
+    assert first is not None and second is not None
+    assert second.id == first.id
+    assert len(transport.answers) == 1
+    assert len(generator.requests) == 0
 
 
 async def test_synthesis_uses_generator_and_citations() -> None:

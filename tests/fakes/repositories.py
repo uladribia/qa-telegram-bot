@@ -12,6 +12,7 @@ from knowledge_bot.domain.entities import (
     BotAnswer,
     ChannelBinding,
     Conversation,
+    DeliveryReceipt,
     Feedback,
     Message,
     QAEvidence,
@@ -21,6 +22,7 @@ from knowledge_bot.domain.entities import (
     ReviewerEvent,
     Source,
     Space,
+    TelegramInteraction,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
@@ -72,6 +74,51 @@ class InMemoryChannelBindingRepository:
             message = f"unknown binding: {key}"
             raise KeyError(message)
         self._items[key] = binding
+
+
+class InMemoryDeliveryReceiptRepository:
+    """In-memory idempotent delivery receipts."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[tuple[str, str, str], DeliveryReceipt] = {}
+
+    async def get(
+        self, object_type: str, object_id: str, channel: str
+    ) -> DeliveryReceipt | None:
+        """Return a prior successful delivery."""
+        return self._items.get((object_type, object_id, channel))
+
+    async def add(self, receipt: DeliveryReceipt) -> None:
+        """Persist one successful delivery."""
+        self._items[(receipt.object_type, receipt.object_id, receipt.channel)] = receipt
+
+
+class InMemoryTelegramInteractionRepository:
+    """In-memory durable Telegram reply interactions."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, TelegramInteraction] = {}
+
+    async def get(self, external_message_id: str) -> TelegramInteraction | None:
+        """Return an interaction by prompt message id."""
+        return self._items.get(external_message_id)
+
+    async def add(self, interaction: TelegramInteraction) -> None:
+        """Persist one prompt interaction."""
+        self._items[interaction.external_message_id] = interaction
+
+    async def consume(
+        self, external_message_id: str, consumed_at: datetime
+    ) -> TelegramInteraction | None:
+        """Return and consume one unused interaction."""
+        interaction = self._items.get(external_message_id)
+        if interaction is None or interaction.consumed_at is not None:
+            return None
+        consumed = replace(interaction, consumed_at=consumed_at)
+        self._items[external_message_id] = consumed
+        return consumed
 
 
 class InMemorySourceRepository:
@@ -300,6 +347,17 @@ class InMemoryBotAnswerRepository:
     async def get(self, answer_id: str) -> BotAnswer | None:
         """Return a bot answer by id, if present."""
         return self._items.get(answer_id)
+
+    async def get_by_request_id(self, request_id: str) -> BotAnswer | None:
+        """Return the answer previously created for an idempotency key."""
+        return next(
+            (
+                answer
+                for answer in self._items.values()
+                if answer.request_id == request_id
+            ),
+            None,
+        )
 
     async def list_between(self, start: datetime, end: datetime) -> list[BotAnswer]:
         """Return the answers created in ``[start, end)``."""

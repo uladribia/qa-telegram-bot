@@ -189,10 +189,9 @@ well (answered, never flagged), flagged as wrong, and unanswered. The
 solved/flagged split is an observed proxy, not a quality judgement: an
 answer nobody flagged counts as solved well.
 
-It is checked **opportunistically** on inbound updates, because a Cloudflare
-Python Worker only exposes a `fetch` handler — there is no cron. If nothing at all
-happens anywhere, no recap is due; an external scheduler can poke
-`POST /internal/recap` with the internal key to force the check.
+The report runs from the Worker's scheduled handler once per day. The same
+application job is available at `POST /internal/jobs/daily-report` for manual
+operations. Inbound messages no longer trigger report work.
 
 ---
 

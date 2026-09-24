@@ -9,6 +9,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
+from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
@@ -35,7 +36,11 @@ from tests.fakes.ai import (
     InMemorySearchProjectionRepository,
 )
 from tests.fakes.backend import InMemoryBackend
-from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.support import (
+    FrozenClock,
+    InMemoryDailyReportStateRepository,
+    RecordingTransport,
+)
 from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -114,7 +119,9 @@ def build_test_context(
         retrieval=RetrievalService(embedder=embedder, vectors=vectors),
         generator=FakeGenerator(),
         answers=answers,
+        delivery_receipts=backend.delivery_receipts,
         transport=transport,
+        channel="telegram",
         clock=clock,
     )
     recap = RecapService(
@@ -133,6 +140,14 @@ def build_test_context(
     )
     reviewer_repo = backend.reviewers
     reviewer_events = backend.reviewer_events
+    reviewer_report = ReviewerReportService(
+        events=reviewer_events,
+        state=backend.report_state,
+        transport=transport,
+        clock=clock,
+        admin_user_id="1",
+        mode=admin_report_mode,
+    )
     settings = Settings(
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
@@ -210,15 +225,18 @@ def build_test_context(
             clock=clock,
         ),
         feedback_repo=feedback_repo,
+        delivery_receipts=backend.delivery_receipts,
+        telegram_interactions=backend.telegram_interactions,
         reviewers=ReviewerManager(reviewers=reviewer_repo, clock=clock),
         router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
-        reviewer_report=ReviewerReportService(
-            events=reviewer_events,
-            state=backend.report_state,
+        reviewer_report=reviewer_report,
+        daily_report=DailyReportService(
+            recap=recap,
+            reviewer_report=reviewer_report,
+            state=InMemoryDailyReportStateRepository(),
             transport=transport,
             clock=clock,
-            admin_user_id="1",
-            mode=admin_report_mode,
+            admin_principal_id="1",
         ),
         reverter=CorrectionReverter(
             qa_items=backend.qa_items,

@@ -16,7 +16,7 @@ src/knowledge_bot/
 ├── ports/           Protocol interfaces (repositories, vector store, embedder,
 │                    generator, transport, clock, budget)
 ├── contracts/       Pydantic DTOs at external boundaries
-├── adapters/        http/ (FastAPI app), inbound/ (importers, Telegram), outbound/ (Telegram)
+├── adapters/        http/ (FastAPI app and generic routes), inbound/ (importers, Telegram), outbound/ (Telegram)
 ├── infrastructure/  concrete externals (D1, Vectorize, Workers AI, settings, logs)
 ├── entry.py         Worker entrypoint
 └── cli.py           Typer CLI
@@ -35,7 +35,8 @@ domain/ and application/  →  must NOT import fastapi, workers, Telegram libs,
 external payloads to Pydantic at the adapter boundary, as early as possible.
 Operational JSON bodies now use explicit request models from
 `contracts/api.py`; malformed or out-of-range values fail with 422 before
-entering application code.
+entering application code. Generic `/v1/*` routes call the same application
+services in-process and never know Telegram chat ids.
 
 ### Connector-owned source provenance
 
