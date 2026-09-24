@@ -92,7 +92,9 @@ def main() -> None:
     # L2-normalize so the head works on unit vectors, like retrieval does.
     train_vectors /= np.linalg.norm(train_vectors, axis=1, keepdims=True)
     test_vectors /= np.linalg.norm(test_vectors, axis=1, keepdims=True)
-    model = LogisticRegression(max_iter=2000, random_state=SEED)
+    # C selected by 5-fold CV on the TRAIN split only (macro F1); never on
+    # the test split, per the plan's no-tuning rule.
+    model = LogisticRegression(max_iter=2000, C=16, random_state=SEED)
     model.fit(train_vectors, train_labels)
     predictions = model.predict(test_vectors)
     probabilities = model.predict_proba(test_vectors)

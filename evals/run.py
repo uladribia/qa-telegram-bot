@@ -15,6 +15,7 @@ Usage::
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import time
@@ -184,6 +185,108 @@ def eval_classifier_dataset() -> EvalReport:
             f"malformed classifier labels: {case}",
         )
     return report
+
+
+def eval_classifier_splits() -> EvalReport:
+    """Validate the 500 + 500 JSONL classifier splits are disjoint and balanced."""
+    report = EvalReport(name="classifier/splits")
+    allowed = {"question", "knowledge_update", "correction", "chitchat"}
+    split_cases: dict[str, list[dict]] = {}
+    for name in ("train.jsonl", "test.jsonl"):
+        path = EVALS_DIR.parent / "data" / "classifier" / name
+        if not path.exists():
+            report.check(False, f"missing classifier split: {path}")
+            split_cases[name] = []
+            continue
+        cases = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        split_cases[name] = cases
+        report.check(
+            len(cases) == 500, f"{name} must hold exactly 500 cases, got {len(cases)}"
+        )
+        for case in cases:
+            report.check(
+                case.get("label") in allowed and bool(case.get("text")),
+                f"malformed case in {name}: {case}",
+            )
+            report.check(
+                case.get("source") in {"human", "synthetic"},
+                f"unknown provenance in {name}: {case}",
+            )
+    train_keys = {
+        " ".join(case["text"].casefold().split()) for case in split_cases["train.jsonl"]
+    }
+    test_keys = {
+        " ".join(case["text"].casefold().split()) for case in split_cases["test.jsonl"]
+    }
+    report.check(
+        not train_keys & test_keys,
+        f"train/test overlap after normalization: {sorted(train_keys & test_keys)[:3]}",
+    )
+    human_train = sum(
+        1 for case in split_cases["train.jsonl"] if case.get("source") == "human"
+    )
+    report.check(
+        human_train > 0, "the committed human gold cases must stay in the train split"
+    )
+    return report
+
+
+def eval_retrieval_dataset() -> EvalReport:
+    """Validate the 500-query retrieval eval over existing seed anchors."""
+    report = EvalReport(name="retrieval/dataset")
+    gold = load_cases("retrieval.yaml")
+    synthetic = load_cases("retrieval_synthetic.yaml")
+    total = len(gold) + len(synthetic)
+    report.check(total == 500, f"retrieval eval must total 500 queries, got {total}")
+    seed_items = json.loads(
+        (EVALS_DIR.parent / "data" / "seed" / "qa.json").read_text(encoding="utf-8")
+    )
+    anchors = {item.get("source_anchor") for item in seed_items}
+    queries: set[str] = set()
+    for name, cases in (
+        ("retrieval.yaml", gold),
+        ("retrieval_synthetic.yaml", synthetic),
+    ):
+        for case in cases:
+            query = case.get("query")
+            anchor = case.get("expected_anchor")
+            report.check(
+                isinstance(query, str) and bool(query),
+                f"malformed retrieval query in {name}: {case}",
+            )
+            report.check(
+                anchor in anchors,
+                f"unknown anchor {anchor!r} in {name} (must exist in the seed)",
+            )
+            normalized = " ".join(str(query).casefold().split())
+            report.check(
+                normalized not in queries,
+                f"duplicate retrieval query in {name}: {query!r}",
+            )
+            queries.add(normalized)
+            if case.get("source") == "synthetic":
+                report.check(
+                    normalized not in _classifier_split_texts(),
+                    f"synthetic retrieval query appears in classifier data: {query!r}",
+                )
+    return report
+
+
+def _classifier_split_texts() -> set[str]:
+    """Return normalized texts of both classifier splits."""
+    texts: set[str] = set()
+    for name in ("train.jsonl", "test.jsonl"):
+        path = EVALS_DIR.parent / "data" / "classifier" / name
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                texts.add(" ".join(json.loads(line)["text"].casefold().split()))
+    return texts
 
 
 def eval_listener_dataset() -> EvalReport:
@@ -623,6 +726,8 @@ def run_offline() -> list[EvalReport]:
         eval_trigger(),
         eval_abstention_set(),
         eval_classifier_dataset(),
+        eval_classifier_splits(),
+        eval_retrieval_dataset(),
         eval_listener_dataset(),
         eval_answer_dataset(),
         eval_citation_format(),
@@ -657,7 +762,7 @@ def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
         The eval report.
     """
     report = EvalReport(name="retrieval/recall@5")
-    cases = load_cases("retrieval.yaml")
+    cases = [*load_cases("retrieval.yaml"), *load_cases("retrieval_synthetic.yaml")]
     try:
         if reindex:
             httpx.post(

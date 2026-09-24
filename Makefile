@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-live eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -26,6 +26,11 @@ test-integration:
 # Everything, including slow tiers. Use at milestone boundaries.
 test-all:
 	uv run pytest
+
+# Local-only quality evals (Ollama + SQLite; zero Cloudflare usage). Regenerates
+# reports/retrieval-classifier-listener.md. Requires the local Ollama runtime.
+eval-local:
+	uv run python -m evals.quality
 
 # Live quality gate: real model calls, burns Workers AI quota (10k neurons/day on
 # the free plan). Run at most once or twice a day. Reindexing is opt-in because

@@ -120,12 +120,20 @@ class MessageClassifier:
             return _prefilter_classification()
         vectors = await self.embedder.embed([text])
         embedding = tuple(vectors[0])
-        scores = _softmax(self.head.logits(embedding))
-        top_two = sorted(scores, reverse=True)
+        probabilities = _softmax(self.head.logits(embedding))
+        # Map probabilities by the head's own label order, never positionally.
+        by_label = dict(zip(self.head.labels, probabilities, strict=True))
+        scores = IntentScores(
+            question=by_label[QUESTION],
+            knowledge_update=by_label[KNOWLEDGE_UPDATE],
+            correction=by_label[CORRECTION],
+            chitchat=by_label[CHITCHAT],
+        )
+        top_two = sorted(probabilities, reverse=True)
         margin = top_two[0] - top_two[1]
-        best_label, best_score = IntentScores(*scores).best()
+        best_label, best_score = scores.best()
         return Classification(
-            scores=IntentScores(*scores),
+            scores=scores,
             best_label=best_label,
             best_score=best_score,
             margin=margin,

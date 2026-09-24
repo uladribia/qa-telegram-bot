@@ -100,6 +100,8 @@ ignore = [
 "src/knowledge_bot/cli.py" = ["B008"]
 # The Vectorize binding method mirrors the JS API name.
 "src/knowledge_bot/infrastructure/cloudflare/vectorize.py" = ["N802"]
+# The report template holds long Markdown table lines.
+"evals/quality.py" = ["E501"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
