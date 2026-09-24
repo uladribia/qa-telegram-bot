@@ -36,7 +36,8 @@ external payloads to Pydantic at the adapter boundary, as early as possible.
 Operational JSON bodies now use explicit request models from
 `contracts/api.py`; malformed or out-of-range values fail with 422 before
 entering application code. Generic `/v1/*` routes call the same application
-services in-process and never know Telegram chat ids.
+services in-process and never know Telegram chat ids. The HTTP context resolver
+may be synchronous for Workers or asynchronous for the local SQLite runtime.
 
 ### Connector-owned source provenance
 
@@ -57,6 +58,32 @@ accepts opaque channel and external identifiers.
 
 Architecture tests enforce both the import boundary and the absence of known
 connector source literals in the core.
+
+---
+
+## Local runtime
+
+The canonical local profile is the `local` dependency group:
+
+```bash
+uv sync --group local
+cp .env.local.example .env.local
+make dev-bootstrap
+```
+
+Local development uses `src/knowledge_bot/local_entry.py`, SQLite migrations
+from `migrations/` plus `migrations/local/`, `NumpySqliteVectorStore`, and raw
+Ollama REST calls. The app container serves port 8000; Ollama is a separate
+container on the same Docker network. The local graph shares one SQLite
+connection and one HTTP client.
+
+The local runner records applied migrations in `schema_migrations` and applies
+shared files before local files. `make dev-migrate` is safe to run repeatedly.
+`make dev-reset CONFIRM=1` removes only the SQLite volume.
+
+Do not add a local Ollama SDK, ORM, queue, or second database. The local
+`httpx`, `numpy`, `aiosqlite`, and `uvicorn` dependencies are the complete
+approved local addition.
 
 ---
 

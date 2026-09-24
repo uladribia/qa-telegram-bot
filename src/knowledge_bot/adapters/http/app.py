@@ -5,9 +5,9 @@ The Worker bindings are only available per request (in ``request.scope["env"]``)
 so the app resolves its context through a callable rather than at import time.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 
@@ -62,7 +62,18 @@ from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
 
-ContextResolver = Callable[[Request], AppContext]
+ContextResolver = Callable[[Request], AppContext | Awaitable[AppContext]]
+
+
+async def _resolved_context(
+    resolve_context: ContextResolver, request: Request
+) -> AppContext:
+    """Resolve either the Worker or local asynchronous context."""
+    context = resolve_context(request)
+    if isinstance(context, Awaitable):
+        return await cast(Awaitable[AppContext], context)
+    return cast(AppContext, context)
+
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
@@ -195,7 +206,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         evidence ids for explicitly authorized deterministic evaluations. No
         message ever reaches Telegram.
         """
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         if not body.question:
@@ -242,7 +253,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Force the opportunistic admin recap check from an external scheduler."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.recap.maybe_send()
@@ -255,7 +266,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Run the same deterministic report job as the scheduled handler."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.daily_report.run(force=body.force)
@@ -267,7 +278,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Force the opportunistic admin report check from a scheduler."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         sent = await context.reviewer_report.maybe_send()
@@ -283,7 +294,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
 
         The only rollback path: a CLI operation, never a Telegram action.
         """
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         if not body.qa_item_id:
@@ -305,7 +316,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         Accepts an optional JSON body with ``qa_after``/``msg_after`` cursors
         and ``limit``; without it, one unbounded pass indexes everything.
         """
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
@@ -330,7 +341,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, dict[str, list[str]]]:
         """Return the retrieved source ids for each query (eval support)."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
@@ -351,7 +362,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Seed Q&A entries and imported messages into D1."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         created, skipped, renewed, diverged, version_ids = await context.seed.seed_qa(
@@ -378,7 +389,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Process a bounded batch of budget-deferred background messages."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
@@ -393,7 +404,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Register a served Telegram group (idempotent)."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         if not body.chat_id:
@@ -416,7 +427,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Return the human knowledge review report as markdown."""
-        context = resolve_context(request)
+        context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         entries = await context.review.review()

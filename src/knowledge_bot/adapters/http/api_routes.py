@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Generic channel-independent application REST routes."""
 
-from collections.abc import Callable
-from typing import Annotated
+from collections.abc import Awaitable, Callable
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -24,15 +24,19 @@ from knowledge_bot.infrastructure.security import secrets_match
 
 
 def build_api_router(
-    resolve_context: Callable[[Request], AppContext],
+    resolve_context: Callable[[Request], AppContext | Awaitable[AppContext]],
 ) -> APIRouter:
     """Build authenticated generic application routes."""
     router = APIRouter(prefix="/v1")
 
-    def context_for(
+    async def context_for(
         request: Request, key: Annotated[str | None, Header(alias="X-Internal-Key")]
     ) -> AppContext:
         context = resolve_context(request)
+        if isinstance(context, Awaitable):
+            context = await cast(Awaitable[AppContext], context)
+        else:
+            context = cast(AppContext, context)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         return context
@@ -44,7 +48,7 @@ def build_api_router(
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> AskQuestionResponse:
         """Answer an idempotent question without channel delivery."""
-        context = context_for(request, key)
+        context = await context_for(request, key)
         try:
             return await context.answer.answer_request(body)
         except ValueError as error:
@@ -57,7 +61,7 @@ def build_api_router(
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> StartFeedbackResponse:
         """Start a correction for a stored answer."""
-        context = context_for(request, key)
+        context = await context_for(request, key)
         feedback = await context.feedback.start(
             body.answer_id,
             body.reporter_principal_id,
@@ -81,7 +85,7 @@ def build_api_router(
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Submit the reporter's proposed correction."""
-        context = context_for(request, key)
+        context = await context_for(request, key)
         feedback = await context.feedback.feedback.get(feedback_id)
         if feedback is None:
             raise HTTPException(status_code=404, detail="feedback not found")
@@ -100,7 +104,7 @@ def build_api_router(
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Update a correction draft after scope-aware authorization."""
-        context = context_for(request, key)
+        context = await context_for(request, key)
         review = await context.feedback.correction_request(feedback_id)
         if review is None:
             raise HTTPException(status_code=404, detail="feedback not found")
@@ -125,7 +129,7 @@ def build_api_router(
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> ReviewDecisionResponse:
         """Approve or reject a correction after scope-aware authorization."""
-        context = context_for(request, key)
+        context = await context_for(request, key)
         review = await context.feedback.correction_request(feedback_id)
         if review is None:
             raise HTTPException(status_code=404, detail="feedback not found")

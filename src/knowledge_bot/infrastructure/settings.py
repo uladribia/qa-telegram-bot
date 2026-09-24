@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Application settings loaded from the environment."""
 
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic import model_validator
@@ -12,12 +13,25 @@ ALLOWED_AI_MODELS: frozenset[str] = frozenset(
         "@cf/zai-org/glm-4.7-flash",
     }
 )
+LOCAL_ALLOWED_AI_MODELS: frozenset[str] = frozenset({"embeddinggemma", "gemma3:270m"})
+
+
+class RuntimeMode(StrEnum):
+    """Supported application runtimes."""
+
+    LOCAL = "local"
+    CLOUDFLARE = "cloudflare"
 
 
 class Settings(BaseSettings):
     """Runtime configuration for the knowledge bot."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    runtime: RuntimeMode = RuntimeMode.CLOUDFLARE
+    sqlite_path: str = "./data/knowledge-bot.sqlite3"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    log_content: bool = False
 
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
@@ -72,11 +86,42 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
-        """Reject any model outside the zero-cost allowlist."""
+        """Reject models outside the active runtime's zero-cost allowlist."""
+        allowed = (
+            LOCAL_ALLOWED_AI_MODELS
+            if self.runtime is RuntimeMode.LOCAL
+            else ALLOWED_AI_MODELS
+        )
         for model in (self.embedding_model, self.generation_model):
-            if model not in ALLOWED_AI_MODELS:
+            if model not in allowed:
                 message = f"Model not allowed under the zero-cost policy: {model}"
                 raise ValueError(message)
+        if not self.embedding_model.strip() or not self.generation_model.strip():
+            message = "model names must not be empty"
+            raise ValueError(message)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_runtime_values(self) -> "Settings":
+        """Reject invalid local runtime and AI budget settings."""
+        for name in ("direct_qa_threshold", "synthesis_threshold"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                message = f"{name} must be between 0 and 1, got {value!r}"
+                raise ValueError(message)
+        for name in ("qa_top_k", "message_top_k"):
+            if getattr(self, name) < 1:
+                message = f"{name} must be at least 1"
+                raise ValueError(message)
+        if self.recap_interval_hours <= 0 or self.admin_report_interval_min <= 0:
+            message = "report intervals must be greater than zero"
+            raise ValueError(message)
+        if self.ai_daily_neuron_budget <= 0:
+            message = "AI daily budget must be greater than zero"
+            raise ValueError(message)
+        if self.runtime is RuntimeMode.CLOUDFLARE and self.log_content:
+            message = "KB_LOG_CONTENT cannot be enabled in Cloudflare mode"
+            raise ValueError(message)
         return self
 
     @model_validator(mode="after")

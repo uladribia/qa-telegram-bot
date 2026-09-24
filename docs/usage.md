@@ -14,6 +14,11 @@ the admin can approve it.
 It is **not** a general assistant. It only answers from what is in its knowledge
 base.
 
+For local development, start the SQLite/Ollama runtime with
+`cp .env.local.example .env.local && make dev-bootstrap`. The local API is
+available at `http://localhost:8000`; no Cloudflare account is required.
+Production Telegram behavior is unchanged and uses the deployed Worker.
+
 ---
 
 ## When it answers

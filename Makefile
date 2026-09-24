@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all eval-live eval-live-reindex reindex smoke seed-self-qa
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-live eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -50,3 +50,34 @@ seed-self-qa:
 # Runtime fidelity: build the dev image, run the Worker, check /healthz.
 smoke:
 	bash scripts/smoke.sh
+
+smoke-cloudflare: smoke
+
+# Local SQLite + Ollama runtime.
+dev-bootstrap:
+	bash scripts/local-dev.sh bootstrap
+
+dev-up:
+	bash scripts/local-dev.sh up
+
+dev-down:
+	bash scripts/local-dev.sh down
+
+dev-logs:
+	bash scripts/local-dev.sh logs
+
+dev-shell:
+	bash scripts/local-dev.sh shell
+
+dev-reset:
+	bash scripts/local-dev.sh reset
+
+dev-migrate:
+	bash scripts/local-dev.sh migrate
+
+dev-seed:
+	bash scripts/local-dev.sh seed
+
+# Explicit local-only AI check; ordinary tests never call Ollama.
+test-e2e-local:
+	RUN_LOCAL_AI_E2E=1 uv run pytest -m e2e_local

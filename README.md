@@ -7,8 +7,9 @@ Anyone can flag a wrong answer; only an admin can approve a correction.
 Telegram is the only runtime adapter in v1. The core is channel-agnostic:
 importers and future channels feed the same domain.
 
-Runs entirely inside the **Cloudflare free tier** (Python Worker + D1 + Vectorize
-+ Workers AI). No paid fallback exists anywhere in the code.
+Runs locally with SQLite + NumPy + Ollama, or in production inside the
+**Cloudflare free tier** (Python Worker + D1 + Vectorize + Workers AI). No paid
+fallback exists anywhere in the code.
 
 ---
 
@@ -29,21 +30,27 @@ Runs entirely inside the **Cloudflare free tier** (Python Worker + D1 + Vectoriz
 
 ## Quick start
 
+The canonical local runtime needs Docker but no Cloudflare account:
+
+```bash
+cp .env.local.example .env.local
+make dev-bootstrap
+curl -s http://localhost:8000/healthz
+curl -s http://localhost:8000/readyz
+```
+
+`make dev-bootstrap` starts the pinned local Ollama container, pulls the two
+local models, applies SQLite migrations, and serves the API on port 8000.
+
+For production, follow [docs/setup.md](docs/setup.md):
+
 ```bash
 uv sync
 cp .env.example .env          # fill it in; .env is never committed
-make all                      # lint + fast tests
-
+make all
 uv run pywrangler sync
 uv run pywrangler deploy
-BOT_BASE_URL=https://<worker>.workers.dev uv run kb set-webhook
-
-BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json
-make reindex
 ```
-
-Full instructions, including the one-time Cloudflare resources, are in
-[docs/setup.md](docs/setup.md).
 
 ---
 
@@ -57,7 +64,11 @@ Full instructions, including the one-time Cloudflare resources, are in
 | `make test-all` | Every test tier |
 | `make lint` | Format check, lint, type check |
 | `make format` | Format and auto-fix |
-| `make smoke` | Build the dev image, boot the Worker, check `/healthz` |
+| `make smoke` | Build the Cloudflare dev image, boot the Worker, check `/healthz` |
+| `make dev-bootstrap` | Start local Ollama, build the app, migrate, and serve on port 8000 |
+| `make dev-up` / `make dev-down` | Start or stop the local app and Ollama containers |
+| `make dev-migrate` | Apply shared and local SQLite migrations |
+| `make test-e2e-local` | Explicit local-only Ollama smoke test |
 | `make reindex` | Rebuild the derived vector index from D1 |
 | `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
 | `make eval-live` | Live quality gate (real model calls; costs AI quota) |
@@ -77,8 +88,9 @@ questions are never refused. Run them **only with explicit authorization, for
 substantive changes that can affect answer quality** — never scheduled, never
 auto-retried. Details in [docs/operations.md](docs/operations.md).
 
-**2. D1 is the source of truth.** Vectorize is a derived index, rebuildable at any
-time from D1. Never store anything that exists only in the index.
+**2. SQL is the source of truth for the active runtime.** Production uses D1;
+local development uses SQLite. The vector index is derived and rebuildable.
+Never store anything that exists only in the index.
 
 ---
 
