@@ -3,12 +3,11 @@
 Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
-The binding product/implementation plan for the current hardening pass lives in
-[`instructions/qa-telegram-bot-final-hardening-plan.md`](instructions/qa-telegram-bot-final-hardening-plan.md).
-It supersedes [`instructions/qa-telegram-bot-refactor-v2-spec.md`](instructions/qa-telegram-bot-refactor-v2-spec.md) wherever the documents conflict.
-Read it before starting any work. The historical plan under `instructions/` is
-deprecated and must not be used as a second implementation contract. If this file
-and the binding plan disagree, stop and ask; never silently pick one.
+The binding implementation plan for this hardening pass is
+[`instructions/qa-telegram-bot-one-pass-final-fix-plan.md`](instructions/qa-telegram-bot-one-pass-final-fix-plan.md).
+Read it before starting any work. The other plans under `instructions/` are
+deprecated and must not be used as implementation contracts. If this file and
+the binding plan disagree, stop and ask; never silently pick one.
 
 When a refactor or implementation plan is provided in Markdown, follow it
 autonomously and do not stop for user input at ordinary implementation steps,
@@ -86,9 +85,9 @@ src/knowledge_bot/
 ├── domain/         entities, value objects, enums, policies (no I/O, no frameworks)
 ├── application/    use cases and orchestration (depends on domain + ports only)
 ├── ports/          Protocol interfaces (repositories, vector store, classifier,
-│                   generator, transport, media, clock)
+│                   generator, notifier, media, clock)
 ├── contracts/      Pydantic DTOs at external boundaries
-├── adapters/       http/ (FastAPI app), telegram/ (webhook), inbound/ (importers), outbound/ (transport, media)
+├── adapters/       http/ (FastAPI app), telegram/ (webhook), inbound/ (importers), outbound/ (media)
 ├── infrastructure/ concrete externals (D1, Vectorize, Workers AI, logging, settings)
 ├── entry.py        Worker / ASGI entrypoint
 └── cli.py          Typer CLI

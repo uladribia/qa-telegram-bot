@@ -165,6 +165,76 @@ async def test_group_variant_beats_the_global_answer() -> None:
     assert [item.source_id for item in retrieved.qa] == ["qa-group"]
 
 
+async def test_unrelated_global_survives_weak_local_candidates() -> None:
+    """Unrelated local matches do not receive blanket priority."""
+    store = FakeVectorStore()
+    await store.upsert(
+        [
+            VectorRecord(
+                id="global",
+                values=[1.0, 0.0],
+                metadata={
+                    "kind": "qa",
+                    "status": "active",
+                    "scope_key": GLOBAL_SCOPE,
+                    "canonical_key": "global-question",
+                },
+            ),
+            *[
+                VectorRecord(
+                    id=f"local-{index}",
+                    values=[0.2, 0.98],
+                    metadata={
+                        "kind": "qa",
+                        "status": "active",
+                        "scope_key": SCOPE_A,
+                        "canonical_key": f"local-{index}",
+                    },
+                )
+                for index in range(5)
+            ],
+        ]
+    )
+    service = RetrievalService(
+        embedder=FakeEmbedder([1.0, 0.0]), vectors=store, qa_top_k=5
+    )
+    retrieved = await service.retrieve("pregunta", SPACE_A)
+    assert "global" in [item.source_id for item in retrieved.qa]
+
+
+async def test_authority_breaks_equal_similarity_ties() -> None:
+    """Authority provides a deterministic final tie break."""
+    store = FakeVectorStore()
+    vector = [1.0, 0.0]
+    await store.upsert(
+        [
+            VectorRecord(
+                id="low",
+                values=vector,
+                metadata={
+                    "kind": "qa",
+                    "status": "active",
+                    "scope_key": GLOBAL_SCOPE,
+                    "authority": 40,
+                },
+            ),
+            VectorRecord(
+                id="high",
+                values=vector,
+                metadata={
+                    "kind": "qa",
+                    "status": "active",
+                    "scope_key": GLOBAL_SCOPE,
+                    "authority": 90,
+                },
+            ),
+        ]
+    )
+    service = RetrievalService(embedder=FakeEmbedder(vector), vectors=store, qa_top_k=5)
+    retrieved = await service.retrieve("pregunta")
+    assert [item.source_id for item in retrieved.qa[:2]] == ["high", "low"]
+
+
 async def test_group_variant_suppresses_a_better_scoring_global_match() -> None:
     """The group variant always wins its question, even with lower similarity."""
     store = FakeVectorStore()

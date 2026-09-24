@@ -90,6 +90,35 @@ def test_addressed_message_is_answered_and_persisted() -> None:
     assert conversation is not None and conversation.space_id == SPACE_A
 
 
+def test_delivery_failure_replays_the_persisted_answer_once() -> None:
+    """A failed Telegram send can be retried without regenerating the answer."""
+    context, transport = build_test_context()
+    transport.answer_failures_remaining = 1
+    client = _client(context)
+    update = _update("/ask quan entrenen?")
+
+    first = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    assert first.status_code == 503
+    assert asyncio.run(context.answer.answers.get("ans:-100:10")) is not None
+    assert transport.answers == []
+
+    second = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    assert second.status_code == 200
+    assert len(transport.answers) == 1
+    receipt = asyncio.run(
+        context.delivery_receipts.get("answer", "ans:-100:10", "telegram")
+    )
+    assert receipt is not None
+
+    third = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    assert third.status_code == 200
+    assert len(transport.answers) == 1
+    assert (
+        asyncio.run(context.delivery_receipts.get("answer", "ans:-100:10", "telegram"))
+        == receipt
+    )
+
+
 def test_empty_text_does_not_crash_reviewer_command_parsing() -> None:
     """An empty Telegram text is ignored safely."""
     context, _ = build_test_context()

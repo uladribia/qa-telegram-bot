@@ -68,8 +68,8 @@ async def test_qa_version_update_reuses_one_stable_item_vector() -> None:
     assert vectors.records["qa:q1"].metadata["text"] == "Dijous"
 
 
-async def test_rebuild_deletes_known_projection_before_reindexing() -> None:
-    """A rebuild deletes known vectors before rebuilding."""
+async def test_cleanup_deletes_known_projection_without_embedding() -> None:
+    """Projection cleanup deletes known vectors without embedding."""
     vectors = FakeVectorStore()
     manifest = InMemorySearchProjectionRepository()
     await vectors.upsert(
@@ -77,7 +77,7 @@ async def test_rebuild_deletes_known_projection_before_reindexing() -> None:
     )
     await manifest.record([next(iter(vectors.records.values()))], NOW)
     service = _service(FakeSearchIndexSource(), vectors, manifest)
-    await service.rebuild()
+    await service.cleanup_projection()
     assert vectors.records == {}
     assert await manifest.list_vector_ids() == []
 

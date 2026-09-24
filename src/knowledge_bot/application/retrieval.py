@@ -87,15 +87,16 @@ def _merge_group_first(
     Returns:
         The combined matches, strongest first.
     """
-    group_sorted = sorted(group_matches, key=lambda match: match.score, reverse=True)
-    covered = {_question_key(match) for match in group_sorted} - {None}
-    global_sorted = [
-        match
-        for match in sorted(global_matches, key=lambda match: match.score, reverse=True)
-        if _question_key(match) not in covered
+    local_keys = {_question_key(match) for match in group_matches} - {None}
+    candidates = [
+        *group_matches,
+        *(match for match in global_matches if _question_key(match) not in local_keys),
     ]
-    merged = [*group_sorted, *global_sorted]
-    return merged[:top_k]
+    candidates.sort(
+        key=lambda match: (match.score, _as_int(match.metadata.get("authority"))),
+        reverse=True,
+    )
+    return candidates[:top_k]
 
 
 def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
@@ -166,6 +167,14 @@ class RetrievalService:
                 filters={**base_filters, "scope_key": scope_for_space(space_id)},
             )
             qa_matches = _merge_group_first(qa_matches, local_matches, self.qa_top_k)
+        else:
+            qa_matches.sort(
+                key=lambda match: (
+                    match.score,
+                    _as_int(match.metadata.get("authority")),
+                ),
+                reverse=True,
+            )
         message_filters: dict[str, object] = {"kind": MESSAGE_KIND}
         if space_id is not None:
             message_filters["scope_key"] = scope_for_space(space_id)

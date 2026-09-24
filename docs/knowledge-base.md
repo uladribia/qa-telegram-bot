@@ -262,9 +262,12 @@ on it goes through the normal Telegram correction flow.
 make reindex                       # or: uv run kb reindex
 ```
 
-`make reindex` performs a full SQL rebuild. It deletes known and legacy vector ids, clears the manifest, then reads current active Q&A items and eligible message evidence in bounded batches. Q&A uses one stable vector id per item (`qa:<qa_item_id>`), so a new
-version replaces the old projection instead of leaving a stale searchable
-version.
+`make reindex` is an explicitly authorized full SQL rebuild. It first calls
+`POST /internal/index/cleanup`, which performs no embedding, then the CLI calls
+`POST /internal/reindex` repeatedly with a bounded batch of at most 100. Q&A
+uses one stable vector id per item (`qa:<qa_item_id>`), so a new version replaces
+the old projection instead of leaving a stale searchable version. A resumed run
+must pass the last printed cursors and never repeats cleanup.
 
 **It is rarely the right tool.** Incremental paths cover routine changes: the
 seed indexes the Q&A it creates or renews (~4 neurons each), and an approved

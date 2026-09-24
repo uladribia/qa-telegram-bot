@@ -29,6 +29,14 @@ from knowledge_bot.ports.repositories import (
 
 
 @dataclass(frozen=True, slots=True)
+class PairingWindowResult:
+    """Outcome of evaluating one listener window."""
+
+    processed: bool
+    accepted: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class MessagePairingService:
     """Extract accepted pairs as ordinary stable message evidence."""
 
@@ -57,8 +65,9 @@ class MessagePairingService:
         if window is not None and now - window.last_message_at >= timedelta(
             minutes=self.quiet_minutes
         ):
-            if not await self._process_window(window):
-                return 0
+            result = await self._process_window(window)
+            if not result.processed:
+                return result.accepted
             window = None
         if window is None:
             await self.windows.save(
@@ -80,11 +89,13 @@ class MessagePairingService:
         for window in await self.windows.list_due(
             current - timedelta(minutes=self.quiet_minutes)
         ):
-            accepted += await self._process_window(window)
+            accepted += (await self._process_window(window)).accepted
         return accepted
 
-    async def _process_window(self, window: ListenerPairingWindow) -> int:
-        """Process one pending window and mark it only after a successful attempt."""
+    async def _process_window(
+        self, window: ListenerPairingWindow
+    ) -> PairingWindowResult:
+        """Process one pending window and distinguish failure from zero pairs."""
         messages = await self.messages.list_recent_listener(
             window.conversation_id,
             window.started_at - timedelta(minutes=self.overlap_minutes),
@@ -97,11 +108,11 @@ class MessagePairingService:
             await self.windows.save(
                 replace(window, processed_at=self.clock.now(), status="processed")
             )
-            return 0
+            return PairingWindowResult(True, 0)
         if self.budget is not None and not await self.budget.work_allowed(
             AiWorkClass.BACKGROUND
         ):
-            return 0
+            return PairingWindowResult(False, 0)
         try:
             output = await self.model.pair(
                 [
@@ -115,7 +126,7 @@ class MessagePairingService:
                 ]
             )
         except (ModelUnavailableError, RuntimeError, ValueError):
-            return 0
+            return PairingWindowResult(False, 0)
         by_id = {item.id: item for item in messages}
         accepted = 0
         for pair in sorted(
@@ -135,7 +146,7 @@ class MessagePairingService:
             if self.budget is not None and not await self.budget.work_allowed(
                 AiWorkClass.BACKGROUND
             ):
-                return accepted
+                return PairingWindowResult(False, accepted)
             candidate = MessagePairCandidate(
                 id=self._candidate_id(window.conversation_id, question.id, answer.id),
                 conversation_id=window.conversation_id,
@@ -147,19 +158,23 @@ class MessagePairingService:
             )
             if not await self.candidates.add(candidate):
                 continue
-            await self.messages.save(replace(answer, context_question=question.text))
+            updated_answer = replace(
+                answer,
+                context_question=question.text,
+                index_status=IndexStatus.PENDING,
+            )
+            await self.messages.save(updated_answer)
+            accepted += 1
             try:
-                await self._project_answer(answer, question)
+                await self._project_answer(updated_answer, question)
             except (ProjectionError, ModelUnavailableError, RuntimeError, ValueError):
                 await self.messages.save(
-                    replace(answer, index_status=IndexStatus.FAILED)
+                    replace(updated_answer, index_status=IndexStatus.FAILED)
                 )
-                return accepted
-            accepted += 1
         await self.windows.save(
             replace(window, processed_at=self.clock.now(), status="processed")
         )
-        return accepted
+        return PairingWindowResult(True, accepted)
 
     async def _project_answer(self, answer: Message, question: Message) -> None:
         """Project the accepted answer under its stable message id."""

@@ -20,6 +20,7 @@ from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.policies import is_recap_due
 from knowledge_bot.ports.clock import Clock
+from knowledge_bot.ports.notifier import Notifier
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
     ConversationRepository,
@@ -27,7 +28,6 @@ from knowledge_bot.ports.repositories import (
     MessageRepository,
     RecapStateRepository,
 )
-from knowledge_bot.ports.transport import MessageTransport
 
 DEFAULT_RECAP_LANGUAGE = "ca"
 ADMIN_STATE_KEY = "admin"
@@ -205,7 +205,7 @@ class RecapService:
     answers: BotAnswerRepository
     conversations: ConversationRepository
     state: RecapStateRepository
-    transport: MessageTransport
+    notifier: Notifier
     clock: Clock
     admin_user_id: str | None = None
     enabled: bool = True
@@ -249,7 +249,7 @@ class RecapService:
         stats = await self._activity(window_start, now, answers)
         if stats is not None:
             text = f"{text}\n\n{render_activity(stats, language=self.language)}"
-        await self.transport.send_message(self.admin_user_id, text)
+        await self.notifier.send_text(self.admin_user_id, text)
         await self.state.set_last_sent_at(ADMIN_STATE_KEY, now)
         return True
 

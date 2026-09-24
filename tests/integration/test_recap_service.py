@@ -13,6 +13,7 @@ from tests.fakes.repositories import (
 from tests.fakes.support import (
     FrozenClock,
     InMemoryRecapStateRepository,
+    RecordingNotifier,
     RecordingTransport,
 )
 
@@ -70,7 +71,7 @@ async def _service(
         answers=answers,
         conversations=conversations,
         state=state,
-        transport=transport,
+        notifier=RecordingNotifier(transport),
         clock=clock,
         admin_user_id=admin_user_id,
         enabled=enabled,

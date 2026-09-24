@@ -5,12 +5,14 @@ The Worker bindings are only available per request (in ``request.scope["env"]``)
 so the app resolves its context through a callable rather than at import time.
 """
 
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import timedelta
 from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
+from loguru import logger
 
 from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
@@ -18,6 +20,7 @@ from knowledge_bot.adapters.inbound.telegram import (
     normalize_callback,
     normalize_message,
 )
+from knowledge_bot.adapters.telegram.flow import TelegramFlow
 from knowledge_bot.adapters.telegram.routes import register_telegram_routes
 from knowledge_bot.application.classifier import QUESTION, IntentScores
 from knowledge_bot.application.feedback import (
@@ -76,6 +79,9 @@ async def _resolved_context(
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
+INDEX_WARNING = (
+    "Correcció aprovada. La indexació ha fallat i queda pendent de reparació."
+)
 
 # Longest parent question text stored on a matched pair reply.
 _MAX_LISTENER_QUESTION_CHARS = 500
@@ -206,24 +212,47 @@ async def _deliver_review(
 
 async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
     """Normalize one Telegram update and dispatch its channel flow."""
-    await _escalate_overdue_reviews(context)
-    callback = normalize_callback(update)
-    if callback is not None:
-        return await _handle_callback(
-            context,
-            callback.callback_id,
-            callback.data,
-            callback.sender_chat_id,
-            callback.sender_name,
-            callback.conversation_id,
-        )
-    message = normalize_message(update, context.identity)
-    if message is None:
-        return "ignored"
-    message = await _resolve_message_space(context, message)
-    if message is None:
-        return "ignored"
-    return await _handle_message(context, message)
+    started = time.perf_counter()
+    logger.bind(use_case="telegram_webhook", update_id=update.update_id).info(
+        "telegram_webhook_received"
+    )
+    try:
+        await _escalate_overdue_reviews(context)
+        callback = normalize_callback(update)
+        if callback is not None:
+            result = await _handle_callback(
+                context,
+                callback.callback_id,
+                callback.data,
+                callback.sender_chat_id,
+                callback.sender_name,
+                callback.conversation_id,
+            )
+        else:
+            message = normalize_message(update, context.identity)
+            if message is None:
+                result = "ignored"
+            else:
+                message = await _resolve_message_space(context, message)
+                result = (
+                    "ignored"
+                    if message is None
+                    else await _handle_message(context, message)
+                )
+    except Exception:
+        logger.bind(
+            use_case="telegram_webhook",
+            update_id=update.update_id,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        ).exception("telegram_webhook_failed")
+        raise
+    logger.bind(
+        use_case="telegram_webhook",
+        update_id=update.update_id,
+        action=result,
+        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+    ).info("telegram_webhook_processed")
+    return result
 
 
 def create_app(resolve_context: ContextResolver) -> FastAPI:
@@ -248,7 +277,8 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         """Report Worker readiness without consuming AI quota."""
         return {"status": "ok"}
 
-    register_telegram_routes(app, resolve_context, _handle_telegram_update)
+    telegram_flow = TelegramFlow(_handle_telegram_update)
+    register_telegram_routes(app, resolve_context, telegram_flow.handle)
 
     @app.post("/internal/eval/answer")
     async def internal_eval_answer(
@@ -323,7 +353,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         request: Request,
         body: RevertRequest = _EMPTY_REVERT_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         """Revert a Q&A item to the version its current one superseded.
 
         The only rollback path: a CLI operation, never a Telegram action.
@@ -336,33 +366,41 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         restored = await context.reverter.revert(body.qa_item_id)
         if restored is None:
             raise HTTPException(status_code=404, detail="nothing to revert")
-        await context.reindex.reindex_qa_version(restored.id)
-        return {"status": "reverted", "restored_version_id": restored.id}
+        attempt = await context.reindex.try_reindex_qa_version(restored.id)
+        return {
+            "status": "reverted",
+            "restored_version_id": restored.id,
+            "projection_status": attempt.status,
+        }
+
+    @app.post("/internal/index/cleanup")
+    async def internal_index_cleanup(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int]:
+        """Delete known derived vectors without embedding anything."""
+        context = await _resolved_context(resolve_context, request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        report = await context.reindex.cleanup_projection()
+        return {"removed": report.removed}
 
     @app.post("/internal/reindex")
-    @app.post("/internal/index/rebuild")
     async def internal_reindex(
         request: Request,
         body: ReindexRequest = _EMPTY_REINDEX_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, object]:
-        """Rebuild part of the derived vector store from D1.
-
-        Accepts an optional JSON body with ``qa_after``/``msg_after`` cursors
-        and ``limit``; without it, one unbounded pass indexes everything.
-        """
+        """Project one bounded batch from SQL truth."""
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        if body.rebuild or not body.model_fields_set:
-            report = await context.reindex.rebuild()
-        else:
-            report = await context.reindex.reindex(
-                qa_after=body.qa_after,
-                msg_after=body.msg_after,
-                limit=body.limit,
-            )
+        report = await context.reindex.reindex(
+            qa_after=body.qa_after,
+            msg_after=body.msg_after,
+            limit=body.limit,
+        )
         return {
             "qa": report.qa,
             "messages": report.messages,
@@ -405,7 +443,8 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         )
         indexed = 0
         for version_id in version_ids:
-            if await context.reindex.reindex_qa_version(version_id):
+            attempt = await context.reindex.try_reindex_qa_version(version_id)
+            if attempt.status == "indexed":
                 indexed += 1
         message_count = await context.seed.seed_messages(body.messages, body.scope)
         return {
@@ -870,6 +909,10 @@ async def _handle_callback(
             reporter_name,
         )
         if feedback is None:
+            await context.transport.answer_callback(
+                callback_id,
+                "Aquesta resposta ja no es pot corregir.",
+            )
             return "ignored"
         answer = await context.feedback.get_answer(target)
         prompt_id = await context.transport.send_force_reply(
@@ -943,7 +986,9 @@ async def _handle_callback(
                 callback_id, "La correcció ja està resolta."
             )
             return "ignored"
-        await context.reindex.reindex_qa_version(version.id)
+        attempt = await context.reindex.try_reindex_qa_version(version.id)
+        if attempt.status == "failed":
+            await context.transport.send_message(reporter_chat_id or "", INDEX_WARNING)
         feedback = await context.feedback.get_feedback(target)
         if reporter_chat_id:
             await context.transport.send_message(reporter_chat_id, ADMIN_APPROVED)

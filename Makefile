@@ -32,23 +32,28 @@ test-all:
 # re-embedding every record is the largest single draw: `make eval-live-reindex`.
 # Requires BOT_BASE_URL (defaults to the deployed Worker).
 eval-live:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
-	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run python -m evals.run live --base-url "$(BOT_BASE_URL)"
+	uv run python -m evals.run live --base-url "$(BOT_BASE_URL)"
 
 eval-live-reindex:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
-	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run python -m evals.run live --reindex --base-url "$(BOT_BASE_URL)"
+	uv run python -m evals.run live --reindex --base-url "$(BOT_BASE_URL)"
 
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:
-	uv run kb reindex
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	uv run kb reindex --base-url "$(BOT_BASE_URL)"
 
 # Seed the bot's self-explanation Q&A (data/seed/bot_self_qa.json) into the
 # deployed Worker as global knowledge. Idempotent: run it after every release
 # tag and after any change to the self-explanation entries.
 seed-self-qa:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
-	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run kb seed --qa data/seed/bot_self_qa.json --base-url "$(BOT_BASE_URL)"
+	uv run kb seed --qa data/seed/bot_self_qa.json --base-url "$(BOT_BASE_URL)"
 
 # Runtime fidelity: build the dev image, run the Worker, check /healthz.
 smoke:
@@ -57,7 +62,7 @@ smoke:
 smoke-cloudflare:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
-	ALLOW_CLOUDFLARE_LIVE_TESTS=1 BOT_BASE_URL="$(BOT_BASE_URL)" uv run kb smoke-cloudflare --base-url "$(BOT_BASE_URL)"
+	BOT_BASE_URL="$(BOT_BASE_URL)" uv run kb smoke-cloudflare --base-url "$(BOT_BASE_URL)"
 
 # Local SQLite + Ollama runtime.
 dev-bootstrap:

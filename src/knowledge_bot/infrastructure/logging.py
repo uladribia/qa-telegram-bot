@@ -21,7 +21,7 @@ def configure_logging(*, json_logs: bool = False) -> None:
     logger.remove()
     logger.add(
         sys.stderr,
-        level="DEBUG",
+        level="INFO" if json_logs else "DEBUG",
         serialize=json_logs,
         backtrace=False,
         diagnose=False,

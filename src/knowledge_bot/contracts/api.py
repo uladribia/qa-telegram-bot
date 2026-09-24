@@ -17,10 +17,9 @@ class EvalAnswerRequest(BaseModel):
 class ReindexRequest(BaseModel):
     """Optional bounded incremental reindex request."""
 
-    rebuild: bool = False
     qa_after: str | None = None
     msg_after: str | None = None
-    limit: int | None = Field(default=None, ge=1, le=1000)
+    limit: int = Field(default=50, ge=1, le=100)
 
 
 class IndexRepairRequest(BaseModel):
@@ -32,7 +31,7 @@ class IndexRepairRequest(BaseModel):
 class BackgroundBacklogRequest(BaseModel):
     """Bounded deferred-background processing request."""
 
-    limit: int = Field(default=100, ge=1, le=1000)
+    limit: int = Field(default=100, ge=1, le=100)
 
 
 class RegisterGroupRequest(BaseModel):

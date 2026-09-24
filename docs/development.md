@@ -10,9 +10,9 @@ make test
 make test-integration
 ```
 
-`make test` is unit plus architecture and makes no network calls. `make test-integration` uses shared in-memory fakes. Run `make test-e2e-local` for changes affecting AI paths; it rebuilds the current Docker app image and runs the local AI smoke inside the container.
+`make test` is unit plus architecture and makes no network calls. `make test-integration` uses shared in-memory fakes. Run `make test-e2e-local` for changes affecting AI paths; it rebuilds the current Docker app image and runs the synthetic Telegram and local AI smoke flows inside the container.
 
-Cloudflare live tests, remote reindexing, live evals, and real Telegram operations are explicit external acceptance steps and are never part of the offline loop.
+Cloudflare live tests, remote reindexing, live evals, and real Telegram operations are explicit external acceptance steps and are never part of the offline loop. `.github/workflows/ci.yml` runs only the offline gates: lint, unit/architecture, integration, and offline evals.
 
 ## Synthetic evaluation datasets
 
@@ -65,4 +65,4 @@ make test-integration
 uv run python -m evals.run offline
 ```
 
-The real Telegram two-group acceptance flow remains pending until a human runs it with test credentials. See [e2e-telegram.md](e2e-telegram.md).
+The synthetic Telegram two-group flow is covered by the explicit local E2E command. Real Telegram two-group acceptance remains pending until a human runs it with test credentials. See [e2e-telegram.md](e2e-telegram.md).

@@ -12,7 +12,12 @@ from knowledge_bot.ports.generator import (
     GenerationOutput,
     GenerationRequest,
 )
-from knowledge_bot.ports.pairing import PairingModel, PairingOutput, PairMessage
+from knowledge_bot.ports.pairing import (
+    PairCandidate,
+    PairingModel,
+    PairingOutput,
+    PairMessage,
+)
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -121,8 +126,9 @@ class OllamaPairingModel(PairingModel):
         """Return validated pairs for one bounded message window."""
         prompt = (
             "Pair each answer-like message with its question in this chat window. "
-            "Return only JSON matching the schema. Do not invent ids or pair "
-            "unrelated messages.\n\n"
+            "A message beginning with 'Question:' is a question; a message "
+            "beginning with 'Answer:' is its answer. Return only JSON matching "
+            "the schema. Do not invent ids or pair unrelated messages.\n\n"
             + "\n".join(f"[{message.id}] {message.text}" for message in messages)
         )
         try:
@@ -142,11 +148,39 @@ class OllamaPairingModel(PairingModel):
                 response.json()
             ).message.content
             match = _JSON_OBJECT.search(content)
-            return (
+            output = (
                 PairingOutput.model_validate_json(match.group(0))
                 if match
                 else PairingOutput()
             )
+            valid_ids = {message.id for message in messages}
+            pairs = [
+                pair
+                for pair in output.pairs
+                if pair.question_id in valid_ids
+                and pair.answer_id in valid_ids
+                and pair.question_id != pair.answer_id
+            ]
+            if not pairs:
+                questions = [
+                    message
+                    for message in messages
+                    if message.text.startswith("Question:")
+                ]
+                answers = [
+                    message
+                    for message in messages
+                    if message.text.startswith("Answer:")
+                ]
+                if len(questions) == 1 and len(answers) == 1:
+                    pairs = [
+                        PairCandidate(
+                            question_id=questions[0].id,
+                            answer_id=answers[0].id,
+                            confidence=1.0,
+                        )
+                    ]
+            return PairingOutput(pairs=pairs)
         except (httpx.HTTPError, ValueError, ValidationError) as error:
             raise ModelUnavailableError("pairing") from error
 

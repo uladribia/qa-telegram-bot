@@ -1576,25 +1576,6 @@ class D1CorrectionCommitStore:
         await self._db.batch(
             [
                 self._db.prepare(
-                    "INSERT INTO qa_versions"
-                    " (id, qa_id, answer, authority, confidence, origin, created_by,"
-                    " supersedes_version_id, created_at, source_url, source_anchor,"
-                    " author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                ).bind(
-                    version.id,
-                    version.qa_id,
-                    version.answer,
-                    version.authority,
-                    version.confidence,
-                    version.origin,
-                    version.created_by,
-                    version.supersedes_version_id,
-                    _iso(version.created_at),
-                    version.source_url,
-                    version.source_anchor,
-                    version.author,
-                ),
-                self._db.prepare(
                     "INSERT INTO qa_items"
                     " (id, canonical_key, canonical_question, status,"
                     " current_version_id, created_at, updated_at, scope_key)"
@@ -1613,6 +1594,25 @@ class D1CorrectionCommitStore:
                     _iso(item.created_at),
                     _iso(item.updated_at),
                     item.scope_key,
+                ),
+                self._db.prepare(
+                    "INSERT INTO qa_versions"
+                    " (id, qa_id, answer, authority, confidence, origin, created_by,"
+                    " supersedes_version_id, created_at, source_url, source_anchor,"
+                    " author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                ).bind(
+                    version.id,
+                    version.qa_id,
+                    version.answer,
+                    version.authority,
+                    version.confidence,
+                    version.origin,
+                    version.created_by,
+                    version.supersedes_version_id,
+                    _iso(version.created_at),
+                    version.source_url,
+                    version.source_anchor,
+                    version.author,
                 ),
                 self._db.prepare(
                     "INSERT INTO qa_evidence"

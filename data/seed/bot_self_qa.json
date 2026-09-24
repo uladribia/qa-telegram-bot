@@ -59,7 +59,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Quan aprovo una correcció, es perd la resposta antiga?",
-    "answer": "No. Aprovar una correcció afegeix una nova versió de la resposta; l'anterior es conserva i el Q&A original del web no es modifica. El revisor del grup pot aprovar-la només per al seu grup. El revisor global o l'admin poden fer-la global per a tots els grups. En el grup on existeix una versió local, aquesta té prioritat sobre la global.",
+    "answer": "No. Aprovar una correcció afegeix una nova versió de la resposta; l'anterior es conserva i el Q&A original del web no es modifica. El revisor del grup pot aprovar-la només per al seu grup. El revisor global o l'admin poden fer-la global per a tots els grups. En el grup on existeix una versió local de la mateixa pregunta, aquesta substitueix la global; no invalida les altres preguntes globals.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },

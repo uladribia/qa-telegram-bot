@@ -33,4 +33,4 @@ Direct questions are never rejected by the estimate guard. Background and mainte
 
 ## Repair
 
-SQL semantic commits are not rolled back when a derived projection fails. The projection manifest records `pending`, `active`, or `failed`, and `kb index repair --limit 100` repairs a bounded batch. A full rebuild deletes known, legacy, and temporary pair vector ids before rebuilding current SQL truth.
+SQL semantic commits are not rolled back when a derived projection fails. The projection manifest records `pending`, `active`, or `failed`, and `kb index repair --limit 100` repairs a bounded batch. A full rebuild uses a separate zero-AI cleanup followed by bounded batches; an empty reindex request never starts a destructive rebuild.
