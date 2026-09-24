@@ -44,6 +44,7 @@ bootstrap() {
   docker exec "$OLLAMA_CONTAINER" ollama list | grep -q 'gemma3:270m' || docker exec "$OLLAMA_CONTAINER" ollama pull gemma3:270m
   docker build -f Dockerfile.local -t "$APP_IMAGE" .
   "$0" migrate
+  docker rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
   "$0" up
 }
 
