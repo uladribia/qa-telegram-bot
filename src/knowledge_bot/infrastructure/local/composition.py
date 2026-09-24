@@ -26,6 +26,7 @@ from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.reviewers import ReviewerManager, ReviewerRouter
 from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
+from knowledge_bot.infrastructure.classifier_head import load_classifier_head
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
@@ -33,14 +34,12 @@ from knowledge_bot.infrastructure.local.http import HttpxClient
 from knowledge_bot.infrastructure.local.ollama import (
     OllamaEmbedder,
     OllamaGenerator,
-    OllamaPairingModel,
 )
 from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
 from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
-    MeteredPairingModel,
 )
 from knowledge_bot.infrastructure.settings import Settings
 from knowledge_bot.infrastructure.sql.repositories import (
@@ -54,7 +53,7 @@ from knowledge_bot.infrastructure.sql.repositories import (
     SqlDailyReportStateRepository,
     SqlDeliveryReceiptRepository,
     SqlFeedbackRepository,
-    SqlListenerPairingWindowRepository,
+    SqlLexicalIndex,
     SqlMessagePairCandidateRepository,
     SqlMessageRepository,
     SqlQAItemRepository,
@@ -79,7 +78,7 @@ D1DailyReportSource = SqlDailyReportSource
 D1DailyReportStateRepository = SqlDailyReportStateRepository
 D1DeliveryReceiptRepository = SqlDeliveryReceiptRepository
 D1FeedbackRepository = SqlFeedbackRepository
-D1ListenerPairingWindowRepository = SqlListenerPairingWindowRepository
+D1LexicalIndex = SqlLexicalIndex
 D1MessagePairCandidateRepository = SqlMessagePairCandidateRepository
 D1MessageRepository = SqlMessageRepository
 D1QAItemRepository = SqlQAItemRepository
@@ -190,10 +189,9 @@ async def build_context(
     vectors = NumpySqliteVectorStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
-        chitchat_discard_threshold=settings.classifier_chitchat_discard_threshold,
-        keep_signal_threshold=settings.classifier_keep_signal_threshold,
-        question_match_threshold=settings.classifier_question_match_threshold,
-        answer_match_threshold=settings.classifier_answer_match_threshold,
+        head=load_classifier_head(settings.classifier_model_path),
+        confidence_threshold=settings.classifier_confidence_threshold,
+        margin_threshold=settings.classifier_margin_threshold,
     )
     answers = D1BotAnswerRepository(binding)
     messages = D1MessageRepository(binding)
@@ -201,17 +199,18 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
+    lexical = D1LexicalIndex(binding)
     projector = SearchProjectionService(
         source=D1SearchIndexSource(binding),
         embedder=embedder,
         vectors=vectors,
+        lexical=lexical,
         manifest=manifest,
         clock=clock,
         budget=budget,
     )
     runtime_smoke = RuntimeSmokeService(embedder, generator, vectors, manifest, clock)
     pair_candidates = D1MessagePairCandidateRepository(binding)
-    pair_windows = D1ListenerPairingWindowRepository(binding)
     commits = D1CorrectionCommitStore(binding)
     context = AppContext(
         settings=settings,
@@ -240,13 +239,15 @@ async def build_context(
             classifier=classifier,
             projector=projector,
             clock=clock,
-            answer_threshold=settings.classifier_answer_match_threshold,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
             budget=budget,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
+                lexical=lexical,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),
@@ -323,19 +324,13 @@ async def build_context(
             conversations=conversations,
             sources=sources,
             candidates=pair_candidates,
-            windows=pair_windows,
             projector=projector,
-            model=MeteredPairingModel(
-                OllamaPairingModel(
-                    client, settings.ollama_base_url, settings.generation_model
-                ),
-                budget,
-            ),
             clock=clock,
             budget=budget,
-            window_minutes=settings.pairing_window_minutes,
-            quiet_minutes=settings.pairing_quiet_minutes,
-            overlap_minutes=settings.pairing_overlap_minutes,
+            question_window_minutes=settings.pairing_question_window_minutes,
+            max_pending_questions=settings.pairing_max_pending_questions,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
         ),
     )
     return context, database, client

@@ -14,6 +14,7 @@ from knowledge_bot.ports.index import (
     SearchIndexSource,
     SearchProjectionRepository,
 )
+from knowledge_bot.ports.lexical import LexicalIndex, LexicalRecord
 from knowledge_bot.ports.vector_store import VectorRecord, VectorStore
 
 
@@ -29,11 +30,12 @@ class ProjectionRepairReport:
 
 @dataclass(frozen=True, slots=True)
 class SearchProjectionService:
-    """Own the only vector and manifest ordering used by the application."""
+    """Own the only vector, lexical, and manifest ordering used by the app."""
 
     source: SearchIndexSource
     embedder: Embedder
     vectors: VectorStore
+    lexical: LexicalIndex
     manifest: SearchProjectionRepository
     clock: Clock
     budget: AiBudget | None = None
@@ -46,32 +48,33 @@ class SearchProjectionService:
         )
         try:
             await self.vectors.delete([vector_id])
-            values = (await self.embedder.embed([f"{item.question}\n{item.answer}"]))[0]
+            # Question-focused embedding: the vector text is the question only;
+            # the answer stays in metadata.
+            values = (await self.embedder.embed([item.question]))[0]
+            metadata: dict[str, object] = {
+                "kind": "qa",
+                "object_id": item.qa_item_id,
+                "version_id": item.version_id,
+                "status": "active",
+                "scope_key": item.scope_key,
+                "canonical_key": item.canonical_key,
+                "authority": item.authority,
+                "question": item.question,
+                "text": item.answer,
+                "source_anchor": item.source_anchor,
+                "url": item.url,
+                "date": item.date,
+                "author": item.author,
+            }
             await self.vectors.upsert(
-                [
-                    VectorRecord(
-                        id=vector_id,
-                        values=values,
-                        metadata={
-                            "kind": "qa",
-                            "object_id": item.qa_item_id,
-                            "version_id": item.version_id,
-                            "status": "active",
-                            "scope_key": item.scope_key,
-                            "canonical_key": item.canonical_key,
-                            "authority": item.authority,
-                            "question": item.question,
-                            "text": item.answer,
-                            "source_anchor": item.source_anchor,
-                            "url": item.url,
-                            "date": item.date,
-                            "author": item.author,
-                        },
-                    )
-                ]
+                [VectorRecord(id=vector_id, values=values, metadata=metadata)]
             )
             await self.manifest.mark_active(
                 vector_id, item.version_id, self.clock.now()
+            )
+            # Keep the lexical projection synchronized under the same vector id.
+            await self.lexical.upsert(
+                [LexicalRecord(id=vector_id, text=item.question, metadata=metadata)]
             )
         except ModelUnavailableError:
             await self.manifest.mark_failed(
@@ -96,34 +99,33 @@ class SearchProjectionService:
         )
         try:
             await self.vectors.delete([vector_id])
+            # Question-focused embeddings: paired evidence embeds the context
+            # question only; a standalone factual update embeds its own text.
             values = list(precomputed_embedding or [])
             if not values:
-                text = (
-                    f"Question: {message.question}\nAnswer: {message.text}"
-                    if message.question
-                    else message.text
-                )
+                text = message.question or message.text
                 values = (await self.embedder.embed([text]))[0]
+            lexical_text = message.question or message.text
+            metadata: dict[str, object] = {
+                "kind": "message_evidence",
+                "object_id": message.message_id,
+                "scope_key": message.scope_key,
+                "authority": message.authority,
+                "text": message.text,
+                "question": message.question,
+                "author": message.author,
+                "date": message.date,
+                "source_kind": message.source_kind,
+            }
             await self.vectors.upsert(
-                [
-                    VectorRecord(
-                        id=vector_id,
-                        values=values,
-                        metadata={
-                            "kind": "message_evidence",
-                            "object_id": message.message_id,
-                            "scope_key": message.scope_key,
-                            "authority": message.authority,
-                            "text": message.text,
-                            "question": message.question,
-                            "author": message.author,
-                            "date": message.date,
-                            "source_kind": message.source_kind,
-                        },
-                    )
-                ]
+                [VectorRecord(id=vector_id, values=values, metadata=metadata)]
             )
             await self.manifest.mark_active(vector_id, None, self.clock.now())
+            # Keep the lexical projection synchronized: paired evidence indexes
+            # the context question; a standalone update indexes its own text.
+            await self.lexical.upsert(
+                [LexicalRecord(id=vector_id, text=lexical_text, metadata=metadata)]
+            )
         except ModelUnavailableError:
             await self.manifest.mark_failed(
                 vector_id, None, "model_unavailable", self.clock.now()
@@ -136,9 +138,10 @@ class SearchProjectionService:
             raise ProjectionError("vector_write_failed") from None
 
     async def remove(self, vector_ids: list[str]) -> None:
-        """Delete vectors and their manifest entries."""
+        """Delete vectors, lexical rows, and their manifest entries."""
         if vector_ids:
             await self.vectors.delete(vector_ids)
+            await self.lexical.delete(vector_ids)
             await self.manifest.delete(vector_ids)
 
     async def repair(self, limit: int = 100) -> ProjectionRepairReport:

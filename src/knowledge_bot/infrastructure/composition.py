@@ -26,6 +26,7 @@ from knowledge_bot.application.reviewers import (
 )
 from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
+from knowledge_bot.infrastructure.classifier_head import load_classifier_head
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AiUsageRepository,
@@ -39,7 +40,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1Database,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
-    D1ListenerPairingWindowRepository,
+    D1LexicalIndex,
     D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -61,13 +62,11 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     AiRunner,
     WorkersAIEmbedder,
     WorkersAIGenerator,
-    WorkersAIPairingModel,
 )
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
-    MeteredPairingModel,
 )
 from knowledge_bot.infrastructure.settings import Settings
 
@@ -110,18 +109,16 @@ def build_context(env: WorkerEnv) -> AppContext:
         reviewer_escalation_timeout_seconds=_text(
             env, "REVIEWER_ESCALATION_TIMEOUT_SECONDS", "86400"
         ),
-        pairing_window_minutes=_text(env, "PAIRING_WINDOW_MINUTES", "10"),
-        pairing_quiet_minutes=_text(env, "PAIRING_QUIET_MINUTES", "2"),
-        pairing_overlap_minutes=_text(env, "PAIRING_OVERLAP_MINUTES", "3"),
+        pairing_question_window_minutes=_text(
+            env, "PAIRING_QUESTION_WINDOW_MINUTES", "5"
+        ),
+        pairing_max_pending_questions=_text(env, "PAIRING_MAX_PENDING_QUESTIONS", "5"),
         background_listener_enabled=_text(env, "BACKGROUND_LISTENER_ENABLED", "false"),
-        classifier_chitchat_discard_threshold=_text(
-            env, "CLASSIFIER_CHITCHAT_DISCARD", "0.80"
+        classifier_confidence_threshold=_text(env, "CLASSIFIER_CONFIDENCE", "0.60"),
+        classifier_margin_threshold=_text(env, "CLASSIFIER_MARGIN", "0.15"),
+        classifier_model_path=_text(
+            env, "CLASSIFIER_MODEL_PATH", "data/classifier/model.json"
         ),
-        classifier_keep_signal_threshold=_text(env, "CLASSIFIER_KEEP_SIGNAL", "0.45"),
-        classifier_question_match_threshold=_text(
-            env, "CLASSIFIER_QUESTION_MATCH", "0.60"
-        ),
-        classifier_answer_match_threshold=_text(env, "CLASSIFIER_ANSWER_MATCH", "0.55"),
         direct_qa_threshold=_text(env, "DIRECT_QA_THRESHOLD", "0.7"),
         synthesis_threshold=_text(env, "SYNTHESIS_THRESHOLD", "0.3"),
         qa_top_k=_text(env, "QA_TOP_K", "5"),
@@ -137,7 +134,6 @@ def build_context(env: WorkerEnv) -> AppContext:
         ai_embed_neurons_per_char=_text(env, "AI_EMBED_NEURONS_PER_CHAR", "0.015"),
         ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
         ai_embed_timeout_seconds=_text(env, "AI_EMBED_TIMEOUT_SECONDS", "10"),
-        ai_pairing_timeout_seconds=_text(env, "AI_PAIRING_TIMEOUT_SECONDS", "30"),
         ai_generation_timeout_seconds=_text(env, "AI_GENERATION_TIMEOUT_SECONDS", "35"),
     )
     database = env.DB
@@ -168,6 +164,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         budget,
     )
     vectors = VectorizeStore(env.VECTORIZE)
+    lexical = D1LexicalIndex(database)
     listener_messages = D1MessageRepository(database)
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
@@ -176,6 +173,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         source=D1SearchIndexSource(database),
         embedder=embedder,
         vectors=vectors,
+        lexical=lexical,
         manifest=projection_manifest,
         clock=clock,
         budget=budget,
@@ -184,14 +182,12 @@ def build_context(env: WorkerEnv) -> AppContext:
         embedder, generator, vectors, projection_manifest, clock
     )
     pair_candidates = D1MessagePairCandidateRepository(database)
-    pair_windows = D1ListenerPairingWindowRepository(database)
     correction_commits = D1CorrectionCommitStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
-        chitchat_discard_threshold=settings.classifier_chitchat_discard_threshold,
-        keep_signal_threshold=settings.classifier_keep_signal_threshold,
-        question_match_threshold=settings.classifier_question_match_threshold,
-        answer_match_threshold=settings.classifier_answer_match_threshold,
+        head=load_classifier_head(settings.classifier_model_path),
+        confidence_threshold=settings.classifier_confidence_threshold,
+        margin_threshold=settings.classifier_margin_threshold,
     )
     return AppContext(
         settings=settings,
@@ -216,13 +212,15 @@ def build_context(env: WorkerEnv) -> AppContext:
             classifier=classifier,
             projector=projector,
             clock=clock,
-            answer_threshold=settings.classifier_answer_match_threshold,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
             budget=budget,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
+                lexical=lexical,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),
@@ -302,20 +300,12 @@ def build_context(env: WorkerEnv) -> AppContext:
             conversations=listener_conversations,
             sources=listener_sources,
             candidates=pair_candidates,
-            windows=pair_windows,
             projector=projector,
-            model=MeteredPairingModel(
-                WorkersAIPairingModel(
-                    env.AI,
-                    settings.generation_model,
-                    settings.ai_pairing_timeout_seconds,
-                ),
-                budget,
-            ),
             clock=clock,
             budget=budget,
-            window_minutes=settings.pairing_window_minutes,
-            quiet_minutes=settings.pairing_quiet_minutes,
-            overlap_minutes=settings.pairing_overlap_minutes,
+            question_window_minutes=settings.pairing_question_window_minutes,
+            max_pending_questions=settings.pairing_max_pending_questions,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
         ),
     )

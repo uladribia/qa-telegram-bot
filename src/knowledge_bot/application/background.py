@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, replace
 
 from knowledge_bot.application.budget import AiBudget
-from knowledge_bot.application.classifier import MessageClassifier
+from knowledge_bot.application.classifier import MessageClassifier, message_is_confident
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.domain.enums import (
@@ -44,7 +44,8 @@ class BackgroundIndexer:
         classifier: MessageClassifier,
         projector: SearchProjectionService,
         clock: Clock,
-        answer_threshold: float,
+        confidence_threshold: float,
+        margin_threshold: float,
         budget: AiBudget | None = None,
     ) -> None:
         """Wire stores and the shared projection service."""
@@ -54,7 +55,8 @@ class BackgroundIndexer:
         self._classifier = classifier
         self._projector = projector
         self._clock = clock
-        self._answer_threshold = answer_threshold
+        self._confidence_threshold = confidence_threshold
+        self._margin_threshold = margin_threshold
         self._budget = budget
 
     async def process_backlog(self, limit: int) -> BackgroundProcessResult:
@@ -96,6 +98,7 @@ class BackgroundIndexer:
                             "knowledge_update": scores.knowledge_update,
                             "correction": scores.correction,
                             "chitchat": scores.chitchat,
+                            "margin": classification.margin,
                         },
                         sort_keys=True,
                     ),
@@ -138,7 +141,13 @@ class BackgroundIndexer:
         )
         await self._messages.save(replace(message, index_status=IndexStatus.PENDING))
         try:
-            await self._projector.project_message(indexable, message_embedding)
+            # Paired evidence embeds its context question, not the message text,
+            # so the precomputed message embedding only applies to standalone
+            # factual updates.
+            precomputed = (
+                None if message.context_question is not None else message_embedding
+            )
+            await self._projector.project_message(indexable, precomputed)
         except (RuntimeError, ValueError):
             await self._messages.save(replace(message, index_status=IndexStatus.FAILED))
             return False
@@ -150,11 +159,22 @@ class BackgroundIndexer:
         return True
 
     def _eligible(self, message: Message) -> bool:
-        """Return whether a message is factual evidence."""
+        """Return whether a message is factual evidence.
+
+        A paired answer is always eligible; a standalone message is evidence
+        only when its classifier decision clears the confidence policy.
+        """
         if message.context_question is not None:
             return True
-        return (
-            message.intent_label
-            in {IntentLabel.KNOWLEDGE_UPDATE.value, IntentLabel.CORRECTION.value}
-            and (message.intent_score or 0.0) >= self._answer_threshold
+        if message.intent_label not in {
+            IntentLabel.KNOWLEDGE_UPDATE.value,
+            IntentLabel.CORRECTION.value,
+        }:
+            return False
+        return message_is_confident(
+            message.intent_label,
+            message.intent_score,
+            message.intent_scores_json,
+            confidence_threshold=self._confidence_threshold,
+            margin_threshold=self._margin_threshold,
         )

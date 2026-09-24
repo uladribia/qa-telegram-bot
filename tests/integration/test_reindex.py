@@ -10,6 +10,7 @@ from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import (
     FakeEmbedder,
+    FakeLexicalIndex,
     FakeSearchIndexSource,
     FakeVectorStore,
     InMemorySearchProjectionRepository,
@@ -26,7 +27,12 @@ def _service(
     manifest: InMemorySearchProjectionRepository,
 ) -> ReindexService:
     projector = SearchProjectionService(
-        source, FakeEmbedder([1.0, 0.0]), vectors, manifest, FrozenClock(NOW)
+        source,
+        FakeEmbedder([1.0, 0.0]),
+        vectors,
+        FakeLexicalIndex(),
+        manifest,
+        FrozenClock(NOW),
     )
     return ReindexService(source, projector, FrozenClock(NOW))
 

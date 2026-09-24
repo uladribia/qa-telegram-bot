@@ -26,15 +26,15 @@ from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.settings import Settings
-from knowledge_bot.ports.pairing import PairingOutput
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
-    FakePairingModel,
+    FakeLexicalIndex,
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
     InMemorySearchProjectionRepository,
+    linear_head,
 )
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import (
@@ -82,7 +82,6 @@ def build_test_context(
     allowed_user_ids: frozenset[str] = frozenset(),
     admin_report_mode: str = "always",
     reviewer_escalation_timeout_seconds: int = 86_400,
-    pairing_output: PairingOutput | None = None,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes."""
@@ -95,14 +94,17 @@ def build_test_context(
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
+    lexical = FakeLexicalIndex()
     manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
         backend.sources, backend.conversations, backend.messages, backend.attachments
     )
-    classifier = MessageClassifier(embedder=embedder)
+    classifier = MessageClassifier(
+        embedder=embedder, head=linear_head(len(embedder.vector))
+    )
     projector = SearchProjectionService(
-        FakeSearchIndexSource(), embedder, vectors, manifest, clock, budget
+        FakeSearchIndexSource(), embedder, vectors, lexical, manifest, clock, budget
     )
     settings = Settings(
         _env_file=None,
@@ -136,11 +138,12 @@ def build_test_context(
             classifier,
             projector,
             clock,
-            0.55,
+            0.60,
+            0.15,
             budget,
         ),
         answer=AnswerService(
-            RetrievalService(embedder, vectors),
+            RetrievalService(embedder, vectors, lexical),
             FakeGenerator(),
             backend.answers,
             clock,
@@ -188,11 +191,8 @@ def build_test_context(
             backend.conversations,
             backend.sources,
             backend.message_pair_candidates,
-            backend.listener_pairing_windows,
             projector,
-            FakePairingModel(pairing_output),
             clock,
-            budget,
         ),
         projector=projector,
         runtime_smoke=RuntimeSmokeService(

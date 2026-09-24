@@ -4,12 +4,13 @@
 import math
 from datetime import datetime
 
+from knowledge_bot.application.classifier import LABELS, ClassifierHead
 from knowledge_bot.domain.entities import SearchProjectionEntry
 from knowledge_bot.domain.enums import ProjectionState
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
-from knowledge_bot.ports.pairing import PairingOutput, PairMessage
+from knowledge_bot.ports.lexical import LexicalMatch, LexicalRecord
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
@@ -114,18 +115,67 @@ class FakeGenerator:
         return self.result
 
 
-class FakePairingModel:
-    """Deterministic pairing model for listener tests."""
+def linear_head(dimensions: int = 4) -> ClassifierHead:
+    """Build a test head where the i-th unit vector maps to the i-th label.
 
-    def __init__(self, output: PairingOutput | None = None) -> None:
-        """Configure fixed pair output."""
-        self.output = output or PairingOutput()
-        self.windows: list[list[PairMessage]] = []
+    Coefficients are scaled by 2 so exact matches clear the confidence
+    policy (top probability >= 0.60, margin >= 0.15) while any vector
+    equidistant between two labels is ambiguous.
+    """
+    coef = []
+    for index in range(len(LABELS)):
+        row = [0.0] * dimensions
+        if index < dimensions:
+            row[index] = 2.0
+        coef.append(tuple(row))
+    return ClassifierHead(
+        labels=LABELS, coef=tuple(coef), intercept=(0.0, 0.0, 0.0, 0.0)
+    )
 
-    async def pair(self, messages: list[PairMessage]) -> PairingOutput:
-        """Record a window and return its configured pairs."""
-        self.windows.append(messages)
-        return self.output
+
+class FakeLexicalIndex:
+    """An in-memory BM25 proxy: rank by matched-token count, then id."""
+
+    def __init__(self) -> None:
+        """Create an empty index."""
+        self.records: dict[str, LexicalRecord] = {}
+
+    async def upsert(self, records: list[LexicalRecord]) -> None:
+        """Insert or replace lexical rows."""
+        for record in records:
+            self.records[record.id] = record
+
+    async def search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: dict[str, object] | None = None,
+    ) -> list[LexicalMatch]:
+        """Return token-overlap matches, strongest first."""
+        import re
+
+        tokens = {token.casefold() for token in re.findall(r"\w+", query)}
+        hits: list[tuple[int, str, LexicalRecord]] = []
+        for record in self.records.values():
+            if not _matches(record.metadata, filters):
+                continue
+            text_tokens = {
+                token.casefold() for token in re.findall(r"\w+", record.text)
+            }
+            overlap = len(tokens & text_tokens)
+            if overlap:
+                hits.append((overlap, record.id, record))
+        hits.sort(key=lambda item: (-item[0], item[1]))
+        return [
+            LexicalMatch(id=record.id, metadata=dict(record.metadata))
+            for _, _, record in hits[:top_k]
+        ]
+
+    async def delete(self, ids: list[str]) -> None:
+        """Delete lexical rows by id."""
+        for vector_id in ids:
+            self.records.pop(vector_id, None)
 
 
 class InMemorySearchProjectionRepository:

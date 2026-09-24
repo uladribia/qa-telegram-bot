@@ -6,6 +6,8 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
+import json
+import re
 from datetime import UTC, datetime
 from typing import cast
 
@@ -16,7 +18,6 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
-    ListenerPairingWindow,
     Message,
     MessagePairCandidate,
     QAEvidence,
@@ -47,6 +48,7 @@ from knowledge_bot.infrastructure.sql.protocol import (
     SqlStatement,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.lexical import LexicalMatch, LexicalRecord
 from knowledge_bot.ports.repositories import DailyReportSnapshot
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
@@ -54,6 +56,36 @@ from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 D1Result = SqlResult
 D1Statement = SqlStatement
 D1Database = SqlDatabase
+
+_FTS_FILTER_COLUMNS = frozenset({"kind", "scope_key", "canonical_key"})
+_FTS_TOKEN = re.compile(r"[\w]+", flags=re.UNICODE)
+
+
+def _fts_query(query: str) -> str:
+    """Turn free text into a safe FTS5 MATCH expression."""
+    return " ".join(f'"{token}"' for token in _FTS_TOKEN.findall(query))
+
+
+def _json_dumps(metadata: dict[str, object]) -> str:
+    """Serialize lexical row metadata."""
+    return json.dumps(metadata, separators=(",", ":"), default=str)
+
+
+def _json_loads(value: object) -> dict[str, object]:
+    """Deserialize lexical row metadata defensively."""
+    if not isinstance(value, str):
+        return {}
+    try:
+        payload = json.loads(value)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _as_int_authority(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
 
 
 def _to_python(value: object) -> object:
@@ -635,18 +667,32 @@ class D1MessageRepository:
         )
         return [_message(row) for row in _rows(result)]
 
-    async def list_recent_listener(
-        self, conversation_id: str, start: datetime, limit: int
+    async def list_recent_unpaired_questions(
+        self,
+        conversation_id: str,
+        since: datetime,
+        until: datetime,
+        limit: int,
     ) -> list[Message]:
-        """Return recent messages classified by the background listener."""
-        result = (
-            await self._db.prepare(
+        """Return recent question candidates for temporal pairing.
+
+        Args:
+            conversation_id: The conversation to search.
+            since: Oldest question creation time to consider.
+            until: Newest question creation time (the answer's timestamp).
+            limit: Maximum number of candidates.
+
+        Returns:
+            Questions never paired with an answer, newest first.
+        """
+        result = await (
+            self._db.prepare(
                 "SELECT * FROM messages WHERE conversation_id = ?"
-                " AND created_at >= ? AND classification_status IN"
-                " ('classified', 'prefilter_chitchat', 'deferred_budget', 'failed')"
-                " ORDER BY created_at LIMIT ?"
+                " AND intent_label = 'question' AND context_question IS NULL"
+                " AND text IS NOT NULL AND created_at >= ? AND created_at <= ?"
+                " ORDER BY created_at DESC LIMIT ?"
             )
-            .bind(conversation_id, _iso(start), limit)
+            .bind(conversation_id, _iso(since), _iso(until), limit)
             .run()
         )
         return [_message(row) for row in _rows(result)]
@@ -674,62 +720,6 @@ class D1MessageRepository:
             .first()
         )
         return (_count(ingested), _count(paired))
-
-
-class D1ListenerPairingWindowRepository:
-    """D1 implementation of durable listener pairing windows."""
-
-    def __init__(self, database: D1Database) -> None:
-        """Wrap a D1 database binding."""
-        self._db = database
-
-    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
-        """Return the current window for a conversation."""
-        row = _row(
-            await self._db.prepare(
-                "SELECT * FROM listener_pairing_windows"
-                " WHERE conversation_id = ? AND status = 'pending'"
-                " ORDER BY started_at DESC LIMIT 1"
-            )
-            .bind(conversation_id)
-            .first()
-        )
-        return _pairing_window(row) if row is not None else None
-
-    async def save(self, window: ListenerPairingWindow) -> None:
-        """Create or update a conversation window."""
-        await (
-            self._db.prepare(
-                "INSERT INTO listener_pairing_windows"
-                " (id, conversation_id, started_at, last_message_at,"
-                " processed_at, status) VALUES (?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(id) DO UPDATE SET"
-                " last_message_at=excluded.last_message_at,"
-                " processed_at=excluded.processed_at, status=excluded.status"
-            )
-            .bind(
-                window.id,
-                window.conversation_id,
-                _iso(window.started_at),
-                _iso(window.last_message_at),
-                _iso(window.processed_at) if window.processed_at is not None else None,
-                window.status,
-            )
-            .run()
-        )
-
-    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
-        """Return pending windows whose quiet period has elapsed."""
-        result = await (
-            self._db.prepare(
-                "SELECT * FROM listener_pairing_windows"
-                " WHERE status = 'pending' AND last_message_at <= ?"
-                " ORDER BY last_message_at"
-            )
-            .bind(_iso(before))
-            .run()
-        )
-        return [_pairing_window(row) for row in _rows(result)]
 
 
 class D1MessagePairCandidateRepository:
@@ -961,17 +951,6 @@ def _message(row: dict[str, object]) -> Message:
             str(row.get("index_status") or IndexStatus.NOT_INDEXED.value)
         ),
         indexed_at=_opt_dt(row.get("indexed_at")),
-    )
-
-
-def _pairing_window(row: dict[str, object]) -> ListenerPairingWindow:
-    return ListenerPairingWindow(
-        id=str(row["id"]),
-        conversation_id=str(row["conversation_id"]),
-        started_at=_dt(row["started_at"]),
-        last_message_at=_dt(row["last_message_at"]),
-        processed_at=_opt_dt(row.get("processed_at")),
-        status=str(row["status"]),
     )
 
 
@@ -2202,4 +2181,94 @@ class D1ReportStateRepository:
             )
             .bind(_iso(sent_at))
             .run()
+        )
+
+
+class D1LexicalIndex:
+    """D1/SQLite FTS5 projection of searchable question texts.
+
+    Rows are keyed by the stable vector id so the lexical projection stays in
+    lockstep with the vector projection lifecycle.
+    """
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def upsert(self, records: list[LexicalRecord]) -> None:
+        """Replace the lexical row of every given vector id."""
+        if not records:
+            return
+        statements = []
+        for record in records:
+            statements.append(
+                self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
+                    record.id
+                )
+            )
+            statements.append(
+                self._db.prepare(
+                    "INSERT INTO search_fts"
+                    " (vector_id, kind, scope_key, canonical_key, authority,"
+                    "  metadata_json, question_text)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                ).bind(
+                    record.id,
+                    str(record.metadata.get("kind", "")),
+                    str(record.metadata.get("scope_key", "")),
+                    _opt_str(record.metadata.get("canonical_key")),
+                    _as_int_authority(record.metadata.get("authority")),
+                    _json_dumps(record.metadata),
+                    record.text,
+                )
+            )
+        await self._db.batch(statements)
+
+    async def search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: dict[str, object] | None = None,
+    ) -> list[LexicalMatch]:
+        """Return BM25-ranked matches, optionally filtered by metadata."""
+        match_query = _fts_query(query)
+        if not match_query:
+            return []
+        clauses = ["search_fts MATCH ?"]
+        parameters: list[object] = [match_query]
+        for key, value in (filters or {}).items():
+            if key not in _FTS_FILTER_COLUMNS:
+                raise ValueError(f"unsupported lexical filter: {key}")  # noqa: TRY003
+            clauses.append(f"{key} = ?")
+            parameters.append(value)
+        parameters.append(top_k)
+        result = await (
+            self._db.prepare(
+                "SELECT vector_id, metadata_json FROM search_fts"
+                f" WHERE {' AND '.join(clauses)}"
+                " ORDER BY bm25(search_fts) LIMIT ?"
+            )
+            .bind(*parameters)
+            .run()
+        )
+        return [
+            LexicalMatch(
+                id=str(row["vector_id"]),
+                metadata=_json_loads(row["metadata_json"]),
+            )
+            for row in _rows(result)
+        ]
+
+    async def delete(self, ids: list[str]) -> None:
+        """Delete lexical rows by their stable projection ids."""
+        if not ids:
+            return
+        await self._db.batch(
+            [
+                self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
+                    vector_id
+                )
+                for vector_id in ids
+            ]
         )

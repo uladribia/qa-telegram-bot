@@ -43,6 +43,7 @@ from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
+    FakeLexicalIndex,
     FakeVectorStore,
 )
 from tests.fakes.repositories import (
@@ -313,7 +314,9 @@ def eval_conflicts() -> EvalReport:
         generator = FakeGenerator(GenerationOutput(status="insufficient"))
         service = AnswerService(
             retrieval=RetrievalService(
-                embedder=FakeEmbedder(), vectors=FakeVectorStore()
+                embedder=FakeEmbedder(),
+                vectors=FakeVectorStore(),
+                lexical=FakeLexicalIndex(),
             ),
             generator=generator,
             answers=InMemoryBotAnswerRepository(),

@@ -52,18 +52,15 @@ class Settings(BaseSettings):
     embedding_model: str = "@cf/google/embeddinggemma-300m"
     generation_model: str = "@cf/zai-org/glm-4.7-flash"
     ai_embed_timeout_seconds: float = Field(default=10.0, gt=0, le=55)
-    ai_pairing_timeout_seconds: float = Field(default=30.0, gt=0, le=55)
     ai_generation_timeout_seconds: float = Field(default=35.0, gt=0, le=55)
 
     reviewer_escalation_timeout_seconds: int = 86_400
-    pairing_window_minutes: int = 10
-    pairing_quiet_minutes: int = 2
-    pairing_overlap_minutes: int = 3
+    pairing_question_window_minutes: int = 5
+    pairing_max_pending_questions: int = 5
     background_listener_enabled: bool = False
-    classifier_chitchat_discard_threshold: float = 0.80
-    classifier_keep_signal_threshold: float = 0.45
-    classifier_question_match_threshold: float = 0.60
-    classifier_answer_match_threshold: float = 0.55
+    classifier_confidence_threshold: float = 0.60
+    classifier_margin_threshold: float = 0.15
+    classifier_model_path: str = "data/classifier/model.json"
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
     qa_top_k: int = 5
@@ -96,10 +93,8 @@ class Settings(BaseSettings):
         for name in (
             "direct_qa_threshold",
             "synthesis_threshold",
-            "classifier_chitchat_discard_threshold",
-            "classifier_keep_signal_threshold",
-            "classifier_question_match_threshold",
-            "classifier_answer_match_threshold",
+            "classifier_confidence_threshold",
+            "classifier_margin_threshold",
         ):
             value = getattr(self, name)
             if not 0.0 <= value <= 1.0:
@@ -108,9 +103,8 @@ class Settings(BaseSettings):
             raise ValueError("top-k values must be at least 1")
         if (
             self.reviewer_escalation_timeout_seconds < 0
-            or self.pairing_window_minutes <= 0
-            or self.pairing_quiet_minutes < 0
-            or self.pairing_overlap_minutes < 0
+            or self.pairing_question_window_minutes <= 0
+            or self.pairing_max_pending_questions <= 0
         ):
             raise ValueError("intervals must be valid")
         if self.ai_daily_neuron_budget <= 0:
