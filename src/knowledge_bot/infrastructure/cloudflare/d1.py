@@ -1905,6 +1905,26 @@ class D1DailyReportSource:
             f" · {row.get('action') or 'resolved'}"
             for row in audit_rows
         )
+        approved_local = sum(
+            1
+            for row in audit_rows
+            if (
+                str(row.get("action")) == "approve_group"
+                or (
+                    str(row.get("action")) == "edited_approved"
+                    and str(row.get("approval_scope")) != "global"
+                )
+            )
+        )
+        approved_global = sum(
+            1
+            for row in audit_rows
+            if str(row.get("action")) == "approve_global"
+            or (
+                str(row.get("action")) == "edited_approved"
+                and str(row.get("approval_scope")) == "global"
+            )
+        )
         return DailyReportSnapshot(
             addressed_total=sum(counts.values()),
             direct=counts.get("direct_qa", 0),
@@ -1936,8 +1956,8 @@ class D1DailyReportSource:
             deferred=status_counts.get("deferred_budget", 0),
             failures=status_counts.get("failed", 0),
             corrections_proposed=corrections.get("pending_review", 0),
-            approved_local=corrections.get("approved", 0),
-            approved_global=0,
+            approved_local=approved_local,
+            approved_global=approved_global,
             rejected=corrections.get("rejected", 0),
             audit_labels=audit,
         )
