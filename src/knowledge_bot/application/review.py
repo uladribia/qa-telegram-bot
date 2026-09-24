@@ -19,8 +19,7 @@ from knowledge_bot.domain.scope import Scope, is_global
 from knowledge_bot.ports.repositories import ConversationRepository
 from knowledge_bot.ports.review import ReviewItem, ReviewSource
 
-CORRECTION_ORIGIN = "admin_approved"
-WEB_ORIGIN = "web_seed"
+CORRECTION_ORIGIN = "human_approved"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +56,7 @@ def _build_entry(items: list[ReviewItem]) -> ReviewEntry:
             continue
         if item.origin == CORRECTION_ORIGIN:
             corrected = True
-        if item.origin == WEB_ORIGIN and item.superseded_origin == CORRECTION_ORIGIN:
+        if item.superseded_origin == CORRECTION_ORIGIN:
             renewal_overrode = True
         if is_global(item.scope):
             global_answer = item.answer

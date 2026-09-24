@@ -10,7 +10,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import GroupRegistrar
+from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -28,6 +28,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AiUsageRepository,
     D1AttachmentRepository,
     D1BotAnswerRepository,
+    D1ChannelBindingRepository,
     D1ConversationRepository,
     D1Database,
     D1FeedbackRepository,
@@ -41,7 +42,9 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ReviewerRepository,
     D1ReviewSource,
     D1SearchIndexSource,
+    D1SearchProjectionRepository,
     D1SourceRepository,
+    D1SpaceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
 from knowledge_bot.infrastructure.cloudflare.vectorize import (
@@ -55,6 +58,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
 )
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import FeedbackRepository
 from knowledge_bot.ports.transport import MessageTransport
 
@@ -73,13 +77,14 @@ class AppContext:
 
     settings: Settings
     identity: TelegramIdentity
+    clock: Clock
     ingestor: MessageIngestor
     classifier: MessageClassifier
     answer: AnswerService
     recap: RecapService
     reindex: ReindexService
     seed: SeedService
-    groups: GroupRegistrar
+    spaces: SpaceDirectory
     review: ReviewService
     feedback: FeedbackService
     feedback_repo: FeedbackRepository
@@ -192,6 +197,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             bot_username=settings.telegram_bot_username,
             allowed_user_ids=_ids(settings.allowed_telegram_user_ids),
         ),
+        clock=clock,
         ingestor=MessageIngestor(
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),
@@ -237,6 +243,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             source=D1SearchIndexSource(database),
             embedder=embedder,
             vectors=vectors,
+            manifest=D1SearchProjectionRepository(database),
+            clock=clock,
         ),
         seed=SeedService(
             qa_items=D1QAItemRepository(database),
@@ -250,9 +258,11 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             clock=clock,
         ),
-        groups=GroupRegistrar(
+        spaces=SpaceDirectory(
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),
+            spaces=D1SpaceRepository(database),
+            bindings=D1ChannelBindingRepository(database),
             clock=clock,
         ),
         review=ReviewService(

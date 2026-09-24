@@ -8,8 +8,14 @@ retrieval filters rely on.
 
 from dataclasses import dataclass
 
+from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.embedder import Embedder
-from knowledge_bot.ports.index import IndexableMessage, IndexableQA, SearchIndexSource
+from knowledge_bot.ports.index import (
+    IndexableMessage,
+    IndexableQA,
+    SearchIndexSource,
+    SearchProjectionRepository,
+)
 from knowledge_bot.ports.vector_store import VectorRecord, VectorStore
 
 # ponytail: embed/metadata caps keep huge pasted texts (12k+ chars) under the
@@ -35,6 +41,8 @@ class ReindexService:
     source: SearchIndexSource
     embedder: Embedder
     vectors: VectorStore
+    manifest: SearchProjectionRepository
+    clock: Clock
 
     async def reindex(
         self,
@@ -61,6 +69,7 @@ class ReindexService:
         ]
         if records:
             await self.vectors.upsert(records)
+            await self.manifest.record(records, self.clock.now())
         next_qa = qa_items[-1].version_id if len(qa_items) == limit else None
         next_msg = messages[-1].message_id if len(messages) == limit else None
         return ReindexReport(
@@ -87,7 +96,16 @@ class ReindexService:
             return False
         records = await self._qa_records([item])
         await self.vectors.upsert(records)
+        await self.manifest.record(records, self.clock.now())
         return True
+
+    async def rebuild(self) -> ReindexReport:
+        """Delete the known derived projection and rebuild it from SQL."""
+        vector_ids = await self.manifest.list_vector_ids()
+        for start in range(0, len(vector_ids), 100):
+            await self.vectors.delete(vector_ids[start : start + 100])
+        await self.manifest.clear()
+        return await self.reindex()
 
     async def _qa_records(self, items: list[IndexableQA]) -> list[VectorRecord]:
         if not items:
@@ -96,23 +114,25 @@ class ReindexService:
         embeddings = await self.embedder.embed(texts)
         return [
             VectorRecord(
-                id=item.version_id,
+                id=f"qa:{item.qa_item_id}",
                 values=vector,
                 metadata={
-                    "kind": "qa_version",
-                    "object_id": item.version_id,
+                    "kind": "qa",
+                    "object_id": item.qa_item_id,
+                    "version_id": item.version_id,
                     "status": "active",
                     "authority": item.authority,
-                    "scope": item.scope,
+                    "scope_key": item.scope_key,
+                    "canonical_key": item.canonical_key,
                     "question": item.question,
                     "text": item.answer,
-                    "anchor": item.anchor,
+                    "source_anchor": item.source_anchor,
                     "url": item.url,
                     "date": item.date,
                     "author": item.author,
                 },
             )
-            for item, vector in zip(items, embeddings, strict=False)
+            for item, vector in zip(items, embeddings, strict=True)
         ]
 
     async def _message_records(
@@ -131,19 +151,19 @@ class ReindexService:
         )
         return [
             VectorRecord(
-                id=message.message_id,
+                id=f"msg:{message.message_id}",
                 values=vector,
                 metadata={
-                    "kind": "message",
+                    "kind": "message_evidence",
                     "object_id": message.message_id,
-                    "source_type": message.source_type,
+                    "source_kind": message.source_kind,
                     "authority": message.authority,
-                    "scope": message.conversation_id,
+                    "scope_key": message.scope_key,
                     "text": message.text[:_MAX_METADATA_CHARS],
                     "question": message.question,
                     "author": message.author,
                     "date": message.date,
                 },
             )
-            for message, vector in zip(messages, embeddings, strict=False)
+            for message, vector in zip(messages, embeddings, strict=True)
         ]

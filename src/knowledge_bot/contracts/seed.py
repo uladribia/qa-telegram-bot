@@ -8,9 +8,11 @@ from pydantic import BaseModel
 
 
 class SeedQA(BaseModel):
-    """A Q&A entry extracted from the published knowledge site."""
+    """A Q&A entry with connector-declared source provenance."""
 
     source_url: str
+    source_kind: str = "web_seed"
+    source_authority: int = 90
     section: str
     question: str
     answer: str

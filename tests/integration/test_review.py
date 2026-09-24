@@ -69,7 +69,7 @@ async def test_renewal_over_a_correction_is_flagged() -> None:
                 "k1",
                 "global",
                 "Web renovat.",
-                superseded_origin="admin_approved",
+                superseded_origin="human_approved",
             )
         ]
     )
@@ -83,7 +83,7 @@ async def test_under_review_and_corrections_are_flagged() -> None:
     """Corrections and in-review entries appear with their flags."""
     source = FakeReviewSource(
         [
-            _item("k1", "global", "Corregit", origin="admin_approved"),
+            _item("k1", "global", "Corregit", origin="human_approved"),
             _item("k2", "global", "Pendent", status="under_review"),
         ]
     )

@@ -58,12 +58,13 @@ def clean_question(text: str | None) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AnswerOutcome:
-    """The decided answer, its mode, and the text to send."""
+    """The decided answer, its mode, provenance, and text to send."""
 
     answer: str
     mode: AnswerMode
     source_ids: list[str]
     text: str
+    qa_version_id: str | None = None
 
 
 def render_source_line(source: Evidence) -> str:
@@ -141,7 +142,10 @@ class AnswerService:
             The decided answer.
         """
         strong_qa = [
-            item for item in retrieved.qa if item.similarity >= self.direct_qa_threshold
+            item
+            for item in retrieved.qa
+            if item.similarity >= self.direct_qa_threshold
+            and item.qa_version_id is not None
         ]
         if strong_qa:
             best = max(strong_qa, key=lambda item: item.similarity)
@@ -150,6 +154,7 @@ class AnswerService:
                 mode=AnswerMode.DIRECT_QA,
                 source_ids=[best.source_id],
                 text=_render(best.text, [best]),
+                qa_version_id=best.qa_version_id,
             )
         evidence = retrieved.all()
         if (
@@ -194,7 +199,7 @@ class AnswerService:
             The decided outcome plus the retrieved evidence behind it.
         """
         cleaned = clean_question(question)
-        retrieved = await self.retrieval.retrieve(cleaned)
+        retrieved = await self.retrieval.retrieve(cleaned, all_scopes=True)
         outcome = await self.decide(cleaned, retrieved)
         return AnswerPreview(outcome=outcome, evidence=retrieved.all())
 
@@ -226,9 +231,7 @@ class AnswerService:
         if not question:
             return None
         try:
-            retrieved = await self.retrieval.retrieve(
-                question, conversation_id=message.conversation_id
-            )
+            retrieved = await self.retrieval.retrieve(question, message.space_id)
             outcome = await self.decide(question, retrieved)
         except ModelUnavailableError:
             outcome = AnswerOutcome(
@@ -240,11 +243,13 @@ class AnswerService:
         record = BotAnswer(
             id=f"ans:{message.id}",
             conversation_id=message.conversation_id,
+            space_id=message.space_id,
             question=question,
             answer=outcome.answer,
             answer_mode=outcome.mode,
             created_at=self.clock.now(),
             user_message_id=message.id,
+            qa_version_id=outcome.qa_version_id,
             sources_json=json.dumps(outcome.source_ids),
         )
         message_id = await self.transport.send_answer(
@@ -254,12 +259,14 @@ class AnswerService:
             record = BotAnswer(
                 id=record.id,
                 conversation_id=record.conversation_id,
+                space_id=record.space_id,
                 question=record.question,
                 answer=record.answer,
                 answer_mode=record.answer_mode,
                 created_at=record.created_at,
                 user_message_id=record.user_message_id,
                 telegram_bot_message_id=message_id,
+                qa_version_id=record.qa_version_id,
                 sources_json=record.sources_json,
             )
         await self.answers.add(record)

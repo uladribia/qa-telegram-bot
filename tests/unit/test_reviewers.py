@@ -16,7 +16,7 @@ from knowledge_bot.application.reviewers import (
     render_reviewer_list,
 )
 from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.repositories import (
     InMemoryReviewerEventRepository,
@@ -29,6 +29,10 @@ from tests.fakes.support import (
 )
 
 NOW = datetime(2026, 9, 21, 18, 4, tzinfo=UTC)
+SPACE_A = "sp_" + "1" * 32
+SPACE_B = "sp_" + "2" * 32
+GROUP_A = scope_for_space(SPACE_A)
+GROUP_B = scope_for_space(SPACE_B)
 
 
 def _manager() -> ReviewerManager:
@@ -50,35 +54,35 @@ def test_parse_reviewer_command_variants() -> None:
 def test_nominate_upserts_and_remove_deletes() -> None:
     """Nominating replaces the scope's reviewer; removing clears it."""
     manager = _manager()
-    assert asyncio.run(manager.nominate("-100", "222", "Pepe", "1")) is False
-    assert asyncio.run(manager.nominate("-100", "333", "Marta", "1")) is True
-    reviewer = asyncio.run(manager.reviewers.get("-100"))
+    assert asyncio.run(manager.nominate(GROUP_A, "222", "Pepe", "1")) is False
+    assert asyncio.run(manager.nominate(GROUP_A, "333", "Marta", "1")) is True
+    reviewer = asyncio.run(manager.reviewers.get(GROUP_A))
     assert reviewer is not None and reviewer.user_id == "333"
-    assert asyncio.run(manager.remove("-100")) is True
-    assert asyncio.run(manager.remove("-100")) is False
+    assert asyncio.run(manager.remove(GROUP_A)) is True
+    assert asyncio.run(manager.remove(GROUP_A)) is False
 
 
 def test_router_falls_back_from_group_to_global_to_admin() -> None:
     """The routing chain is group reviewer, then global reviewer, then admin."""
     router = ReviewerRouter(reviewers=InMemoryReviewerRepository(), admin_user_id="1")
-    assert asyncio.run(router.destination("-100")) == "1"
+    assert asyncio.run(router.destination(SPACE_A)) == "1"
     asyncio.run(router.reviewers.save(Reviewer(GLOBAL_SCOPE, "9", "G", NOW)))
-    assert asyncio.run(router.destination("-100")) == "9"
-    asyncio.run(router.reviewers.save(Reviewer("-100", "222", "Pepe", NOW)))
-    assert asyncio.run(router.destination("-100")) == "222"
+    assert asyncio.run(router.destination(SPACE_A)) == "9"
+    asyncio.run(router.reviewers.save(Reviewer(GROUP_A, "222", "Pepe", NOW)))
+    assert asyncio.run(router.destination(SPACE_A)) == "222"
     assert asyncio.run(router.destination(None)) == "9"
 
 
 def test_can_confirm_only_for_assigned_reviewers_and_admin() -> None:
     """Confirmation is limited to the group's reviewer, the global one, admin."""
     router = ReviewerRouter(reviewers=InMemoryReviewerRepository(), admin_user_id="1")
-    asyncio.run(router.reviewers.save(Reviewer("-100", "222", "Pepe", NOW)))
-    assert asyncio.run(router.can_confirm("222", "-100")) is True
-    assert asyncio.run(router.can_confirm("222", "-200")) is False
-    assert asyncio.run(router.can_confirm("1", "-200")) is True
-    assert asyncio.run(router.can_confirm(None, "-100")) is False
+    asyncio.run(router.reviewers.save(Reviewer(GROUP_A, "222", "Pepe", NOW)))
+    assert asyncio.run(router.can_confirm("222", SPACE_A)) is True
+    assert asyncio.run(router.can_confirm("222", SPACE_B)) is False
+    assert asyncio.run(router.can_confirm("1", SPACE_B)) is True
+    assert asyncio.run(router.can_confirm(None, SPACE_A)) is False
     asyncio.run(router.reviewers.save(Reviewer(GLOBAL_SCOPE, "9", "G", NOW)))
-    assert asyncio.run(router.can_confirm("9", "-200")) is True
+    assert asyncio.run(router.can_confirm("9", SPACE_B)) is True
 
 
 def test_render_reviewer_list_and_report() -> None:
@@ -86,10 +90,13 @@ def test_render_reviewer_list_and_report() -> None:
     empty = render_reviewer_list([])
     assert "No hi ha cap revisor" in empty
     listing = render_reviewer_list(
-        [Reviewer(GLOBAL_SCOPE, "9", "Glob", NOW), Reviewer("-100", "222", "Pepe", NOW)]
+        [
+            Reviewer(GLOBAL_SCOPE, "9", "Glob", NOW),
+            Reviewer(GROUP_A, "222", "Pepe", NOW),
+        ]
     )
     assert "Global → Glob" in listing
-    assert "-100 → Pepe" in listing
+    assert f"{GROUP_A} → Pepe" in listing
     report = render_report(
         [
             ReviewerEvent(

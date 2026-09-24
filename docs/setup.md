@@ -83,7 +83,7 @@ Filtered retrieval needs **metadata indexes**, or queries return nothing:
 ```bash
 npx wrangler vectorize create-metadata-index knowledge-v1 --property-name kind --type string
 npx wrangler vectorize create-metadata-index knowledge-v1 --property-name status --type string
-npx wrangler vectorize create-metadata-index knowledge-v1 --property-name scope --type string
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name scope_key --type string
 ```
 
 `scope` separates global knowledge from per-group knowledge; without it, scoped
@@ -181,7 +181,8 @@ uv run kb delete-webhook
    ```
 
    Group ids are negative and must keep their leading `-`.
-3. Register each group so knowledge can be scoped to it:
+3. Register each group so its Telegram conversation is durably bound to a
+   logical space. Both this binding and `ALLOWED_TELEGRAM_CHAT_IDS` are required:
 
    ```bash
    BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add --chat-id -1001234567890 --title "Prebenjamins"

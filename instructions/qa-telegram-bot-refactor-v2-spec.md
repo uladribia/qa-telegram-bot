@@ -184,6 +184,8 @@ The core must not contain concepts such as:
 
 The core may use opaque `principal_id`, `space_id`, `channel`, and `external_*` identifiers supplied by adapters.
 
+The channel-specific adapter owns parsing external ids, Telegram-specific source identity, and Telegram binding lookup. The application-level space/binding service accepts only opaque channel and external identifiers and contains no Telegram imports, Telegram constants, chat-id parsing, or channel-specific branches. This keeps connector concerns out of group/space management.
+
 The external application boundary is REST + Pydantic contracts. All durable state is stored in the SQL database. No workflow depends on process memory surviving between requests.
 
 Process-local caches are allowed only as performance caches and must be disposable, e.g. cached classifier prototype embeddings.
@@ -688,11 +690,25 @@ Application retrieval uses `space_id`, never `conversation_id`, to decide local 
 
 ## 5.5 Source identity
 
-`SourceType` and `Source.id` are different concepts.
+`source_kind` and `Source.id` are different concepts.
 
-`SourceType` remains one of the closed origin kinds (`web_seed`, `whatsapp_import`, `telegram`, `admin` where still needed). `Source.id` identifies one concrete source instance.
+`source_kind` is an open, connector-declared provenance label. It is not a closed
+application enum: a connector may declare `telegram`, `whatsapp_import`, `web_seed`,
+or any future source kind without changing application code. The connector also
+declares the source instance id and base authority through a validated source
+descriptor. `Source.id` identifies one concrete source instance.
 
-Use deterministic, readable-enough ids:
+Use deterministic, readable-enough ids declared by the connector. The application
+consumes the descriptor rather than choosing an id:
+
+```python
+class SourceDescriptor(BaseModel):
+    id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    authority: int = Field(ge=0, le=100)
+```
+
+Examples remain connector-owned:
 
 ```text
 src:telegram:runtime
@@ -702,13 +718,15 @@ src:whatsapp:<first-16-hex-of-sha256(scope-key + import-fingerprint)>
 
 Rules:
 
-- do not use `source_type.value` as the source id;
+- do not use `source_kind` as the source id;
+- connectors must provide a validated source descriptor containing `id`, `kind`, and base `authority`;
+- application ingestion must consume that descriptor without fabricating ids or mapping channel names to authorities;
 - one web URL may have one durable source instance across snapshots;
 - a WhatsApp import into a different scope is a distinct source instance;
 - the Telegram runtime source may be shared because message visibility comes from the resolved space, not the source row;
 - `Source.scope_key` describes the source/import provenance where meaningful but never substitutes for message/QA scope.
 
-`MessageIngestor` must receive or resolve a real source instance; it must not fabricate the id from the source type enum.
+`MessageIngestor` receives a real source descriptor from the connector or importer; it must not fabricate the id or base authority from a channel-specific mapping. The domain may apply an explicit authority policy for sender privileges such as an administratively authored source, but it must not contain a registry of all connectors.
 
 ---
 
@@ -1745,7 +1763,7 @@ Preserve the existing source table concept but enforce these final semantics:
 
 ```text
 id              unique source-instance id
-source_type     closed SourceType value
+source_type     connector-declared source kind
 external_ref    URL/import fingerprint/channel descriptor as appropriate
 title
 canonical_url
@@ -2247,6 +2265,12 @@ Rules:
 Telegram remains the only runtime channel in v2, but must be replaceable.
 
 ## 15.1 Inbound responsibilities
+
+The Telegram adapter owns all Telegram-specific knowledge of external identities,
+source ids, chat bindings, and principal-to-chat routing. It passes opaque
+channel/external values and resolved `space_id`/`principal_id` values to the
+application. The application-level space/binding service MUST NOT import Telegram
+modules or contain Telegram-specific branches.
 
 Telegram adapter may:
 
@@ -3888,7 +3912,7 @@ Changes:
 - domain scope/principal helpers;
 - channel binding repository;
 - backfill-spaces maintenance service/CLI;
-- separate `SourceType` from `Source.id`: replace type-derived ids with the exact source-instance id rules from Section 5.6;
+- separate connector-declared source kind/authority from `Source.id`: pass a validated source descriptor through ingestion instead of mapping channel names in application code;
 - migrate/backfill legacy source references deterministically before enforcing new ids;
 - reviewer representation uses principal ids;
 - answer/retrieval application paths receive `space_id`;
@@ -3901,7 +3925,7 @@ Tests:
 - two WhatsApp imports for different scopes cannot collapse into one source instance;
 - repeated snapshots of the same web URL reuse the same durable web source instance;
 - no application code uses Telegram chat id as scope;
-- no ingestion code derives `Source.id` from `SourceType.value`.
+- no ingestion code derives `Source.id` or base authority from a channel-specific mapping.
 
 ## Phase 3 — canonical identity and stable projection
 

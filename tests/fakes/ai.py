@@ -2,6 +2,7 @@
 """Fake embedder, vector store, and generator for offline tests."""
 
 import math
+from datetime import datetime
 
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import (
@@ -121,6 +122,32 @@ class FakeGenerator:
         """Record the judgement and return the fixed verdict."""
         self.judgements.append((question, answer, evidence))
         return self.verdict
+
+
+class InMemorySearchProjectionRepository:
+    """In-memory projection manifest."""
+
+    def __init__(self) -> None:
+        """Create an empty manifest."""
+        self.vector_ids: set[str] = set()
+        self.updated_at: datetime | None = None
+
+    async def list_vector_ids(self) -> list[str]:
+        """Return every projected vector id."""
+        return sorted(self.vector_ids)
+
+    async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
+        """Record successful vector upserts."""
+        self.vector_ids.update(record.id for record in records)
+        self.updated_at = updated_at
+
+    async def delete(self, vector_ids: list[str]) -> None:
+        """Remove vector ids from the manifest."""
+        self.vector_ids.difference_update(vector_ids)
+
+    async def clear(self) -> None:
+        """Clear the manifest."""
+        self.vector_ids.clear()
 
 
 class FakeSearchIndexSource:

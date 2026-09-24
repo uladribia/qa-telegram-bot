@@ -12,6 +12,7 @@ from typing import Protocol, cast
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
+    ChannelBinding,
     Conversation,
     Feedback,
     Message,
@@ -21,18 +22,19 @@ from knowledge_bot.domain.entities import (
     Reviewer,
     ReviewerEvent,
     Source,
+    Space,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
     FeedbackStatus,
     ProcessingStatus,
-    QAOrigin,
     QAStatus,
-    SourceType,
 )
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.review import ReviewItem
+from knowledge_bot.ports.vector_store import VectorRecord
 
 
 class D1Result(Protocol):
@@ -155,6 +157,110 @@ def _sender_label(sender_name: object, sender_hash: object) -> str | None:
     return None
 
 
+class D1SpaceRepository:
+    """D1 implementation of ``SpaceRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, space: Space) -> None:
+        """Persist a new logical space."""
+        await (
+            self._db.prepare(
+                "INSERT INTO spaces (id, title, created_at) VALUES (?, ?, ?)"
+            )
+            .bind(space.id, space.title, _iso(space.created_at))
+            .run()
+        )
+
+    async def get(self, space_id: str) -> Space | None:
+        """Return a logical space by id."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM spaces WHERE id = ?")
+            .bind(space_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return Space(
+            id=str(row["id"]),
+            title=_opt_str(row["title"]),
+            created_at=_dt(row["created_at"]),
+        )
+
+
+class D1ChannelBindingRepository:
+    """D1 implementation of ``ChannelBindingRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(
+        self, channel: str, external_conversation_id: str
+    ) -> ChannelBinding | None:
+        """Return a channel binding by external conversation id."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM channel_bindings"
+                " WHERE channel = ? AND external_conversation_id = ?"
+            )
+            .bind(channel, external_conversation_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return _channel_binding(row)
+
+    async def add(self, binding: ChannelBinding) -> None:
+        """Persist a new channel binding."""
+        await (
+            self._db.prepare(
+                "INSERT INTO channel_bindings"
+                " (channel, external_conversation_id, conversation_id, space_id,"
+                " title, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                binding.channel,
+                binding.external_conversation_id,
+                binding.conversation_id,
+                binding.space_id,
+                binding.title,
+                _iso(binding.created_at),
+            )
+            .run()
+        )
+
+    async def save(self, binding: ChannelBinding) -> None:
+        """Persist changes to an existing channel binding."""
+        await (
+            self._db.prepare(
+                "UPDATE channel_bindings SET conversation_id = ?, space_id = ?,"
+                " title = ? WHERE channel = ? AND external_conversation_id = ?"
+            )
+            .bind(
+                binding.conversation_id,
+                binding.space_id,
+                binding.title,
+                binding.channel,
+                binding.external_conversation_id,
+            )
+            .run()
+        )
+
+
+def _channel_binding(row: dict[str, object]) -> ChannelBinding:
+    return ChannelBinding(
+        channel=str(row["channel"]),
+        external_conversation_id=str(row["external_conversation_id"]),
+        conversation_id=str(row["conversation_id"]),
+        space_id=str(row["space_id"]),
+        title=_opt_str(row["title"]),
+        created_at=_dt(row["created_at"]),
+    )
+
+
 class D1SourceRepository:
     """D1 implementation of ``SourceRepository``."""
 
@@ -168,19 +274,19 @@ class D1SourceRepository:
             self._db.prepare(
                 "INSERT INTO sources"
                 " (id, source_type, external_ref, title, canonical_url,"
-                " authority, is_mutable, created_at, scope)"
+                " authority, is_mutable, created_at, scope_key)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 source.id,
-                source.source_type.value,
+                source.source_type,
                 source.external_ref,
                 source.title,
                 source.canonical_url,
                 source.authority,
                 int(source.is_mutable),
                 _iso(source.created_at),
-                source.scope,
+                source.scope_key,
             )
             .run()
         )
@@ -196,14 +302,14 @@ class D1SourceRepository:
             return None
         return Source(
             id=str(row["id"]),
-            source_type=SourceType(str(row["source_type"])),
+            source_type=str(row["source_type"]),
             authority=int(cast(int, row["authority"])),
             created_at=_dt(row["created_at"]),
             external_ref=_opt_str(row["external_ref"]),
             title=_opt_str(row["title"]),
             canonical_url=_opt_str(row["canonical_url"]),
             is_mutable=bool(row["is_mutable"]),
-            scope=str(row["scope"]),
+            scope_key=str(row["scope_key"]),
         )
 
     async def save(self, source: Source) -> None:
@@ -211,17 +317,17 @@ class D1SourceRepository:
         await (
             self._db.prepare(
                 "UPDATE sources SET source_type = ?, external_ref = ?, title = ?,"
-                " canonical_url = ?, authority = ?, is_mutable = ?, scope = ?"
+                " canonical_url = ?, authority = ?, is_mutable = ?, scope_key = ?"
                 " WHERE id = ?"
             )
             .bind(
-                source.source_type.value,
+                source.source_type,
                 source.external_ref,
                 source.title,
                 source.canonical_url,
                 source.authority,
                 int(source.is_mutable),
-                source.scope,
+                source.scope_key,
                 source.id,
             )
             .run()
@@ -240,12 +346,13 @@ class D1ConversationRepository:
         await (
             self._db.prepare(
                 "INSERT INTO conversations"
-                " (id, source_id, external_id, title, created_at)"
-                " VALUES (?, ?, ?, ?, ?)"
+                " (id, source_id, space_id, external_id, title, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 conversation.id,
                 conversation.source_id,
+                conversation.space_id,
                 conversation.external_id,
                 conversation.title,
                 _iso(conversation.created_at),
@@ -265,6 +372,7 @@ class D1ConversationRepository:
         return Conversation(
             id=str(row["id"]),
             source_id=str(row["source_id"]),
+            space_id=_opt_str(row.get("space_id")),
             created_at=_dt(row["created_at"]),
             external_id=_opt_str(row["external_id"]),
             title=_opt_str(row["title"]),
@@ -274,11 +382,12 @@ class D1ConversationRepository:
         """Persist changes to an existing conversation."""
         await (
             self._db.prepare(
-                "UPDATE conversations SET source_id = ?, external_id = ?,"
-                " title = ? WHERE id = ?"
+                "UPDATE conversations SET source_id = ?, space_id = ?,"
+                " external_id = ?, title = ? WHERE id = ?"
             )
             .bind(
                 conversation.source_id,
+                conversation.space_id,
                 conversation.external_id,
                 conversation.title,
                 conversation.id,
@@ -437,14 +546,15 @@ class D1BotAnswerRepository:
         await (
             self._db.prepare(
                 "INSERT INTO bot_answers"
-                " (id, conversation_id, user_message_id, telegram_bot_message_id,"
-                " question, answer,"
-                " answer_mode, confidence, qa_version_id, sources_json, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " (id, conversation_id, space_id, user_message_id,"
+                " telegram_bot_message_id, question, answer, answer_mode, confidence,"
+                " qa_version_id, sources_json, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 answer.id,
                 answer.conversation_id,
+                answer.space_id,
                 answer.user_message_id,
                 answer.telegram_bot_message_id,
                 answer.question,
@@ -560,6 +670,7 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
     return BotAnswer(
         id=str(row["id"]),
         conversation_id=str(row["conversation_id"]),
+        space_id=_opt_str(row.get("space_id")),
         question=str(row["question"]),
         answer=str(row["answer"]),
         answer_mode=AnswerMode(str(row["answer_mode"])),
@@ -574,16 +685,57 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
     )
 
 
-_MESSAGE_AUTHORITY: dict[str, int] = {
-    "telegram": 40,
-    "whatsapp_import": 50,
-    "web_seed": 90,
-    "admin": 100,
-}
+def _message_authority(row: dict[str, object]) -> int:
+    """Return the connector-declared source authority for an indexed message."""
+    return int(cast(int, row["source_authority"]))
 
 
-def _message_authority(source_type: str) -> int:
-    return _MESSAGE_AUTHORITY.get(source_type, 0)
+class D1SearchProjectionRepository:
+    """D1 implementation of the derived vector projection manifest."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def list_vector_ids(self) -> list[str]:
+        """Return every projected vector id."""
+        result = await self._db.prepare(
+            "SELECT vector_id FROM search_projection ORDER BY vector_id"
+        ).run()
+        return [str(row["vector_id"]) for row in _rows(result)]
+
+    async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
+        """Record successfully upserted vectors."""
+        for record in records:
+            metadata = record.metadata
+            await (
+                self._db.prepare(
+                    "INSERT INTO search_projection"
+                    " (vector_id, kind, object_id, updated_at) VALUES (?, ?, ?, ?)"
+                    " ON CONFLICT(vector_id) DO UPDATE SET kind = excluded.kind,"
+                    " object_id = excluded.object_id, updated_at = excluded.updated_at"
+                )
+                .bind(
+                    record.id,
+                    str(metadata.get("kind", "unknown")),
+                    str(metadata.get("object_id", record.id)),
+                    _iso(updated_at),
+                )
+                .run()
+            )
+
+    async def delete(self, vector_ids: list[str]) -> None:
+        """Remove deleted vector ids from the manifest."""
+        for vector_id in vector_ids:
+            await (
+                self._db.prepare("DELETE FROM search_projection WHERE vector_id = ?")
+                .bind(vector_id)
+                .run()
+            )
+
+    async def clear(self) -> None:
+        """Clear the projection manifest."""
+        await self._db.prepare("DELETE FROM search_projection").run()
 
 
 class D1SearchIndexSource:
@@ -597,10 +749,12 @@ class D1SearchIndexSource:
         """Return one active Q&A version to index, by version id."""
         row = _row(
             await self._db.prepare(
-                "SELECT qv.id AS version_id, qi.canonical_question AS question,"
-                " qv.answer AS answer, qv.authority AS authority,"
-                " qi.canonical_key AS anchor, qv.source_url AS source_url,"
-                " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
+                "SELECT qi.id AS item_id, qv.id AS version_id,"
+                " qi.canonical_question AS question, qv.answer AS answer,"
+                " qv.authority AS authority, qi.canonical_key AS canonical_key,"
+                " qv.source_url AS source_url, qv.source_anchor AS source_anchor,"
+                " qv.author AS author, qv.created_at AS created_at,"
+                " qi.scope_key AS scope_key"
                 " FROM qa_versions qv"
                 " JOIN qa_items qi ON qi.id = qv.qa_id"
                 " WHERE qi.status = 'active' AND qv.id = ?"
@@ -611,15 +765,17 @@ class D1SearchIndexSource:
         if row is None:
             return None
         return IndexableQA(
+            qa_item_id=str(row["item_id"]),
             version_id=str(row["version_id"]),
             question=str(row["question"]),
             answer=str(row["answer"]),
             authority=int(cast(int, row["authority"])),
-            anchor=_opt_str(row["anchor"]),
-            url=_exact_url(row["source_url"], row["anchor"]),
+            canonical_key=str(row["canonical_key"]),
+            source_anchor=_opt_str(row["source_anchor"]),
+            url=_exact_url(row["source_url"], row["source_anchor"]),
             date=_date_part(row["created_at"]),
             author=_opt_str(row["author"]),
-            scope=str(row["scope"]),
+            scope_key=str(row["scope_key"]),
         )
 
     async def list_qa(
@@ -635,10 +791,12 @@ class D1SearchIndexSource:
             The next batch of versions.
         """
         query = (
-            "SELECT qv.id AS version_id, qi.canonical_question AS question,"
-            " qv.answer AS answer, qv.authority AS authority,"
-            " qi.canonical_key AS anchor, qv.source_url AS source_url,"
-            " qv.author AS author, qv.created_at AS created_at, qi.scope AS scope"
+            "SELECT qi.id AS item_id, qv.id AS version_id,"
+            " qi.canonical_question AS question, qv.answer AS answer,"
+            " qv.authority AS authority, qi.canonical_key AS canonical_key,"
+            " qv.source_url AS source_url, qv.source_anchor AS source_anchor,"
+            " qv.author AS author, qv.created_at AS created_at,"
+            " qi.scope_key AS scope_key"
             " FROM qa_versions qv"
             " JOIN qa_items qi ON qi.id = qv.qa_id"
             " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
@@ -654,15 +812,17 @@ class D1SearchIndexSource:
         result = await self._db.prepare(query).bind(*params).run()
         return [
             IndexableQA(
+                qa_item_id=str(row["item_id"]),
                 version_id=str(row["version_id"]),
                 question=str(row["question"]),
                 answer=str(row["answer"]),
                 authority=int(cast(int, row["authority"])),
-                anchor=_opt_str(row["anchor"]),
-                url=_exact_url(row["source_url"], row["anchor"]),
+                canonical_key=str(row["canonical_key"]),
+                source_anchor=_opt_str(row["source_anchor"]),
+                url=_exact_url(row["source_url"], row["source_anchor"]),
                 date=_date_part(row["created_at"]),
                 author=_opt_str(row["author"]),
-                scope=str(row["scope"]),
+                scope_key=str(row["scope_key"]),
             )
             for row in _rows(result)
         ]
@@ -672,15 +832,18 @@ class D1SearchIndexSource:
     ) -> list[IndexableMessage]:
         """Return the messages with text to index, in id-order batches."""
         query = (
-            "SELECT id, source_id, conversation_id, text,"
-            " sender_hash, sender_name, sent_at, context_question"
-            " FROM messages WHERE text IS NOT NULL AND text != ''"
+            "SELECT m.id, m.source_id, m.conversation_id, m.text,"
+            " m.sender_hash, m.sender_name, m.sent_at, m.context_question,"
+            " c.space_id, s.source_type AS source_kind, s.authority AS source_authority"
+            " FROM messages m JOIN sources s ON s.id = m.source_id"
+            " JOIN conversations c ON c.id = m.conversation_id"
+            " WHERE m.text IS NOT NULL AND m.text != ''"
         )
         params: list[object] = []
         if after is not None:
-            query += " AND id > ?"
+            query += " AND m.id > ?"
             params.append(after)
-        query += " ORDER BY id"
+        query += " ORDER BY m.id"
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)
@@ -689,9 +852,12 @@ class D1SearchIndexSource:
             IndexableMessage(
                 message_id=str(row["id"]),
                 text=str(row["text"]),
-                source_type=str(row["source_id"]),
-                authority=_message_authority(str(row["source_id"])),
+                source_kind=str(row["source_kind"]),
+                authority=_message_authority(row),
                 conversation_id=str(row["conversation_id"]),
+                scope_key=scope_for_space(str(row["space_id"]))
+                if row.get("space_id")
+                else GLOBAL_SCOPE,
                 author=_sender_label(row["sender_name"], row["sender_hash"]),
                 date=_datetime_part(row["sent_at"]),
                 question=_opt_str(row.get("context_question")),
@@ -713,7 +879,7 @@ class D1QAItemRepository:
             self._db.prepare(
                 "INSERT INTO qa_items"
                 " (id, canonical_key, canonical_question, status, current_version_id,"
-                " created_at, updated_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                " created_at, updated_at, scope_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 item.id,
@@ -723,7 +889,7 @@ class D1QAItemRepository:
                 item.current_version_id,
                 _iso(item.created_at),
                 _iso(item.updated_at),
-                item.scope,
+                item.scope_key,
             )
             .run()
         )
@@ -740,14 +906,14 @@ class D1QAItemRepository:
     async def get_by_canonical_key(
         self,
         canonical_key: str,
-        scope: str = "global",
+        scope_key: str = "global",
     ) -> QAItem | None:
         """Return a Q&A item by canonical key within a scope, if present."""
         row = _row(
             await self._db.prepare(
-                "SELECT * FROM qa_items WHERE canonical_key = ? AND scope = ?"
+                "SELECT * FROM qa_items WHERE canonical_key = ? AND scope_key = ?"
             )
-            .bind(canonical_key, scope)
+            .bind(canonical_key, scope_key)
             .first()
         )
         return _qa_item(row) if row is not None else None
@@ -783,8 +949,8 @@ class D1QAVersionRepository:
             self._db.prepare(
                 "INSERT INTO qa_versions"
                 " (id, qa_id, answer, authority, confidence, origin, created_by,"
-                " supersedes_version_id, created_at, source_url, author)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " supersedes_version_id, created_at, source_url, source_anchor, author)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 version.id,
@@ -792,11 +958,12 @@ class D1QAVersionRepository:
                 version.answer,
                 version.authority,
                 version.confidence,
-                version.origin.value,
+                version.origin,
                 version.created_by,
                 version.supersedes_version_id,
                 _iso(version.created_at),
                 version.source_url,
+                version.source_anchor,
                 version.author,
             )
             .run()
@@ -843,7 +1010,7 @@ def _qa_item(row: dict[str, object]) -> QAItem:
         status=QAStatus(str(row["status"])),
         created_at=_dt(row["created_at"]),
         updated_at=_dt(row["updated_at"]),
-        scope=str(row["scope"]),
+        scope_key=str(row["scope_key"]),
         current_version_id=_opt_str(row["current_version_id"]),
     )
 
@@ -855,12 +1022,13 @@ def _qa_version(row: dict[str, object]) -> QAVersion:
         qa_id=str(row["qa_id"]),
         answer=str(row["answer"]),
         authority=int(cast(int, row["authority"])),
-        origin=QAOrigin(str(row["origin"])),
+        origin=str(row["origin"]),
         created_at=_dt(row["created_at"]),
         confidence=float(cast(float, confidence)) if confidence is not None else None,
         created_by=_opt_str(row["created_by"]),
         supersedes_version_id=_opt_str(row["supersedes_version_id"]),
         source_url=_opt_str(row["source_url"]),
+        source_anchor=_opt_str(row.get("source_anchor")),
         author=_opt_str(row["author"]),
     )
 
@@ -1046,7 +1214,7 @@ class D1ReviewSource:
         """
         result = await self._db.prepare(
             "SELECT qi.canonical_key AS canonical_key,"
-            " qi.canonical_question AS question, qi.scope AS scope,"
+            " qi.canonical_question AS question, qi.scope_key AS scope,"
             " qi.status AS status,"
             " qv.answer AS answer, qv.origin AS origin, qv.created_at AS created_at,"
             " prev.origin AS superseded_origin"

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Build an ``AppContext`` from in-memory fakes for HTTP tests."""
 
+import asyncio
 from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
@@ -8,7 +9,7 @@ from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import GroupRegistrar
+from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -21,6 +22,7 @@ from knowledge_bot.application.reviewers import (
     ReviewerRouter,
 )
 from knowledge_bot.application.seed import SeedService
+from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
@@ -29,27 +31,10 @@ from tests.fakes.ai import (
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
+    InMemorySearchProjectionRepository,
 )
-from tests.fakes.repositories import (
-    InMemoryAttachmentRepository,
-    InMemoryBotAnswerRepository,
-    InMemoryConversationRepository,
-    InMemoryFeedbackRepository,
-    InMemoryMessageRepository,
-    InMemoryQAEvidenceRepository,
-    InMemoryQAItemRepository,
-    InMemoryQAVersionRepository,
-    InMemoryReviewerEventRepository,
-    InMemoryReviewerRepository,
-    InMemorySourceRepository,
-)
-from tests.fakes.support import (
-    FrozenClock,
-    InMemoryAiUsageRepository,
-    InMemoryRecapStateRepository,
-    InMemoryReportStateRepository,
-    RecordingTransport,
-)
+from tests.fakes.backend import InMemoryBackend
+from tests.fakes.support import FrozenClock, RecordingTransport
 
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 WEBHOOK_SECRET = "secret"
@@ -57,6 +42,29 @@ ALLOWED_CHAT_ID = "-100"
 ALLOWED_CHAT_IDS = "-100,-200"
 BOT_ID = "999"
 BOT_USERNAME = "bot"
+SPACE_A = "sp_" + "1" * 32
+SPACE_B = "sp_" + "2" * 32
+
+
+async def _seed_test_bindings(backend: InMemoryBackend) -> None:
+    """Seed the two Telegram groups used by the default test context."""
+    values = ((ALLOWED_CHAT_ID, SPACE_A), ("-200", SPACE_B))
+    for chat_id, space_id in values:
+        if await backend.spaces.get(space_id) is None:
+            await backend.spaces.add(
+                Space(id=space_id, title=f"Group {chat_id}", created_at=DEFAULT_NOW)
+            )
+        if await backend.bindings.get("telegram", chat_id) is None:
+            await backend.bindings.add(
+                ChannelBinding(
+                    channel="telegram",
+                    external_conversation_id=chat_id,
+                    conversation_id=chat_id,
+                    space_id=space_id,
+                    title=f"Group {chat_id}",
+                    created_at=DEFAULT_NOW,
+                )
+            )
 
 
 def build_test_context(
@@ -66,6 +74,7 @@ def build_test_context(
     spent_neurons: float = 0.0,
     allowed_user_ids: frozenset[str] = frozenset(),
     admin_report_mode: str = "always",
+    backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
 
@@ -76,21 +85,27 @@ def build_test_context(
             the quota guard.
         allowed_user_ids: Extra users who may open a private chat.
         admin_report_mode: How the admin is informed of reviewer resolutions.
+        backend: Optional shared state for tests that need to inspect or reuse it.
 
     Returns:
         The context and the recording transport used by the recap/answer services.
     """
-    answers = InMemoryBotAnswerRepository()
-    feedback_repo = InMemoryFeedbackRepository()
+    backend = backend or InMemoryBackend()
+    asyncio.run(_seed_test_bindings(backend))
+    if spent_neurons:
+        backend.ai_usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
+    answers = backend.answers
+    feedback_repo = backend.feedback
     transport = RecordingTransport()
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
+    budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
-        sources=InMemorySourceRepository(),
-        conversations=InMemoryConversationRepository(),
-        messages=InMemoryMessageRepository(),
-        attachments=InMemoryAttachmentRepository(),
+        sources=backend.sources,
+        conversations=backend.conversations,
+        messages=backend.messages,
+        attachments=backend.attachments,
     )
     answer = AnswerService(
         retrieval=RetrievalService(embedder=embedder, vectors=vectors),
@@ -101,20 +116,20 @@ def build_test_context(
     )
     recap = RecapService(
         answers=answers,
-        conversations=InMemoryConversationRepository(),
-        state=InMemoryRecapStateRepository(),
+        conversations=backend.conversations,
+        state=backend.recap_state,
         transport=transport,
         clock=clock,
         admin_user_id="1",
         enabled=recap_enabled,
         interval_hours=24,
         language="ca",
-        budget=AiBudget(usage=_usage_with(spent_neurons), clock=clock),
+        budget=budget,
         feedback=feedback_repo,
         messages=ingestor.messages,
     )
-    reviewer_repo = InMemoryReviewerRepository()
-    reviewer_events = InMemoryReviewerEventRepository()
+    reviewer_repo = backend.reviewers
+    reviewer_events = backend.reviewer_events
     settings = Settings(
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
@@ -135,6 +150,7 @@ def build_test_context(
     context = AppContext(
         settings=settings,
         identity=identity,
+        clock=clock,
         ingestor=ingestor,
         classifier=MessageClassifier(embedder=embedder),
         answer=answer,
@@ -143,29 +159,33 @@ def build_test_context(
             source=FakeSearchIndexSource(),
             embedder=embedder,
             vectors=vectors,
+            manifest=InMemorySearchProjectionRepository(),
+            clock=clock,
         ),
         seed=SeedService(
-            qa_items=InMemoryQAItemRepository(),
-            qa_versions=InMemoryQAVersionRepository(),
-            sources=InMemorySourceRepository(),
+            qa_items=backend.qa_items,
+            qa_versions=backend.qa_versions,
+            sources=backend.sources,
             ingestor=ingestor,
             clock=clock,
         ),
-        groups=GroupRegistrar(
-            sources=InMemorySourceRepository(),
-            conversations=InMemoryConversationRepository(),
+        spaces=SpaceDirectory(
+            sources=backend.sources,
+            conversations=backend.conversations,
+            spaces=backend.spaces,
+            bindings=backend.bindings,
             clock=clock,
         ),
         review=ReviewService(
-            source=FakeReviewSource(), conversations=InMemoryConversationRepository()
+            source=FakeReviewSource(), conversations=backend.conversations
         ),
         feedback=FeedbackService(
             answers=answers,
             feedback=feedback_repo,
-            qa_items=InMemoryQAItemRepository(),
-            qa_versions=InMemoryQAVersionRepository(),
-            evidence=InMemoryQAEvidenceRepository(),
-            conversations=InMemoryConversationRepository(),
+            qa_items=backend.qa_items,
+            qa_versions=backend.qa_versions,
+            evidence=backend.qa_evidence,
+            conversations=backend.conversations,
             clock=clock,
         ),
         feedback_repo=feedback_repo,
@@ -173,28 +193,17 @@ def build_test_context(
         router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
         reviewer_report=ReviewerReportService(
             events=reviewer_events,
-            state=InMemoryReportStateRepository(),
+            state=backend.report_state,
             transport=transport,
             clock=clock,
             admin_user_id="1",
             mode=admin_report_mode,
         ),
         reverter=CorrectionReverter(
-            qa_items=InMemoryQAItemRepository(),
-            qa_versions=InMemoryQAVersionRepository(),
+            qa_items=backend.qa_items,
+            qa_versions=backend.qa_versions,
         ),
-        budget=AiBudget(
-            usage=_usage_with(spent_neurons),
-            clock=clock,
-        ),
+        budget=budget,
         transport=transport,
     )
     return context, transport
-
-
-def _usage_with(spent_neurons: float) -> InMemoryAiUsageRepository:
-    """Return a usage ledger pre-loaded with today's estimated spend."""
-    usage = InMemoryAiUsageRepository()
-    if spent_neurons:
-        usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
-    return usage

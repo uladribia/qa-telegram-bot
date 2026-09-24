@@ -7,12 +7,13 @@ so the app resolves its context through a callable rather than at import time.
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from knowledge_bot.adapters.inbound.telegram import (
+    TELEGRAM_RUNTIME_SOURCE_ID,
     is_valid_webhook_secret,
     normalize_callback,
     normalize_message,
@@ -41,7 +42,7 @@ from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import ReviewerEvent
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
@@ -142,6 +143,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             )
             return {"status": status}
         message = normalize_message(update, context.identity)
+        if message is None:
+            return {"status": "ignored"}
+        message = await _resolve_message_space(context, message)
         if message is None:
             return {"status": "ignored"}
         return {"status": await _handle_message(context, message)}
@@ -287,11 +291,14 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         await _require_evaluation_budget(context)
         payload = await request.json()
         body = payload if isinstance(payload, dict) else {}
-        report = await context.reindex.reindex(
-            qa_after=body.get("qa_after"),
-            msg_after=body.get("msg_after"),
-            limit=int(body["limit"]) if body.get("limit") is not None else None,
-        )
+        if not body:
+            report = await context.reindex.rebuild()
+        else:
+            report = await context.reindex.reindex(
+                qa_after=body.get("qa_after"),
+                msg_after=body.get("msg_after"),
+                limit=int(body["limit"]) if body.get("limit") is not None else None,
+            )
         return {
             "qa": report.qa,
             "messages": report.messages,
@@ -340,7 +347,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not isinstance(scope, str) or not scope.strip():
             scope = "global"
         renew = bool(payload.get("renew", False))
-        created, skipped, renewed, version_ids = await context.seed.seed_qa(
+        created, skipped, renewed, diverged, version_ids = await context.seed.seed_qa(
             qa_entries, scope, renew
         )
         indexed = 0
@@ -353,6 +360,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             "qa_skipped": skipped,
             "indexed": indexed,
             "qa_renewed": renewed,
+            "qa_diverged": diverged,
             "messages": message_count,
         }
 
@@ -369,13 +377,22 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not isinstance(payload, dict) or not str(payload.get("chat_id", "")).strip():
             raise HTTPException(status_code=400, detail="chat_id required")
         title = payload.get("title")
-        await context.groups.register(
-            str(payload["chat_id"]).strip(),
+        space_id = await context.spaces.bind(
+            channel="telegram",
+            external_conversation_id=str(payload["chat_id"]).strip(),
+            conversation_id=str(payload["chat_id"]).strip(),
+            space_id=str(payload["space_id"]).strip()
+            if isinstance(payload.get("space_id"), str)
+            and str(payload["space_id"]).strip()
+            else None,
             title=str(title).strip()
             if isinstance(title, str) and title.strip()
             else None,
+            source_id=TELEGRAM_RUNTIME_SOURCE_ID,
+            source_kind="telegram",
+            source_authority=40,
         )
-        return {"status": "registered"}
+        return {"status": "registered", "space_id": space_id}
 
     @app.post("/internal/review")
     async def internal_review(
@@ -416,6 +433,21 @@ async def _require_evaluation_budget(context: AppContext) -> None:
             "working. Resets at 00:00 UTC."
         ),
     )
+
+
+async def _resolve_message_space(
+    context: AppContext, message: NormalizedMessage
+) -> NormalizedMessage | None:
+    """Resolve a group conversation to its logical space.
+
+    Direct chats keep no space binding; they remain private user conversations.
+    """
+    if message.is_direct_message:
+        return message
+    binding = await context.spaces.resolve("telegram", message.conversation_id)
+    if binding is None:
+        return None
+    return message.model_copy(update={"space_id": binding.space_id})
 
 
 async def _handle_background_message(
@@ -496,7 +528,8 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         # username is discoverable, so an open DM would let anyone spend the
         # shared free AI quota and buzz the admin with fake corrections.
         return "ignored"
-    if message.text is not None and message.text.split()[0].startswith("/reviewer"):
+    command_parts = (message.text or "").strip().split(maxsplit=1)
+    if command_parts and command_parts[0].startswith("/reviewer"):
         return await _handle_reviewer_command(context, message)
     if message.reply_to_message_id is not None:
         handled = await _handle_feedback_reply(context, message)
@@ -544,7 +577,9 @@ async def _handle_reviewer_command(
         )
         return "reviewer_bot_refused"
     action, is_global = parse_reviewer_command(message.text or "")
-    scope = GLOBAL_SCOPE if is_global else message.conversation_id
+    if not is_global and message.space_id is None:
+        return "ignored"
+    scope = GLOBAL_SCOPE if is_global else scope_for_space(message.space_id or "")
     chat = message.conversation_id
     if action == "nominate" and message.reply_to_user_id is None:
         reviewers = await context.reviewers.list_reviewers()
@@ -601,11 +636,11 @@ async def _handle_feedback_reply(
     if feedback is not None:
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
-            message.sender_user_id, review.group_chat_id
+            message.sender_user_id, review.origin_space_id
         ):
             return None
         await context.feedback.admin_edit(feedback.id, message.text)
-        destination = await context.router.destination(review.group_chat_id)
+        destination = await context.router.destination(review.origin_space_id)
         review = await context.feedback.correction_request(feedback.id)
         if destination is not None and review is not None:
             await _deliver_review(
@@ -624,7 +659,7 @@ async def _handle_feedback_reply(
     await context.transport.send_message(reporter_chat, PROPOSAL_ACK)
     review = await context.feedback.correction_request(proposed.id)
     if review is not None:
-        destination = await context.router.destination(review.group_chat_id)
+        destination = await context.router.destination(review.origin_space_id)
         if destination is not None:
             await _deliver_review(
                 context, destination, render_review(review), proposed.id
@@ -695,7 +730,7 @@ async def _handle_callback(
     # the global reviewer, or the admin), enforced here on the server.
     review = await context.feedback.correction_request(target)
     if review is None or not await context.router.can_confirm(
-        reporter_chat_id, review.group_chat_id
+        reporter_chat_id, review.origin_space_id
     ):
         return "ignored"
     if action == "approve_global" or action == "approve_group":
@@ -712,9 +747,12 @@ async def _handle_callback(
                 "edited_approved"
                 if feedback is not None and feedback.admin_edited_answer
                 else "approved",
-                GLOBAL_SCOPE if action == "approve_global" else review.group_chat_id,
+                GLOBAL_SCOPE
+                if action == "approve_global"
+                else scope_for_space(review.origin_space_id or ""),
                 reporter_chat_id,
                 reporter_name,
+                context.clock.now(),
             )
         )
         if reporter_chat_id:
@@ -748,6 +786,7 @@ async def _handle_callback(
                 None,
                 reporter_chat_id,
                 reporter_name,
+                context.clock.now(),
             )
         )
         if reporter_chat_id:
@@ -764,12 +803,13 @@ def _reviewer_event(
     approval_scope: str | None,
     reviewer_user_id: str | None,
     reviewer_name: str | None,
+    created_at: datetime,
 ) -> ReviewerEvent:
     """Build the report event for a reviewer's resolution."""
     return ReviewerEvent(
         feedback_id=feedback_id,
         action=action,
-        created_at=datetime.now(UTC),
+        created_at=created_at,
         reviewer_user_id=reviewer_user_id,
         reviewer_name=reviewer_name,
         group_label=review.group_label,

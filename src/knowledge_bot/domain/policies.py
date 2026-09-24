@@ -7,8 +7,6 @@ Authority values are a policy of the prototype, not probabilities.
 from datetime import datetime, timedelta
 from enum import IntEnum
 
-from knowledge_bot.domain.enums import SourceType
-
 
 class Authority(IntEnum):
     """Authority ranking of evidence; a higher value wins."""
@@ -18,38 +16,6 @@ class Authority(IntEnum):
     WHATSAPP_IMPORT = 50
     WEB_PUBLISHED = 90
     ADMIN_APPROVED = 100
-
-
-def web_seed_authority(*, in_review: bool) -> Authority:
-    """Return the authority of a web Q&A snapshot entry.
-
-    Args:
-        in_review: Whether the entry is still marked as in review.
-
-    Returns:
-        The matching authority level.
-    """
-    return Authority.WEB_IN_REVIEW if in_review else Authority.WEB_PUBLISHED
-
-
-def source_authority(source_type: SourceType) -> Authority:
-    """Return the baseline authority for a source type.
-
-    Args:
-        source_type: The source being ranked.
-
-    Returns:
-        The baseline authority level for that source type.
-    """
-    match source_type:
-        case SourceType.WEB_SEED:
-            return Authority.WEB_PUBLISHED
-        case SourceType.WHATSAPP_IMPORT:
-            return Authority.WHATSAPP_IMPORT
-        case SourceType.TELEGRAM:
-            return Authority.TELEGRAM_USER
-        case SourceType.ADMIN:
-            return Authority.ADMIN_APPROVED
 
 
 def is_ask_command(text: str | None) -> bool:

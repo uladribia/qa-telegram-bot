@@ -9,7 +9,7 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
-from knowledge_bot.contracts.messages import NormalizedMessage
+from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
@@ -41,6 +41,8 @@ def _qa(similarity: float) -> Evidence:
         authority=90,
         similarity=similarity,
         question="Quan entrenen?",
+        qa_item_id="qa1",
+        qa_version_id="qav1",
     )
 
 
@@ -69,6 +71,7 @@ async def test_strong_qa_is_answered_directly_without_generator() -> None:
     outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.9)]))
     assert outcome.mode is AnswerMode.DIRECT_QA
     assert outcome.source_ids == ["qa1"]
+    assert outcome.qa_version_id == "qav1"
     assert generator.requests == []
 
 
@@ -124,9 +127,11 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
     )
     message = NormalizedMessage(
         id="m1",
+        source=SourceDescriptor(
+            id="src:telegram:runtime", kind="telegram", authority=40
+        ),
         conversation_id="c1",
         content_type="text",
-        source_type="telegram",
         timestamp=NOW,
         text="on entrenen?",
         sender_is_admin=False,

@@ -10,6 +10,7 @@ from datetime import datetime
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
+    ChannelBinding,
     Conversation,
     Feedback,
     Message,
@@ -19,8 +20,58 @@ from knowledge_bot.domain.entities import (
     Reviewer,
     ReviewerEvent,
     Source,
+    Space,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
+
+
+class InMemorySpaceRepository:
+    """Dict-backed implementation of ``SpaceRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, Space] = {}
+
+    async def add(self, space: Space) -> None:
+        """Persist a new space."""
+        if space.id in self._items:
+            message = f"space already exists: {space.id}"
+            raise ValueError(message)
+        self._items[space.id] = space
+
+    async def get(self, space_id: str) -> Space | None:
+        """Return a space by id, if present."""
+        return self._items.get(space_id)
+
+
+class InMemoryChannelBindingRepository:
+    """Dict-backed implementation of ``ChannelBindingRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[tuple[str, str], ChannelBinding] = {}
+
+    async def get(
+        self, channel: str, external_conversation_id: str
+    ) -> ChannelBinding | None:
+        """Return a binding, if present."""
+        return self._items.get((channel, external_conversation_id))
+
+    async def add(self, binding: ChannelBinding) -> None:
+        """Persist a new binding."""
+        key = (binding.channel, binding.external_conversation_id)
+        if key in self._items:
+            message = f"binding already exists: {key}"
+            raise ValueError(message)
+        self._items[key] = binding
+
+    async def save(self, binding: ChannelBinding) -> None:
+        """Persist changes to an existing binding."""
+        key = (binding.channel, binding.external_conversation_id)
+        if key not in self._items:
+            message = f"unknown binding: {key}"
+            raise KeyError(message)
+        self._items[key] = binding
 
 
 class InMemorySourceRepository:
@@ -148,7 +199,7 @@ class InMemoryQAItemRepository:
         """Persist a new Q&A item."""
         if any(
             existing.canonical_key == item.canonical_key
-            and existing.scope == item.scope
+            and existing.scope_key == item.scope_key
             for existing in self._items.values()
         ):
             message = f"canonical key already exists: {item.canonical_key}"
@@ -162,11 +213,11 @@ class InMemoryQAItemRepository:
     async def get_by_canonical_key(
         self,
         canonical_key: str,
-        scope: str = "global",
+        scope_key: str = "global",
     ) -> QAItem | None:
         """Return a Q&A item by canonical key within a scope, if present."""
         for item in self._items.values():
-            if item.canonical_key == canonical_key and item.scope == scope:
+            if item.canonical_key == canonical_key and item.scope_key == scope_key:
                 return item
         return None
 

@@ -207,4 +207,6 @@ never downloaded and never processed. Sending a photo will not get an answer.
 - The daily Workers AI budget can run out, after which questions get
   *"Ara mateix no puc consultar la informació"* until 00:00 UTC. See
   [operations.md](operations.md).
-- There is no user authentication: access control is the allowed chat id.
+- Group access requires both the configured Telegram allow-list and a durable
+  channel binding to a logical space. The allow-list alone does not serve a
+  group.

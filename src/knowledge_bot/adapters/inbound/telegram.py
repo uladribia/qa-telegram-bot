@@ -10,14 +10,21 @@ import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from knowledge_bot.contracts.messages import AttachmentRef, NormalizedMessage
+from knowledge_bot.contracts.messages import (
+    AttachmentRef,
+    NormalizedMessage,
+    SourceDescriptor,
+)
 from knowledge_bot.contracts.telegram import (
     NormalizedCallback,
     TelegramMessage,
     TelegramUpdate,
 )
 from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.infrastructure.security import secrets_match
+
+TELEGRAM_RUNTIME_SOURCE_ID = "src:telegram:runtime"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,8 +187,15 @@ def normalize_message(
     external_id = f"{chat.id}:{message.message_id}"
     return NormalizedMessage(
         id=external_id,
-        source_type="telegram",
+        source=SourceDescriptor(
+            id=TELEGRAM_RUNTIME_SOURCE_ID,
+            kind="telegram",
+            authority=40,
+        ),
         conversation_id=str(chat.id),
+        principal_id=principal_id("telegram", str(sender.id))
+        if sender is not None
+        else None,
         sender_is_admin=identity.admin_user_id is not None
         and str(sender.id if sender else "") == identity.admin_user_id,
         timestamp=datetime.fromtimestamp(message.date, tz=UTC),

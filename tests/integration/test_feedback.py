@@ -15,10 +15,9 @@ from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
 from knowledge_bot.domain.enums import (
     AnswerMode,
     FeedbackStatus,
-    QAOrigin,
     QAStatus,
 )
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from tests.fakes.repositories import (
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
@@ -30,6 +29,8 @@ from tests.fakes.repositories import (
 from tests.fakes.support import FrozenClock
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
+SPACE_ID = "sp_" + "1" * 32
+GROUP_SCOPE_KEY = scope_for_space(SPACE_ID)
 
 
 async def _service() -> tuple[
@@ -59,6 +60,7 @@ async def _seed_answer(answers: InMemoryBotAnswerRepository) -> BotAnswer:
     answer = BotAnswer(
         id="ans:m1",
         conversation_id="-100",
+        space_id=SPACE_ID,
         question="Com es demana l'equipament?",
         answer="Resposta antiga.",
         answer_mode=AnswerMode.DIRECT_QA,
@@ -79,6 +81,38 @@ def test_callback_payloads_are_parsed() -> None:
     assert callback_action("feedback:approve:fb:ans:m1") is None
     assert callback_action("other:thing") is None
     assert callback_target("feedback:approve-global:fb:ans:m1") == "fb:ans:m1"
+
+
+async def test_feedback_stores_the_cited_qa_item_id() -> None:
+    """A direct answer resolves its version to the semantic Q&A item."""
+    service, answers, items, versions, _ = await _service()
+    answer = await _seed_answer(answers)
+    await answers.add(replace(answer, qa_version_id="qav-web-1"))
+    await items.add(
+        QAItem(
+            id="qa-item",
+            canonical_key=canonical_key_for(answer.question),
+            canonical_question=answer.question,
+            status=QAStatus.ACTIVE,
+            created_at=NOW,
+            updated_at=NOW,
+            current_version_id="qav-web-1",
+        )
+    )
+    await versions.add(
+        QAVersion(
+            id="qav-web-1",
+            qa_id="qa-item",
+            answer=answer.answer,
+            authority=90,
+            origin="web_seed",
+            created_at=NOW,
+        )
+    )
+
+    started = await service.start(answer.id, None)
+
+    assert started is not None and started.qa_id == "qa-item"
 
 
 async def test_full_correction_flow_creates_a_new_authoritative_version() -> None:
@@ -106,7 +140,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     version = await service.approve(started.id, GROUP_SCOPE)
     assert version is not None
     assert version.authority == 100
-    assert version.origin is QAOrigin.ADMIN_APPROVED
+    assert version.origin == "human_approved"
 
     stored_feedback = await feedback.get(started.id)
     assert stored_feedback is not None
@@ -116,7 +150,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert item is not None
     assert item.current_version_id == version.id
     assert item.status is QAStatus.ACTIVE
-    assert item.scope == "-100"
+    assert item.scope_key == GROUP_SCOPE_KEY
     assert item.canonical_key == canonical_key_for("Com es demana l'equipament?")
 
     assert await versions.get(version.id) is not None
@@ -145,7 +179,7 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
             qa_id=qa_id,
             answer="Resposta del web.",
             authority=90,
-            origin=QAOrigin.WEB_SEED,
+            origin="web_seed",
             created_at=NOW,
         )
     )
@@ -161,6 +195,23 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
     item = await items.get(qa_id)
     assert item is not None
     assert item.current_version_id == version.id
+
+
+async def test_resolved_feedback_cannot_be_decided_twice() -> None:
+    """A repeated approval or rejection creates no second decision."""
+    service, answers, items, _, _ = await _service()
+    await _seed_answer(answers)
+    started = await service.start("ans:m1", None)
+    assert started is not None
+    await service.propose(started.id, "Resposta corregida.")
+    approved = await service.approve(started.id, GROUP_SCOPE)
+    assert approved is not None
+
+    assert await service.approve(started.id, GROUP_SCOPE) is None
+    assert await service.reject(started.id) is None
+    item = await items.get(approved.qa_id)
+    assert item is not None
+    assert item.current_version_id == approved.id
 
 
 async def test_admin_edit_takes_precedence_over_the_proposal() -> None:
@@ -213,7 +264,7 @@ async def test_approving_as_group_and_global_builds_both_variants() -> None:
     assert group_version.answer == "Resposta del grup."
     group_item = await items.get(group_version.qa_id)
     assert group_item is not None
-    assert group_item.scope == "-100"
+    assert group_item.scope_key == GROUP_SCOPE_KEY
     # The global scope has no item yet: the group variant did not leak.
     assert (
         await items.get_by_canonical_key(
@@ -240,7 +291,7 @@ async def test_approving_as_group_and_global_builds_both_variants() -> None:
     assert global_version is not None
     global_item = await items.get(global_version.qa_id)
     assert global_item is not None
-    assert global_item.scope == GLOBAL_SCOPE
+    assert global_item.scope_key == GLOBAL_SCOPE
     assert global_item.id != group_item.id
     # The group variant keeps its own answer.
     group_after = await items.get(group_item.id)

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     ReportStateRepository,
@@ -114,17 +114,17 @@ class ReviewerRouter:
     reviewers: ReviewerRepository
     admin_user_id: str
 
-    async def destination(self, group_chat_id: str | None) -> str | None:
-        """Return the chat id that should review a correction from a group.
+    async def destination(self, origin_space_id: str | None) -> str | None:
+        """Return the principal that should review a correction.
 
         Args:
-            group_chat_id: The group the corrected answer came from.
+            origin_space_id: The logical space where the answer originated.
 
         Returns:
-            A chat id, or ``None`` when no admin is configured either.
+            A principal id, or ``None`` when no reviewer or admin is configured.
         """
-        if group_chat_id is not None:
-            reviewer = await self.reviewers.get(group_chat_id)
+        if origin_space_id is not None:
+            reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
             if reviewer is not None:
                 return reviewer.user_id
         global_reviewer = await self.reviewers.get(GLOBAL_SCOPE)
@@ -132,23 +132,24 @@ class ReviewerRouter:
             return global_reviewer.user_id
         return self.admin_user_id or None
 
-    async def can_confirm(self, user_id: str | None, group_chat_id: str | None) -> bool:
-        """Return whether a user may confirm a correction from a group.
+    async def can_confirm(
+        self, user_id: str | None, origin_space_id: str | None
+    ) -> bool:
+        """Return whether a principal may confirm a correction.
 
         Args:
-            user_id: The raw Telegram user id of the person acting.
-            group_chat_id: The group the corrected answer came from.
+            user_id: The acting principal id.
+            origin_space_id: The logical space where the answer originated.
 
         Returns:
-            ``True`` for the group's reviewer, the global reviewer, or the
-            admin.
+            ``True`` for the space reviewer, global reviewer, or admin.
         """
         if user_id is None:
             return False
         if user_id == self.admin_user_id:
             return True
-        if group_chat_id is not None:
-            reviewer = await self.reviewers.get(group_chat_id)
+        if origin_space_id is not None:
+            reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
             if reviewer is not None and reviewer.user_id == user_id:
                 return True
         global_reviewer = await self.reviewers.get(GLOBAL_SCOPE)

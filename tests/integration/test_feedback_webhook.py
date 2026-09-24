@@ -17,7 +17,7 @@ from knowledge_bot.application.feedback import (
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
 from knowledge_bot.infrastructure.composition import AppContext
-from tests.fakes.context import WEBHOOK_SECRET, build_test_context
+from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -70,6 +70,7 @@ async def _seed_answer(context: AppContext) -> None:
         BotAnswer(
             id="ans:-100:10",
             conversation_id="-100",
+            space_id=SPACE_A,
             question="Com es demana l'equipament?",
             answer="Resposta antiga.",
             answer_mode=AnswerMode.DIRECT_QA,
@@ -226,12 +227,12 @@ def test_review_text_includes_group_origin_and_current_source() -> None:
         )
     )
     assert "Grup: Prebenjamins" in text
-    assert "Resposta actual (web):" in text
+    assert "Resposta actual (web seed):" in text
     assert "Antiga" in text
     assert "Nova" in text
     assert "Com?" in text
     assert current_origin_label(None) == "síntesi del grup"
-    assert current_origin_label("admin_approved") == "correcció aprovada"
+    assert current_origin_label("human_approved") == "correcció aprovada"
 
 
 def test_button_label_is_the_expected_catalan() -> None:

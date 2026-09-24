@@ -39,7 +39,8 @@ from knowledge_bot.application.retrieval import (
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
-from knowledge_bot.domain.enums import AnswerMode, QAOrigin, QAStatus
+from knowledge_bot.domain.enums import AnswerMode, QAStatus
+from knowledge_bot.domain.identity import source_instance_id
 from knowledge_bot.domain.policies import is_ask_command
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.ports.generator import GenerationOutput
@@ -306,7 +307,7 @@ def eval_corrections() -> EvalReport:
         report.check(
             version is not None
             and version.authority == 100
-            and version.origin is QAOrigin.ADMIN_APPROVED,
+            and version.origin == "human_approved",
             "case 1 (auto answer): approval did not create an authoritative version",
         )
 
@@ -343,7 +344,7 @@ def eval_corrections() -> EvalReport:
                 qa_id=qa_id,
                 answer="Resposta del web.",
                 authority=90,
-                origin=QAOrigin.WEB_SEED,
+                origin="web_seed",
                 created_at=NOW,
             )
         )
@@ -362,8 +363,24 @@ def eval_corrections() -> EvalReport:
             "case 2 (web override): the superseded web version was deleted",
         )
 
-        # 3. correction -> reject (the override feedback is reused)
-        rejected = await service.reject(started.id)
+        # 3. correction -> reject (a fresh pending proposal)
+        reject_answers = InMemoryBotAnswerRepository()
+        await reject_answers.add(
+            BotAnswer(
+                id="ans:reject",
+                conversation_id="-100",
+                question=question,
+                answer="Resposta rebutjada.",
+                answer_mode=AnswerMode.DIRECT_QA,
+                created_at=NOW,
+                user_message_id="reject",
+            )
+        )
+        reject_service, _, _ = _correction_flow(reject_answers)
+        reject_started = await reject_service.start("ans:reject", None)
+        assert reject_started is not None
+        await reject_service.propose(reject_started.id, "proposta rebutjada")
+        rejected = await reject_service.reject(reject_started.id)
         report.check(
             rejected is not None and rejected.status.value == "rejected",
             "case 3 (reject): the proposal was not rejected",
@@ -466,24 +483,32 @@ def eval_seed_versioning() -> EvalReport:
             retrieved_at=NOW,
         )
         review = published.model_copy(
-            update={"source_anchor": "qa-y", "status": "in_review"}
+            update={
+                "source_anchor": "qa-y",
+                "question": "Quan?",
+                "status": "in_review",
+            }
         )
-        created, skipped, _, _ = await service.seed_qa([published, review])
+        created, skipped, _, _, _ = await service.seed_qa([published, review])
         report.check(
             created == 2 and skipped == 0, f"expected 2 created, got {created}"
         )
-        item = await items.get_by_canonical_key("qa-x")
+        item = await items.get_by_canonical_key(canonical_key_for(published.question))
         report.check(
             item is not None and item.current_version_id is not None,
             "published item has no current version",
         )
-        review_item = await items.get_by_canonical_key("qa-y")
+        review_item = await items.get_by_canonical_key(
+            canonical_key_for(review.question)
+        )
         report.check(
             review_item is not None and review_item.status.value == "under_review",
             "in-review entry is not under_review",
         )
         report.check(
-            await sources.get("web_seed") is not None, "web_seed source not created"
+            await sources.get(source_instance_id("web_seed", published.source_url))
+            is not None,
+            "connector-declared seed source not created",
         )
 
     asyncio.run(run())

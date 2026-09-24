@@ -30,6 +30,9 @@ execution is for the product code and its tests, not for editing the repository.
   and never lose the inbound event.
 - **Dependency rule.** `domain` and `application` never import transport,
   framework, or infrastructure code (see §3).
+- **Connector-owned provenance.** Connectors declare source id, source kind, and
+  base authority through a validated `SourceDescriptor`. Core code must not keep
+  a registry of channel names or derive source identity/authority from them.
 - **SQL is the source of truth for each runtime.** Local development uses SQLite;
   production uses Cloudflare D1. Any vector/search index is derived and must be
   rebuildable from that runtime's SQL store. Never store semantic knowledge only

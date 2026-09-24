@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from knowledge_bot.domain.entities import BotAnswer, Message, QAItem, QAVersion
-from knowledge_bot.domain.enums import AnswerMode, ContentType, QAOrigin, QAStatus
+from knowledge_bot.domain.enums import AnswerMode, ContentType, QAStatus
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
     MessageRepository,
@@ -97,7 +97,7 @@ async def test_qa_versioning_supersedes_without_deleting_history() -> None:
         qa_id="q1",
         answer="a1",
         authority=90,
-        origin=QAOrigin.WEB_SEED,
+        origin="web_seed",
         created_at=NOW,
     )
     await versions.add(first)
@@ -108,7 +108,7 @@ async def test_qa_versioning_supersedes_without_deleting_history() -> None:
         qa_id="q1",
         answer="a2",
         authority=100,
-        origin=QAOrigin.ADMIN_APPROVED,
+        origin="human_approved",
         created_at=NOW,
         supersedes_version_id="v1",
     )

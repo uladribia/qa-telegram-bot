@@ -85,6 +85,8 @@ class TelegramTransport:
 
     @staticmethod
     def _message_id(response: dict[str, object]) -> str | None:
+        if response.get("ok") is not True:
+            return None
         result = response.get("result")
         if isinstance(result, dict):
             message_id = result.get("message_id")
@@ -132,7 +134,7 @@ class TelegramTransport:
             "editMessageText",
             {"chat_id": conversation_id, "message_id": message_id, "text": text},
         )
-        return bool(response.get("ok", True))
+        return response.get("ok") is True
 
     async def send_review(
         self, conversation_id: str, text: str, feedback_id: str

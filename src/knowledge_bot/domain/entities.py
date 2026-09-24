@@ -10,11 +10,30 @@ from knowledge_bot.domain.enums import (
     EvidenceType,
     FeedbackStatus,
     ProcessingStatus,
-    QAOrigin,
     QAStatus,
-    SourceType,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
+
+
+@dataclass(frozen=True, slots=True)
+class Space:
+    """A channel-independent logical community context."""
+
+    id: str
+    created_at: datetime
+    title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelBinding:
+    """An external channel conversation bound to a logical space."""
+
+    channel: str
+    external_conversation_id: str
+    conversation_id: str
+    space_id: str
+    created_at: datetime
+    title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,14 +41,14 @@ class Source:
     """A body of knowledge the bot can draw from."""
 
     id: str
-    source_type: SourceType
+    source_type: str
     authority: int
     created_at: datetime
     external_ref: str | None = None
     title: str | None = None
     canonical_url: str | None = None
     is_mutable: bool = False
-    scope: str = GLOBAL_SCOPE
+    scope_key: str = GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +58,7 @@ class Conversation:
     id: str
     source_id: str
     created_at: datetime
+    space_id: str | None = None
     external_id: str | None = None
     title: str | None = None
 
@@ -92,7 +112,7 @@ class QAItem:
     status: QAStatus
     created_at: datetime
     updated_at: datetime
-    scope: str = GLOBAL_SCOPE
+    scope_key: str = GLOBAL_SCOPE
     current_version_id: str | None = None
 
 
@@ -110,12 +130,13 @@ class QAVersion:
     qa_id: str
     answer: str
     authority: int
-    origin: QAOrigin
+    origin: str
     created_at: datetime
     confidence: float | None = None
     created_by: str | None = None
     supersedes_version_id: str | None = None
     source_url: str | None = None
+    source_anchor: str | None = None
     author: str | None = None
 
 
@@ -175,6 +196,7 @@ class BotAnswer:
     answer: str
     answer_mode: AnswerMode
     created_at: datetime
+    space_id: str | None = None
     user_message_id: str | None = None
     telegram_bot_message_id: str | None = None
     confidence: float | None = None

@@ -11,7 +11,7 @@ from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.infrastructure.composition import AppContext
 from tests.fakes.ai import FakeEmbedder
-from tests.fakes.context import WEBHOOK_SECRET, build_test_context
+from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
 
@@ -74,6 +74,25 @@ def test_disallowed_chat_is_ignored() -> None:
     assert _stored(context, "-1:10") is None
 
 
+def test_allowlisted_but_unbound_group_is_not_served() -> None:
+    """A channel allowlist entry does not replace logical-space binding."""
+    context, _ = build_test_context()
+    context = replace(
+        context,
+        identity=replace(
+            context.identity,
+            allowed_chat_ids=frozenset({"-100", "-300"}),
+        ),
+    )
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("/ask hola", chat_id=-300),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ignored"}
+    assert _stored(context, "-300:10") is None
+
+
 def test_addressed_message_is_answered_and_persisted() -> None:
     """An addressed message is stored and marked to be answered."""
     context, _ = build_test_context()
@@ -84,6 +103,19 @@ def test_addressed_message_is_answered_and_persisted() -> None:
     stored = _stored(context)
     assert stored is not None
     assert stored.text == "/ask quan entrenen?"
+    conversation = asyncio.run(context.ingestor.conversations.get("-100"))
+    assert conversation is not None and conversation.space_id == SPACE_A
+
+
+def test_empty_text_does_not_crash_reviewer_command_parsing() -> None:
+    """An empty Telegram text is ignored safely."""
+    context, _ = build_test_context()
+    response = _client(context).post(
+        "/telegram/webhook", json=_update(""), headers=SECRET_HEADER
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    assert _stored(context) is None
 
 
 def test_bare_question_is_ignored_by_default() -> None:

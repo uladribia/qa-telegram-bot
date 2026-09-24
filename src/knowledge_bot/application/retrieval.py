@@ -3,12 +3,12 @@
 
 from dataclasses import dataclass, field
 
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.vector_store import VectorMatch, VectorStore
 
-QA_KIND = "qa_version"
-MESSAGE_KIND = "message"
+QA_KIND = "qa"
+MESSAGE_KIND = "message_evidence"
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +21,8 @@ class Evidence:
     authority: int
     similarity: float
     question: str | None = None
+    qa_item_id: str | None = None
+    qa_version_id: str | None = None
     anchor: str | None = None
     url: str | None = None
     date: str | None = None
@@ -63,7 +65,7 @@ def _question_key(match: VectorMatch) -> str | None:
     Returns:
         The canonical key from the match metadata, or ``None``.
     """
-    key = match.metadata.get("anchor")
+    key = match.metadata.get("canonical_key")
     return key if isinstance(key, str) and key else None
 
 
@@ -106,7 +108,9 @@ def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
         authority=_as_int(metadata.get("authority")),
         similarity=match.score,
         question=question if isinstance(question, str) else None,
-        anchor=_opt_text(metadata.get("anchor")),
+        qa_item_id=_opt_text(metadata.get("object_id")),
+        qa_version_id=_opt_text(metadata.get("version_id")),
+        anchor=_opt_text(metadata.get("canonical_key")),
         url=_opt_text(metadata.get("url")),
         date=_opt_text(metadata.get("date")),
         author=_opt_text(metadata.get("author")),
@@ -125,17 +129,20 @@ class RetrievalService:
     async def retrieve(
         self,
         question: str,
-        conversation_id: str | None = None,
+        space_id: str | None = None,
+        *,
+        all_scopes: bool = False,
     ) -> RetrievedEvidence:
         """Return Q&A and message evidence for a question.
 
         Evidence is scoped: Q&A matches come from the global layer plus the
-        asking group's own knowledge; messages come only from the asking group.
-        Without a conversation id (evals) no scope filter applies.
+        asking space's own knowledge; messages come only from that space.
+        Without a space id, normal retrieval is global-only.
 
         Args:
             question: The user question.
-            conversation_id: The asking group, when known.
+            space_id: The resolved logical space, when known.
+            all_scopes: Internal evaluation mode; user paths never enable it.
 
         Returns:
             The retrieved evidence, strongest first.
@@ -143,23 +150,26 @@ class RetrievalService:
         embeddings = await self.embedder.embed([question])
         vector = embeddings[0] if embeddings else []
         base_filters: dict[str, object] = {"kind": QA_KIND, "status": "active"}
-        qa_matches = await self.vectors.query(
-            vector,
-            top_k=self.qa_top_k,
-            filters=base_filters
-            if conversation_id is None
-            else {**base_filters, "scope": GLOBAL_SCOPE},
+        qa_filters = (
+            {**base_filters, "scope_key": GLOBAL_SCOPE}
+            if all_scopes is False
+            else base_filters
         )
-        if conversation_id is not None:
-            group_matches = await self.vectors.query(
+        qa_matches = await self.vectors.query(
+            vector, top_k=self.qa_top_k, filters=qa_filters
+        )
+        if space_id is not None:
+            local_matches = await self.vectors.query(
                 vector,
                 top_k=self.qa_top_k,
-                filters={**base_filters, "scope": conversation_id},
+                filters={**base_filters, "scope_key": scope_for_space(space_id)},
             )
-            qa_matches = _merge_group_first(qa_matches, group_matches, self.qa_top_k)
+            qa_matches = _merge_group_first(qa_matches, local_matches, self.qa_top_k)
         message_filters: dict[str, object] = {"kind": MESSAGE_KIND}
-        if conversation_id is not None:
-            message_filters["scope"] = conversation_id
+        if space_id is not None:
+            message_filters["scope_key"] = scope_for_space(space_id)
+        elif all_scopes is False:
+            message_filters["scope_key"] = GLOBAL_SCOPE
         message_matches = await self.vectors.query(
             vector,
             top_k=self.message_top_k,

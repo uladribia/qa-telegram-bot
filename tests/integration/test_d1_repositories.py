@@ -4,28 +4,35 @@
 from datetime import UTC, datetime, timedelta
 
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.contracts.messages import AttachmentRef, NormalizedMessage
+from knowledge_bot.contracts.messages import (
+    AttachmentRef,
+    NormalizedMessage,
+    SourceDescriptor,
+)
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
     Conversation,
     Message,
     Source,
+    Space,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
     ProcessingStatus,
-    SourceType,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AttachmentRepository,
     D1BotAnswerRepository,
+    D1ChannelBindingRepository,
     D1ConversationRepository,
     D1MessageRepository,
     D1RecapStateRepository,
     D1ReviewSource,
+    D1SearchProjectionRepository,
     D1SourceRepository,
+    D1SpaceRepository,
 )
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
@@ -33,6 +40,7 @@ from knowledge_bot.ports.repositories import (
     MessageRepository,
     SourceRepository,
 )
+from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.d1 import FakeD1Database
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -87,7 +95,7 @@ async def test_source_round_trip_and_save() -> None:
     await sources.add(
         Source(
             id="telegram",
-            source_type=SourceType.TELEGRAM,
+            source_type="telegram",
             authority=40,
             created_at=NOW,
             title="telegram",
@@ -95,11 +103,11 @@ async def test_source_round_trip_and_save() -> None:
     )
     loaded = await sources.get("telegram")
     assert loaded is not None
-    assert loaded.source_type is SourceType.TELEGRAM
+    assert loaded.source_type == "telegram"
     await sources.save(
         Source(
             id="telegram",
-            source_type=SourceType.TELEGRAM,
+            source_type="telegram",
             authority=95,
             created_at=NOW,
             title="renamed",
@@ -113,20 +121,71 @@ async def test_source_round_trip_and_save() -> None:
 
 async def test_conversation_round_trip() -> None:
     """Conversations depend on their source."""
-    _, sources, conversations, _, _, _, _ = _repositories()
+    database, sources, conversations, _, _, _, _ = _repositories()
     await sources.add(
-        Source(
-            id="telegram", source_type=SourceType.TELEGRAM, authority=40, created_at=NOW
-        )
+        Source(id="telegram", source_type="telegram", authority=40, created_at=NOW)
+    )
+    space_id = "sp_" + "2" * 32
+    await D1SpaceRepository(database).add(
+        Space(id=space_id, title="Example", created_at=NOW)
     )
     await conversations.add(
         Conversation(
-            id="-100", source_id="telegram", created_at=NOW, external_id="-100"
+            id="-100",
+            source_id="telegram",
+            space_id=space_id,
+            created_at=NOW,
+            external_id="-100",
         )
     )
     loaded = await conversations.get("-100")
     assert loaded is not None
     assert loaded.source_id == "telegram"
+    assert loaded.space_id == space_id
+
+
+async def test_search_projection_manifest_round_trip() -> None:
+    """The SQL manifest follows successful vector projection changes."""
+    from knowledge_bot.ports.index import SearchProjectionRepository
+
+    database = FakeD1Database()
+    repository = D1SearchProjectionRepository(database)
+    assert isinstance(repository, SearchProjectionRepository)
+    record = VectorRecord(
+        id="qa:q1",
+        values=[1.0, 0.0],
+        metadata={"kind": "qa", "object_id": "q1"},
+    )
+    await repository.record([record], NOW)
+    assert await repository.list_vector_ids() == ["qa:q1"]
+    await repository.delete(["qa:q1"])
+    assert await repository.list_vector_ids() == []
+
+
+async def test_space_and_channel_binding_round_trip() -> None:
+    """D1 persists logical spaces independently from connector identities."""
+    from knowledge_bot.domain.entities import ChannelBinding, Space
+
+    database = FakeD1Database()
+    spaces = D1SpaceRepository(database)
+    bindings = D1ChannelBindingRepository(database)
+    space_id = "sp_" + "1" * 32
+    await spaces.add(Space(id=space_id, title="Example", created_at=NOW))
+    await bindings.add(
+        ChannelBinding(
+            channel="custom-chat",
+            external_conversation_id="room-1",
+            conversation_id="conversation-1",
+            space_id=space_id,
+            title="Room",
+            created_at=NOW,
+        )
+    )
+    assert await spaces.get(space_id) == Space(
+        id=space_id, title="Example", created_at=NOW
+    )
+    binding = await bindings.get("custom-chat", "room-1")
+    assert binding is not None and binding.space_id == space_id
 
 
 async def _seed_telegram(
@@ -134,9 +193,7 @@ async def _seed_telegram(
     conversations: D1ConversationRepository,
 ) -> None:
     await sources.add(
-        Source(
-            id="telegram", source_type=SourceType.TELEGRAM, authority=40, created_at=NOW
-        )
+        Source(id="telegram", source_type="telegram", authority=40, created_at=NOW)
     )
     await conversations.add(
         Conversation(
@@ -183,11 +240,13 @@ async def test_bot_answers_window_query() -> None:
     """Answers are listed within a half-open window."""
     _, sources, conversations, _, _, answers, _ = _repositories()
     await _seed_telegram(sources, conversations)
+    space_id = "sp_" + "3" * 32
     for index, answer_id in enumerate(("a1", "a2", "a3")):
         await answers.add(
             BotAnswer(
                 id=answer_id,
                 conversation_id="-100",
+                space_id=space_id,
                 question=f"q{index}",
                 answer="a",
                 answer_mode=AnswerMode.DIRECT_QA,
@@ -196,6 +255,7 @@ async def test_bot_answers_window_query() -> None:
         )
     window = await answers.list_between(NOW, NOW + timedelta(minutes=90))
     assert [answer.id for answer in window] == ["a1", "a2"]
+    assert all(answer.space_id == space_id for answer in window)
 
 
 async def test_recap_state_upsert() -> None:
@@ -216,7 +276,7 @@ async def test_review_source_reads_current_versions_and_superseded_origin() -> N
     connection.execute(
         "INSERT INTO qa_items"
         " (id, canonical_key, canonical_question, status, current_version_id,"
-        " created_at, updated_at, scope) VALUES"
+        " created_at, updated_at, scope_key) VALUES"
         " ('q1','k1','Què?','active','v2','2026-01-01','2026-01-02','global')"
     )
     connection.execute(
@@ -249,7 +309,9 @@ async def test_ingest_use_case_against_d1_repository() -> None:
     )
     normalized = NormalizedMessage(
         id="tg:-100:10",
-        source_type="telegram",
+        source=SourceDescriptor(
+            id="src:telegram:runtime", kind="telegram", authority=40
+        ),
         conversation_id="-100",
         sender_is_admin=False,
         timestamp=NOW,

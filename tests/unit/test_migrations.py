@@ -10,6 +10,8 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 EXPECTED_TABLES = {
     "sources",
+    "spaces",
+    "channel_bindings",
     "conversations",
     "messages",
     "attachments",
@@ -22,6 +24,7 @@ EXPECTED_TABLES = {
     "reviewers",
     "reviewer_events",
     "report_state",
+    "search_projection",
 }
 
 
@@ -62,9 +65,42 @@ def _seed_source_and_conversation(connection: sqlite3.Connection) -> None:
         ("s1", "telegram", None, None, None, 95, 0, "2026-01-01"),
     )
     connection.execute(
-        "INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO conversations"
+        " (id, source_id, external_id, title, created_at) VALUES (?, ?, ?, ?, ?)",
         ("c1", "s1", None, None, "2026-01-01"),
     )
+
+
+def test_knowledge_identity_columns_exist() -> None:
+    """Semantic scope and source anchors survive the v2 schema."""
+    connection = _connect()
+    _apply(connection)
+    qa_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(qa_items)").fetchall()
+    }
+    version_columns = {
+        row[1]
+        for row in connection.execute("PRAGMA table_info(qa_versions)").fetchall()
+    }
+    source_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(sources)").fetchall()
+    }
+    assert "scope" not in qa_columns | source_columns
+    assert "scope_key" in qa_columns & source_columns
+    assert "source_anchor" in version_columns
+
+
+def test_channel_binding_requires_a_space() -> None:
+    """External channel bindings cannot point at an unknown space."""
+    connection = _connect()
+    _apply(connection)
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO channel_bindings"
+            " (channel, external_conversation_id, conversation_id, space_id,"
+            " title, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("custom", "room-1", "conversation-1", "missing", None, "2026-01-01"),
+        )
 
 
 def test_feedback_routing_columns_exist() -> None:
@@ -95,8 +131,16 @@ def test_qa_items_allow_one_variant_per_scope() -> None:
     connection.execute(
         "INSERT INTO qa_items"
         " (id, canonical_key, canonical_question, status, created_at, updated_at,"
-        " scope) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("q2", "equipment", "?", "active", "2026-01-01", "2026-01-01", "-100"),
+        " scope_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            "q2",
+            "equipment",
+            "?",
+            "active",
+            "2026-01-01",
+            "2026-01-01",
+            "space:sp_" + "1" * 32,
+        ),
     )
     duplicate = ("q3", "equipment", "?", "active", "2026-01-01", "2026-01-01")
     with pytest.raises(sqlite3.IntegrityError):

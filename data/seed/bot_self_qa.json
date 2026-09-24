@@ -126,5 +126,13 @@
     "answer": "Els revisors els tria l'admin del bot: ho fa des del grup, responent a un missatge de la persona amb l'ordre /reviewer, i també pot nomenar un revisor global o treure'n un. El bot mateix no pot ser revisor: si l'admin em respon a mi, ho refuso. Si vols saber qui revisa les correccions del teu grup, pregunta-li directament a l'admin.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
+    "section": "Grups servits",
+    "question": "Com puc saber si el bot respon al meu grup?",
+    "answer": "El grup ha d'estar autoritzat per l'admin i registrat amb un espai lògic. Si el grup només apareix a la llista d'autorització però no està registrat, el bot no hi respon. Pregunta a l'admin que confirmi el registre del grup abans de provar-lo.",
+    "status": "published",
+    "retrieved_at": "2026-09-24T00:00:00Z"
   }
 ]

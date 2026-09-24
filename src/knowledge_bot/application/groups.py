@@ -1,69 +1,108 @@
 # SPDX-License-Identifier: MIT
-"""Register Telegram groups the bot serves.
-
-Registration is idempotent: re-adding a known group refreshes its title and
-changes nothing else. A registered group is a conversation row under the
-Telegram runtime source; messages, Q&A, and sources can then be scoped to it.
-"""
+"""Manage logical spaces and channel bindings without channel-specific rules."""
 
 from dataclasses import dataclass, replace
 
-from knowledge_bot.domain.entities import Conversation, Source
-from knowledge_bot.domain.enums import SourceType
-from knowledge_bot.domain.policies import source_authority
+from knowledge_bot.domain.entities import ChannelBinding, Conversation, Source, Space
+from knowledge_bot.domain.scope import new_space_id
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
+    ChannelBindingRepository,
     ConversationRepository,
     SourceRepository,
+    SpaceRepository,
 )
-
-TELEGRAM_SOURCE_ID = SourceType.TELEGRAM.value
 
 
 @dataclass(frozen=True, slots=True)
-class GroupRegistrar:
-    """Register a Telegram group as a scopeable conversation."""
+class SpaceDirectory:
+    """Create spaces and bind external conversations using opaque identifiers."""
 
     sources: SourceRepository
     conversations: ConversationRepository
+    spaces: SpaceRepository
+    bindings: ChannelBindingRepository
     clock: Clock
 
-    async def register(self, chat_id: str, title: str | None = None) -> bool:
-        """Register a group, or refresh its title.
+    async def bind(
+        self,
+        *,
+        channel: str,
+        external_conversation_id: str,
+        conversation_id: str,
+        space_id: str | None,
+        title: str | None,
+        source_id: str,
+        source_kind: str,
+        source_authority: int,
+    ) -> str:
+        """Bind an external conversation to a logical space.
 
-        Args:
-            chat_id: The Telegram chat id of the group.
-            title: A human-readable name for the group.
-
-        Returns:
-            ``True`` when the group was newly created.
+        Channel adapters supply all external values and source provenance. This
+        service owns only the channel-independent space/binding relationship.
         """
-        if not chat_id.strip():
-            message = "Group chat id must not be empty"
+        if not channel.strip() or not external_conversation_id.strip():
+            message = "channel and external conversation id are required"
             raise ValueError(message)
-        if await self.sources.get(TELEGRAM_SOURCE_ID) is None:
+        now = self.clock.now()
+        resolved_space_id = space_id or new_space_id()
+        if await self.spaces.get(resolved_space_id) is None:
+            await self.spaces.add(
+                Space(id=resolved_space_id, created_at=now, title=title)
+            )
+        if await self.sources.get(source_id) is None:
             await self.sources.add(
                 Source(
-                    id=TELEGRAM_SOURCE_ID,
-                    source_type=SourceType.TELEGRAM,
-                    authority=int(source_authority(SourceType.TELEGRAM)),
-                    created_at=self.clock.now(),
-                    title=TELEGRAM_SOURCE_ID,
+                    id=source_id,
+                    source_type=source_kind,
+                    authority=source_authority,
+                    created_at=now,
+                    title=source_kind,
                     is_mutable=True,
                 )
             )
-        existing = await self.conversations.get(chat_id)
-        if existing is not None:
-            if existing.title != title:
-                await self.conversations.save(replace(existing, title=title))
-            return False
-        await self.conversations.add(
-            Conversation(
-                id=chat_id,
-                source_id=TELEGRAM_SOURCE_ID,
-                created_at=self.clock.now(),
-                external_id=chat_id,
-                title=title,
+        conversation = await self.conversations.get(conversation_id)
+        if conversation is None:
+            await self.conversations.add(
+                Conversation(
+                    id=conversation_id,
+                    source_id=source_id,
+                    space_id=resolved_space_id,
+                    created_at=now,
+                    external_id=external_conversation_id,
+                    title=title,
+                )
             )
+        elif (
+            conversation.space_id != resolved_space_id
+            or conversation.external_id != external_conversation_id
+            or conversation.title != title
+        ):
+            await self.conversations.save(
+                replace(
+                    conversation,
+                    space_id=resolved_space_id,
+                    external_id=external_conversation_id,
+                    title=title,
+                )
+            )
+        existing = await self.bindings.get(channel, external_conversation_id)
+        binding = ChannelBinding(
+            channel=channel,
+            external_conversation_id=external_conversation_id,
+            conversation_id=conversation_id,
+            space_id=resolved_space_id,
+            created_at=existing.created_at if existing is not None else now,
+            title=title,
         )
-        return True
+        if existing is None:
+            await self.bindings.add(binding)
+        elif existing != binding:
+            await self.bindings.save(binding)
+        return resolved_space_id
+
+    async def resolve(
+        self, channel: str, external_conversation_id: str
+    ) -> ChannelBinding | None:
+        """Resolve an external conversation to its logical space."""
+        return await self.bindings.get(channel, external_conversation_id)

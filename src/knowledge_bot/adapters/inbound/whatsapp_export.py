@@ -15,8 +15,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from knowledge_bot.contracts.messages import AttachmentRef, NormalizedMessage
+from knowledge_bot.contracts.messages import (
+    AttachmentRef,
+    NormalizedMessage,
+    SourceDescriptor,
+)
 from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.domain.identity import source_instance_id
 
 # Android: ``19/09/26, 09:32 - Nom: Missatge``
 _ANDROID_HEADER = re.compile(
@@ -214,7 +219,11 @@ def _to_message(
     message_id = _content_id(header.timestamp, author, body)
     return NormalizedMessage(
         id=message_id,
-        source_type="whatsapp",
+        source=SourceDescriptor(
+            id=source_instance_id("whatsapp", conversation_id),
+            kind="whatsapp_import",
+            authority=50,
+        ),
         conversation_id=conversation_id,
         sender_is_admin=False,
         timestamp=header.timestamp,
