@@ -82,10 +82,10 @@ Expected at the handoff baseline:
 `make smoke` was last run after the generic API, durable state, daily report,
 Worker entrypoint, and Telegram adapter changes.
 
-## Current branch progress: Phase 8 local runtime
+## Completed Phase 8: local runtime
 
-The `refactor/v2-local-runtime` branch is now in progress from the updated
-`main`. Implemented in the current worktree:
+PR #5 (`refactor/v2-local-runtime`) was merged into `main` at `5c0829d`.
+Implemented:
 
 - local dependency group with `numpy`, `aiosqlite`, `httpx`, and `uvicorn`;
 - validated `RuntimeMode`, local SQLite/Ollama settings, and model allowlists;
@@ -103,13 +103,20 @@ The `refactor/v2-local-runtime` branch is now in progress from the updated
 The local graph currently reuses the existing purpose-specific SQL repository
 classes through a small SQLite statement binding while the oversized D1 module
 is split later in Phase 10. This is functional local persistence, not a second
-database or ORM. The next step is to finish and validate this branch, then merge
-it before starting `refactor/v2-production-docs`.
+database or ORM.
 
-## Next steps
+## Next branch and scope
 
-Finish and validate the current branch, preserving the unstaged `TODO.md` edit.
-Do not start Phase 9 until Phase 8 is merged.
+The current branch is `refactor/v2-production-docs`, started from the merged
+Phase 8 `main`. It owns Phases 9–12:
+
+1. finish the Cloudflare composition root and deterministic daily report content;
+2. split remaining oversized route/infrastructure modules where behavior permits;
+3. synchronize all documentation and bot self-Q&A with final behavior;
+4. run the final offline/local/Worker validation matrix.
+
+Do not run Cloudflare migrations, deploys, live AI evals, or reindexing without
+explicit human authorization. Preserve the unstaged `TODO.md` edit.
 
 ## Known transitional gaps
 

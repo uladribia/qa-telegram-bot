@@ -80,4 +80,4 @@ dev-seed:
 
 # Explicit local-only AI check; ordinary tests never call Ollama.
 test-e2e-local:
-	RUN_LOCAL_AI_E2E=1 uv run pytest -m e2e_local
+	OLLAMA_BASE_URL=http://127.0.0.1:11434 RUN_LOCAL_AI_E2E=1 uv run pytest -m e2e_local

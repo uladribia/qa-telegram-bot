@@ -58,7 +58,12 @@ async def readyz(request: Request) -> dict[str, str]:
             str(model.get("name", "")) for model in models if isinstance(model, dict)
         }
         required = {context.settings.embedding_model, context.settings.generation_model}
-        if not required.issubset(names):
+        available = {
+            required_name
+            for required_name in required
+            if required_name in names or f"{required_name}:latest" in names
+        }
+        if available != required:
             return {"status": "not-ready"}
     except Exception:
         return {"status": "not-ready"}

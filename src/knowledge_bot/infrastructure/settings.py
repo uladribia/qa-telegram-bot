@@ -4,7 +4,7 @@
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_AI_MODELS: frozenset[str] = frozenset(
@@ -26,12 +26,23 @@ class RuntimeMode(StrEnum):
 class Settings(BaseSettings):
     """Runtime configuration for the knowledge bot."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", populate_by_name=True
+    )
 
-    runtime: RuntimeMode = RuntimeMode.CLOUDFLARE
-    sqlite_path: str = "./data/knowledge-bot.sqlite3"
+    runtime: RuntimeMode = Field(
+        default=RuntimeMode.CLOUDFLARE,
+        validation_alias=AliasChoices("KB_RUNTIME", "RUNTIME"),
+    )
+    sqlite_path: str = Field(
+        default="./data/knowledge-bot.sqlite3",
+        validation_alias=AliasChoices("KB_SQLITE_PATH", "SQLITE_PATH"),
+    )
     ollama_base_url: str = "http://127.0.0.1:11434"
-    log_content: bool = False
+    log_content: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("KB_LOG_CONTENT", "LOG_CONTENT"),
+    )
 
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
