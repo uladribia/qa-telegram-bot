@@ -22,7 +22,11 @@ from knowledge_bot.adapters.inbound.telegram import (
 )
 from knowledge_bot.adapters.telegram.flow import TelegramFlow
 from knowledge_bot.adapters.telegram.routes import register_telegram_routes
-from knowledge_bot.application.classifier import QUESTION, IntentScores
+from knowledge_bot.application.classifier import (
+    QUESTION,
+    Classification,
+    message_is_confident,
+)
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
     PROPOSAL_ACK,
@@ -619,7 +623,7 @@ async def _handle_background_message(
     scores = classification.scores
     label = classification.best_label.value
     score = classification.best_score
-    context_question = await _match_parent_question(context, message, scores)
+    context_question = await _match_parent_question(context, message, classification)
     status = (
         ClassificationStatus.PREFILTER_CHITCHAT
         if not classification.embedding
@@ -636,31 +640,32 @@ async def _handle_background_message(
             "knowledge_update": scores.knowledge_update,
             "correction": scores.correction,
             "chitchat": scores.chitchat,
+            "margin": classification.margin,
         },
         index_status=IndexStatus.NOT_ELIGIBLE,
     )
     if result.created:
+        await context.pairing.on_message(message.id)
         await context.background_indexer.process(message.id, classification.embedding)
-    await context.pairing.on_message(message.id)
     return "ingest_pair" if context_question is not None else "ingest"
 
 
 async def _match_parent_question(
-    context: AppContext, message: NormalizedMessage, scores: IntentScores
+    context: AppContext, message: NormalizedMessage, classification: Classification
 ) -> str | None:
     """Return the parent question text when a reply answers a question.
 
     Args:
         context: The application context.
         message: The reply being ingested.
-        scores: The reply's intent scores.
+        classification: The reply's classification.
 
     Returns:
         The parent question text, or ``None`` when this is no clear pair.
     """
     if message.reply_to_message_id is None:
         return None
-    if not context.classifier.is_answer_like(scores):
+    if not context.classifier.is_answer_like(classification):
         return None
     parent = await context.ingestor.get_message(
         f"{message.conversation_id}:{message.reply_to_message_id}"
@@ -669,7 +674,13 @@ async def _match_parent_question(
         return None
     if parent.intent_label != QUESTION:
         return None
-    if (parent.intent_score or 0.0) < context.classifier.question_match_threshold:
+    if not message_is_confident(
+        parent.intent_label,
+        parent.intent_score,
+        parent.intent_scores_json,
+        confidence_threshold=context.classifier.confidence_threshold,
+        margin_threshold=context.classifier.margin_threshold,
+    ):
         return None
     return parent.text[:_MAX_LISTENER_QUESTION_CHARS]
 

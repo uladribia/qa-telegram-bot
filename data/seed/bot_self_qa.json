@@ -107,7 +107,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/knowledge-base.md",
     "section": "Afegir coneixement parlant amb el bot",
     "question": "Aprens del que es parla al grup?",
-    "answer": "Sí, quan l'admin té activada l'escolta del grup: guardo els missatges que no són per mi com a context, però no indexo les preguntes ni la xerrameca com si fossin informació. Si algú respon la pregunta d'una altra persona, guardo i indexo la parella pregunta-resposta. Una actualització o correcció clara també es pot indexar immediatament. Tot això té autoritat baixa: una correcció aprovada o el Q&A oficial sempre hi passen per sobre. I mai no responc els missatges que no m'adrecen explícitament.",
+    "answer": "Sí, quan l'admin té activada l'escolta del grup: guardo els missatges que no són per mi com a context, però només indexo informació clara. Cada missatge es classifica amb un cap lineal entrenat localment sobre l'embedding: si el resultat no és prou segur (probabilitat i marge baixos), el missatge queda emmagatzemat però no actuo sobre ell. Les preguntes clares esdevenen candidats pendents; les actualitzacions i correccions clares s'indexen com a evidència; la xerrameca mai no s'indexa. Tot això té autoritat baixa: una correcció aprovada o el Q&A oficial sempre hi passen per sobre. I mai no responc els missatges que no m'adrecen explícitament.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -163,7 +163,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/knowledge-base.md",
     "section": "Escolta i agrupació",
     "question": "Com aparelles una pregunta i una resposta que no tenen resposta directa?",
-    "answer": "El bot acumula els missatges en una finestra per conversa i processa la finestra quan acaba el periode de silenci, no per cada missatge. La finestra inclou un marge d'influència perquè una pregunta propera al final pugui emparellar-se amb una resposta del següent bloc. El model extreu parelles candidates, el bot valida identificats i confiança, i desa cada parella com a evidència de missatges. No crea automàticament un Q&A canònic: el Q&A només creix amb seeds/imports o correccions aprovades.",
+    "answer": "L'aparellament és completament determinista i no fa cap trucada al model. Si un missatge és una resposta explícita (resposta de Telegram) a una pregunta clara, s'aparella a l'instant. Si és una actualització o correcció clara, es parella només quan hi ha exactament una pregunta recent (dins dels últims 5 minuts) sense resoldre a la conversa; amb cap o més d'una pregunta recent, no aparella automàticament i el missatge es tracta com a informació independent. La identitat del remitent no serveix mai com a prova de resposta. Cada parella es desa com a evidència de missatges amb id estable (repetir el procés no duplica res). No crea automàticament un Q&A canònic: el Q&A només creix amb seeds/imports o correccions aprovades.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
   }

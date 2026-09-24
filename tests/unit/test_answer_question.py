@@ -15,7 +15,12 @@ from knowledge_bot.application.retrieval import (
 from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.generator import GenerationOutput
-from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
+from tests.fakes.ai import (
+    FakeEmbedder,
+    FakeGenerator,
+    FakeLexicalIndex,
+    FakeVectorStore,
+)
 from tests.fakes.repositories import InMemoryBotAnswerRepository
 from tests.fakes.support import FrozenClock
 
@@ -27,7 +32,11 @@ def _service(
 ) -> tuple[AnswerService, FakeGenerator]:
     generator = FakeGenerator(result)
     return AnswerService(
-        retrieval=RetrievalService(embedder=FakeEmbedder(), vectors=FakeVectorStore()),
+        retrieval=RetrievalService(
+            embedder=FakeEmbedder(),
+            vectors=FakeVectorStore(),
+            lexical=FakeLexicalIndex(),
+        ),
         generator=generator,
         answers=InMemoryBotAnswerRepository(),
         clock=FrozenClock(NOW),
@@ -158,7 +167,7 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
     embedder = FakeEmbedder()
     embedder.fail = True
     service = AnswerService(
-        RetrievalService(embedder, FakeVectorStore()),
+        RetrievalService(embedder, FakeVectorStore(), FakeLexicalIndex()),
         service.generator,
         service.answers,
         FrozenClock(NOW),

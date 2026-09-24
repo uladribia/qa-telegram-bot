@@ -10,7 +10,12 @@ from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode, ContentType
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
-from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
+from tests.fakes.ai import (
+    FakeEmbedder,
+    FakeGenerator,
+    FakeLexicalIndex,
+    FakeVectorStore,
+)
 from tests.fakes.repositories import InMemoryBotAnswerRepository
 from tests.fakes.support import FrozenClock
 
@@ -47,6 +52,7 @@ async def _service(
         retrieval=RetrievalService(
             embedder=FakeEmbedder([1.0, 0.0]),
             vectors=store,
+            lexical=FakeLexicalIndex(),
             qa_top_k=5,
             message_top_k=5,
         ),

@@ -1,0 +1,500 @@
+{"text": "el torneig de dissabte canvia a cap a les 10.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El partit de dimecres es juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "els Minis juguen jueves? On?", "label": "question", "source": "synthetic"}
+{"text": "Jejeje quina Bestia ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "El partit no és al camp nou, és al camp 2.", "label": "correction", "source": "synthetic"}
+{"text": "Gràcies la Marta!", "label": "chitchat", "source": "synthetic"}
+{"text": "Esborreu el que vaig escriure: el partit és diumenge. ⚽", "label": "correction", "source": "synthetic"}
+{"text": "Quant falta per el partit de els Cadets?", "label": "question", "source": "synthetic"}
+{"text": "El termini per el pagament de la lliga no és divendres, és dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "Hi ha la concentració durant les vacances?", "label": "question", "source": "synthetic"}
+{"text": "on es compra la pilota?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de apres serà dilluns a les 18:15 a la sala gran", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El partit no és al camp 2, és a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "Gracies el Jordi!", "label": "chitchat", "source": "synthetic"}
+{"text": "A quina hora acaba la concentració a les 6?", "label": "question", "source": "synthetic"}
+{"text": "De res ,home", "label": "chitchat", "source": "synthetic"}
+{"text": "On és el partit al migdia?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de pares serà divendres a les 6 a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "l'amistus de miercoles canvia a a les 5 de la tarda.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "No cal portar les espinilleres dilluns, ho he preguntat. 🙏", "label": "correction", "source": "synthetic"}
+{"text": "El camp ha tornat a canviar: no al camp nou, sinó a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "S'ha de portar la revisió per jugar?", "label": "question", "source": "synthetic"}
+{"text": "Jo atmbé ho penso", "label": "chitchat", "source": "synthetic"}
+{"text": "Correcció: l'amistós comença a les 18:15, no cap a les 10.", "label": "correction", "source": "synthetic"}
+{"text": "Com s'arriba al camp 2? Hi ha l'autocar?", "label": "question", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Benjamins juga virenes", "label": "correction", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem diumenge. 😮‍💨", "label": "chitchat", "source": "synthetic"}
+{"text": "Perefcto, gracias", "label": "chitchat", "source": "synthetic"}
+{"text": "jo ja hi som al camp de dalt 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Com demano l'equipacói nova", "label": "question", "source": "synthetic"}
+{"text": "Cal  portar l'equipació i aigua a tots els entrenaments.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ho he comprovat: el partit es queda a les 7.", "label": "correction", "source": "synthetic"}
+{"text": "Ups: la trobada és dilluns, no avui.", "label": "correction", "source": "synthetic"}
+{"text": "S'ha cancel·lat el torneig del martes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "A quina hora acaba l'amistós a les 7?", "label": "question", "source": "synthetic"}
+{"text": "El partit no és al camp de dalt, és al pavelló.", "label": "correction", "source": "synthetic"}
+{"text": "Fins quan es pot pagar el pagament de la lliga?", "label": "question", "source": "synthetic"}
+{"text": "Ups: la trobada és martes, no avui.", "label": "correction", "source": "synthetic"}
+{"text": "Molt bé! 👌 🔥", "label": "chitchat", "source": "synthetic"}
+{"text": "A qui li he de dir que vindré tard domingo?", "label": "question", "source": "synthetic"}
+{"text": "Com s'arriba al camp de dalt? Hi ha el transport del club?", "label": "question", "source": "synthetic"}
+{"text": "Com s'arriba al camp 2? Hi ha els cotxes dels pares?", "label": "question", "source": "synthetic"}
+{"text": "El proper dilluns comencem 15 minuts tard.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Esborrue el que vaig escriure: el partit és diumenge", "label": "correction", "source": "synthetic"}
+{"text": "He de'nviar la validació mèdica abans de dimecres", "label": "question", "source": "synthetic"}
+{"text": "s'ha cancel·lat la concentraciu del divendres.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Enhorabona als el Juvenil B! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "Jo tambéh o penso", "label": "chitchat", "source": "synthetic"}
+{"text": "Han publciat els horaris nous al web del club", "label": "knowledge_update", "source": "synthetic"}
+{"text": "A qui li he de dir que vindre tard miercoles?", "label": "question", "source": "synthetic"}
+{"text": "Molt be! 👌", "label": "chitchat", "source": "synthetic"}
+{"text": "El partit de dijous es juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ànims els Prebnejams avui", "label": "chitchat", "source": "synthetic"}
+{"text": "Jejeje quina Bestia 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Vaig dir malament el camp: és al Pau Negre.", "label": "correction", "source": "synthetic"}
+{"text": "ho he comprovat: l'amistus es queda a les 9:15.", "label": "correction", "source": "synthetic"}
+{"text": "El preu de el pagament de la lliga són 20 euros, no 15.", "label": "correction", "source": "synthetic"}
+{"text": "He d'enviar la validació mèdcia abans de domingo", "label": "question", "source": "synthetic"}
+{"text": "Correcció: el partit comença abans de les 8, no cap a les 10.", "label": "correction", "source": "synthetic"}
+{"text": "Fins demà, compis! 😮‍💨", "label": "chitchat", "source": "synthetic"}
+{"text": "Fins quan es pot pagar els 15 euros del torneig?", "label": "question", "source": "synthetic"}
+{"text": "Vaig dir malament elc amp: és al pavelló", "label": "correction", "source": "synthetic"}
+{"text": "No és cap a les 10, és a dos quarts de set.", "label": "correction", "source": "synthetic"}
+{"text": "el partit de dijous canvia a al migdia.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "l'amistós de divendres canvia a a les 5 de la tarda.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: és els Cadets, no els Prebenjams.", "label": "correction", "source": "synthetic"}
+{"text": "els Prebenjams juguen diumenge? On?", "label": "question", "source": "synthetic"}
+{"text": "On és el torneig a les 9:15?", "label": "question", "source": "synthetic"}
+{"text": "els Minis entrenarà martes a les 6:30.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ara els Prebenjams juga al camp de dalt.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El preu de la fitxa són 20 euros, no 15.", "label": "correction", "source": "synthetic"}
+{"text": "On es compra les mitjones?", "label": "question", "source": "synthetic"}
+{"text": "Feliça ny nou a tothom! 🎉", "label": "chitchat", "source": "synthetic"}
+{"text": "Ah, d'acord, gràcies. 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Demanen portar el xandall blanca domingo.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El club manda avís: cal renovar el certificat mèdic aquest mes. 🙌", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Com s'arriba al Pau Negre? Hi ha el bus de les 16:00?", "label": "question", "source": "synthetic"}
+{"text": "Es pot pagar la fitxa per bizum?", "label": "question", "source": "synthetic"}
+{"text": "El club manda avís: cal renovar el certificat mèdic aquest mes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "dimecres hi ha la lliga? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "divendres hi ha l'entrenament? A quina ohra", "label": "question", "source": "synthetic"}
+{"text": "Com demano l'equipació nova?", "label": "question", "source": "synthetic"}
+{"text": "Algú sap a quina hora és el partit de els Alevins?", "label": "question", "source": "synthetic"}
+{"text": "Fins dema, compis!", "label": "chitchat", "source": "synthetic"}
+{"text": "Aquest dissabte hi ha entrenament normal a a les 6.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "els Benjamins juguen dimecres? On?", "label": "question", "source": "synthetic"}
+{"text": "El partit de lunes es juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Qui passa la llista per la concentració?", "label": "question", "source": "synthetic"}
+{"text": "Sí, home, ís 😄", "label": "chitchat", "source": "synthetic"}
+{"text": "No, finalment el torneig és dilluns.", "label": "correction", "source": "synthetic"}
+{"text": "S'ha de portar el certificat mèdic per jugar?", "label": "question", "source": "synthetic"}
+{"text": "Jo ja hi som al camp 2 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Aquest dijous hi ha entrenament normal a a dos quarts de set.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "He d'enviar el certificat mèdic abans de dissabte?", "label": "question", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem dimarts.", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecet, doncs ens veiem viernes", "label": "chitchat", "source": "synthetic"}
+{"text": "On es compra els pantalons? 👍", "label": "question", "source": "synthetic"}
+{"text": "Com demano els pantalons nova?", "label": "question", "source": "synthetic"}
+{"text": "On és el torneig a primera hora?", "label": "question", "source": "synthetic"}
+{"text": "No, finalment el torneig és martes.", "label": "correction", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: és els Minis, no el Juvenil B.", "label": "correction", "source": "synthetic"}
+{"text": "els Alevins entrenarà juevse a les 17:00", "label": "knowledge_update", "source": "synthetic"}
+{"text": "D'acord, cap problema. 👍", "label": "chitchat", "source": "synthetic"}
+{"text": "El preu de els 20 euros són 20 euros, no 15.", "label": "correction", "source": "synthetic"}
+{"text": "A quina hora acaba la concentració a dos quarts de set?", "label": "question", "source": "synthetic"}
+{"text": "vinga, fins miercoles!", "label": "chitchat", "source": "synthetic"}
+{"text": "M'he equivocat, el partit és jueves no miercoles.", "label": "correction", "source": "synthetic"}
+{"text": "Algui sap si dissabte hi ha l'entrenament?", "label": "question", "source": "synthetic"}
+{"text": "lunes hi ha la lliga? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "Vaig dir malament el camp: és al camp de dalt.", "label": "correction", "source": "synthetic"}
+{"text": "A qui li he de dir que vindre tard diumenge?", "label": "question", "source": "synthetic"}
+{"text": "Jejeej quina Bestia", "label": "chitchat", "source": "synthetic"}
+{"text": "Jejeje quina Bestia 👍", "label": "chitchat", "source": "synthetic"}
+{"text": "Vaig dir malament el camp: es al Pau Negre.", "label": "correction", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: és els Prebenjams, no el Juvenil B.", "label": "correction", "source": "synthetic"}
+{"text": "No és a les 9:15, és a les 7.", "label": "correction", "source": "synthetic"}
+{"text": "Esborreu el que vaig escriure: el partit és diumenge.", "label": "correction", "source": "synthetic"}
+{"text": "Ara els Prebenjams juga al Pau Negre.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Benjamins juga dissabte.", "label": "correction", "source": "synthetic"}
+{"text": "perfecte, doncs ens veiem viernes.", "label": "chitchat", "source": "synthetic"}
+{"text": "enhorabona als els minis! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem miercoles.", "label": "chitchat", "source": "synthetic"}
+{"text": "Ara els Minis juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Genial 😂😂 👍", "label": "chitchat", "source": "synthetic"}
+{"text": "Bon dia a tots !☀️", "label": "chitchat", "source": "synthetic"}
+{"text": "la revisió es lliura al delegat abans de jugar.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "els Cadets juguen dimecres? On?", "label": "question", "source": "synthetic"}
+{"text": "Porteu els pantalons de recanvi al partit de dimarts.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Correcció: la concentració comença a dos quarts de set, no al migdia.", "label": "correction", "source": "synthetic"}
+{"text": "Quin bon partit ahir!👏 ", "label": "chitchat", "source": "synthetic"}
+{"text": "Ho he comprovat: la lliga es queda a dos quarts de set.", "label": "correction", "source": "synthetic"}
+{"text": "Ah, d'acodr, gràcies", "label": "chitchat", "source": "synthetic"}
+{"text": "La reunió de pares serà viernes cap a les 10 a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ànims els Benjamins avui!", "label": "chitchat", "source": "synthetic"}
+{"text": "Bon dia a tots! ️☀", "label": "chitchat", "source": "synthetic"}
+{"text": "No cal portar la pilota viernes, ho he preguntat.", "label": "correction", "source": "synthetic"}
+{"text": "Algui sap si divendres hi ha la concentració?", "label": "question", "source": "synthetic"}
+{"text": "Correcció: la concentració comença al migdia, no a les 18:15.", "label": "correction", "source": "synthetic"}
+{"text": "Sí, home, sí 😄 😮‍💨", "label": "chitchat", "source": "synthetic"}
+{"text": "On consulto les mides de l'equipació?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de pares serà martes a dos quarts de set a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "No és a dos quarts de set, és a les 7.", "label": "correction", "source": "synthetic"}
+{"text": "Enhorabona als els Prebnejams! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "A quina hora acaba la concentraciu a les 5 de la tarda?", "label": "question", "source": "synthetic"}
+{"text": "Demanen portar l'equipació blanca dimecres.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Vaig dir malament el camp: es a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "Qui porta l'equipació als partits?", "label": "question", "source": "synthetic"}
+{"text": "Molt bonaa questa foto! 😍", "label": "chitchat", "source": "synthetic"}
+{"text": "El proper diumenge comencem 15 minuts tard.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "De res, home. 🙏", "label": "chitchat", "source": "synthetic"}
+{"text": "Han publicat els horaris nous al web del club.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Com s'arriba al camp nou? Hi ha el bus de les 16:00?", "label": "question", "source": "synthetic"}
+{"text": "Deu n'hi do, quina jam. 🙏", "label": "chitchat", "source": "synthetic"}
+{"text": "on es compra el xandall?", "label": "question", "source": "synthetic"}
+{"text": "Quan caduca le radiograf", "label": "question", "source": "synthetic"}
+{"text": "Com s'arriba a la pista de sota? Hi ha el transport del club?", "label": "question", "source": "synthetic"}
+{"text": "Vinga nosi, ànims", "label": "chitchat", "source": "synthetic"}
+{"text": "ah, d'acord, gracies.", "label": "chitchat", "source": "synthetic"}
+{"text": "A qui li he de dir que vindré tard jueves?", "label": "question", "source": "synthetic"}
+{"text": "No, finalment l'entrenament és viernes.", "label": "correction", "source": "synthetic"}
+{"text": "Jo ja hi som al Pau Negre 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Avui no hi ha l'amistós: plou i el camp està mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha entrenament si plou diumenge?", "label": "question", "source": "synthetic"}
+{"text": "els Prebenjams entrenarà divendres a les 5 de la tarda. ✅", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha entrenament si plou divendres?", "label": "question", "source": "synthetic"}
+{"text": "Quant falta per l'entrenament de els Cadets?", "label": "question", "source": "synthetic"}
+{"text": "No és a les 5 de la tarda, és a dos quarts de set.", "label": "correction", "source": "synthetic"}
+{"text": "Porteu les espinilleres de recanvi al partit de lunes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem dijous.", "label": "chitchat", "source": "synthetic"}
+{"text": "Com demano la samarreta nova?", "label": "question", "source": "synthetic"}
+{"text": "Avui no hi ha l'entrenament: plou i el camp està mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Molt bona aquesta ofto! 😍", "label": "chitchat", "source": "synthetic"}
+{"text": "Doncs molt bé, tot seguit. ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "Bon dia a tots! ☀️ 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Perdó, havia dit dijous però és dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "El  partit de diumenge es juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Esborreu  el que vaig escriure: el partit és sabado.", "label": "correction", "source": "synthetic"}
+{"text": "Genial😂 😂", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem idmarts", "label": "chitchat", "source": "synthetic"}
+{"text": "Que a les 6 hi ha la concentració o era a les 7?", "label": "question", "source": "synthetic"}
+{"text": "gracies la marta!", "label": "chitchat", "source": "synthetic"}
+{"text": "Moltes gracies per la info!", "label": "chitchat", "source": "synthetic"}
+{"text": "A quina hora acaba la lliga a les 17:00?", "label": "question", "source": "synthetic"}
+{"text": "On és l'amistós cap a les 10?", "label": "question", "source": "synthetic"}
+{"text": "El proper jueves comencem 15 minuts tard.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perfecto ,gracias", "label": "chitchat", "source": "synthetic"}
+{"text": "Avui no hi ha el torneig: plou i el camp està mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "la concentració de divendres canvia a cap a les 10.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perdó, havia dit miercoles però és jueves.", "label": "correction", "source": "synthetic"}
+{"text": "El el minibus no surt a les 4, surt a les 4:15.", "label": "correction", "source": "synthetic"}
+{"text": "Demanen portar la samarreta blanca jueves.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "el Juvenil B entrenarà lunes cap a les 10.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Gràcies la Laura!", "label": "chitchat", "source": "synthetic"}
+{"text": "Vinga nois, anims!", "label": "chitchat", "source": "synthetic"}
+{"text": "Gneial 😂😂", "label": "chitchat", "source": "synthetic"}
+{"text": "Recordeu que martes no hi ha el torneig.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "S'ha de portar l'informe mèdic per jugar?", "label": "question", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem dimecres.", "label": "chitchat", "source": "synthetic"}
+{"text": "Recordeu que diumenge no hi ha la concentraciu.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha entrenament si plou dilluns?", "label": "question", "source": "synthetic"}
+{"text": "Ara el Juvenil B juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Recordeu que dimecres no hi ha el torneig.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Jo ja hi som al pavelló 😅 ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "He d'enviar el radiograf abans de viernes?", "label": "question", "source": "synthetic"}
+{"text": "Gràcies per avisar! 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Buenaaa, quin dai", "label": "chitchat", "source": "synthetic"}
+{"text": "Quant falta per la concentració de els Benjamins?", "label": "question", "source": "synthetic"}
+{"text": "No, el pagament es fa pel wbe, no per transferència", "label": "correction", "source": "synthetic"}
+{"text": "jueves hi ha l'entrenament? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "Demanen portar el xandall blanca divendres.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ho he comprovat: el torneig es queda a les 18:15.", "label": "correction", "source": "synthetic"}
+{"text": "el termini per pagar l'inscripciu acaba el dia 15.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El camp ha tornat a canviar: no a la pista de sota, sinó al camp de dalt.", "label": "correction", "source": "synthetic"}
+{"text": "Uau ,quina calor avui", "label": "chitchat", "source": "synthetic"}
+{"text": "el Juvenil B entrenarà divendres abans de les 8.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "la samarreta de l'equipaciu nova val 22 euros.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "No cal portar les espinilleres jueves, ho he preguntat.", "label": "correction", "source": "synthetic"}
+{"text": "Aquest miercoles hi ha entrenament normal a a les 6.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "elJ uvenil B juguen viernes? On", "label": "question", "source": "synthetic"}
+{"text": "Porteu el xandall de recanvi al partit de dijous.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Correcció: l'amistós comença a les 6, no a les 6:30.", "label": "correction", "source": "synthetic"}
+{"text": "Algú sap a quina hora és la concentració de els Cadets?", "label": "question", "source": "synthetic"}
+{"text": "Hi ha l'amitsós durant les vacances", "label": "question", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem dissabte.", "label": "chitchat", "source": "synthetic"}
+{"text": "La samarreta de l'equipació nova val 22 euros.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Demanen portar la pilota blanca martes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Avui no hi ha l'amistus: plou i el camp esta mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "on es compra l'equipaciu?", "label": "question", "source": "synthetic"}
+{"text": "Qui passa la llista per el torneig?", "label": "question", "source": "synthetic"}
+{"text": "No és a les 7, és a les 17:00.", "label": "correction", "source": "synthetic"}
+{"text": "Correcció: el partit comença a dos quarts de set, no a les 18:15.", "label": "correction", "source": "synthetic"}
+{"text": "Algui sap si dimecres hi ha l'entrenament?", "label": "question", "source": "synthetic"}
+{"text": "Porteu els pantalons de recanvi al partit de diumenge.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Jo tambe ho penso.", "label": "chitchat", "source": "synthetic"}
+{"text": "Aquest dissabte hi ha entrenament normal a abans de les 8.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El preu de la fitxa puja a 25 euros.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Jejeje quin aBestia", "label": "chitchat", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: és el Juvenil B, no els Cadets. 🙏", "label": "correction", "source": "synthetic"}
+{"text": "Buenaaa, quin dia. 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Ara els Minis juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Avui no hi ha el partit: plou i el camp està mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "A quina hora és l'entrenament domingo?", "label": "question", "source": "synthetic"}
+{"text": "Es pot pagar els 15 euros del torneig per bizum? 😮‍💨", "label": "question", "source": "synthetic"}
+{"text": "Quin bon aprtit ahir! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "El  camp ha tornat a canviar: no al pavelló, sinó al camp 2.", "label": "correction", "source": "synthetic"}
+{"text": "Esborreu el que vaig escriure: el partit és dilluns.", "label": "correction", "source": "synthetic"}
+{"text": "he d'enviar la validaciu medica abans de dilluns?", "label": "question", "source": "synthetic"}
+{"text": "No,e l pagament es fa pel web, no per transferència", "label": "correction", "source": "synthetic"}
+{"text": "Gràcies el Jordi!", "label": "chitchat", "source": "synthetic"}
+{"text": "Com s'arriba al pavelló? Hi ha el transport del club?", "label": "question", "source": "synthetic"}
+{"text": "Vinga, fins domingo!", "label": "chitchat", "source": "synthetic"}
+{"text": "On és el torneig abans de les 8?", "label": "question", "source": "synthetic"}
+{"text": "On penja el calendair dels partits de els Alevins", "label": "question", "source": "synthetic"}
+{"text": "Recordeu que domingo no hi ha l'amistós.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Quant falta per el partit de el Juvenil B?", "label": "question", "source": "synthetic"}
+{"text": "No, finalment el partit és martes.", "label": "correction", "source": "synthetic"}
+{"text": "els Minis juguen viernes? On?", "label": "question", "source": "synthetic"}
+{"text": "Algui sap si dissabte hi ha l'entrenament? 🙌", "label": "question", "source": "synthetic"}
+{"text": "Ah, d'acrod, gràcies", "label": "chitchat", "source": "synthetic"}
+{"text": "el Juvenil B juguen dijous? On?", "label": "question", "source": "synthetic"}
+{"text": "Recordeu portar la bombolla d'aigua a la concentració.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Que a les 6 hi ha el torneig o era a les 7? 😮‍💨", "label": "question", "source": "synthetic"}
+{"text": "Aquest viernes hi ha entrenament normal a a primera hora.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "anims els Minis avui!", "label": "chitchat", "source": "synthetic"}
+{"text": "Aquest dimecres hi ha entrenament normla a a les 9:15", "label": "knowledge_update", "source": "synthetic"}
+{"text": "No, finalment la lliga és miercoles.", "label": "correction", "source": "synthetic"}
+{"text": "Algú sap a quina hora és la lliga de els Prebenjams?", "label": "question", "source": "synthetic"}
+{"text": "Ok, apuntat! 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Algú sap a quina hora és la concentració de els Benjamins?", "label": "question", "source": "synthetic"}
+{"text": "Quant falta per l'amistós de elsA levins", "label": "question", "source": "synthetic"}
+{"text": "l'entrenament de dissabte canvia a a les 9:15.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "anims els prebenjams avui!", "label": "chitchat", "source": "synthetic"}
+{"text": "A qui li he de dir que vindré tard viernes?", "label": "question", "source": "synthetic"}
+{"text": "He d'enviar la validació mèdica abans de dilluns?", "label": "question", "source": "synthetic"}
+{"text": "Vinga, fins dimecres!", "label": "chitchat", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: és els Cadets, no els Alevins.", "label": "correction", "source": "synthetic"}
+{"text": "Quant costa els 15 euros del torneig?", "label": "question", "source": "synthetic"}
+{"text": "Com s'arriba al Pau Negre? Hi ha els cotxes dels pares?", "label": "question", "source": "synthetic"}
+{"text": "El termini per pagar la fitxa acaba el dia 15.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Els partits de els Alevins comencen a les 10:30.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Porteu els pantalons de recanvi al partit de sabado.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha entrenament si plou dijous?", "label": "question", "source": "synthetic"}
+{"text": "martes hi ha l'amistós? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de pares serà diumenge a les 9:15 a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "els Prebenjams juguen dimecres? On?", "label": "question", "source": "synthetic"}
+{"text": "Ara  els Cadets juga al Pau Negre.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El partit de dissabte es juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Gracies per avisar!", "label": "chitchat", "source": "synthetic"}
+{"text": "Quant falta per l'amistós de els Alevins?", "label": "question", "source": "synthetic"}
+{"text": "els Alevins entrenarà dimarts a les 7.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Elc lub manda avís: cal renovar el radiograf aquest mes", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Correcciu: l'entrenament comenca al migdia, no a les 6:30.", "label": "correction", "source": "synthetic"}
+{"text": "Uau, qiuna calor avui", "label": "chitchat", "source": "synthetic"}
+{"text": "M'he equivocat, el partit és jueves no divendres.", "label": "correction", "source": "synthetic"}
+{"text": "dilluns hi ha l'amistós? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "Com demano les mitjones nova?", "label": "question", "source": "synthetic"}
+{"text": "Qui porta les espinilleres als partits", "label": "question", "source": "synthetic"}
+{"text": "Perdó, havia dit dissabte però és dilluns. 👍", "label": "correction", "source": "synthetic"}
+{"text": "Molt bon aaquesta foto! 😍", "label": "chitchat", "source": "synthetic"}
+{"text": "Quant costa la quota del mes?", "label": "question", "source": "synthetic"}
+{"text": "Recordeu portar la bombolla d'aigua a el partit.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perfecte, doncs ensv eiem dimecres", "label": "chitchat", "source": "synthetic"}
+{"text": "A qui li he de dir que vindré tard martes?", "label": "question", "source": "synthetic"}
+{"text": "Em vaig confondre de grup: es els Prebenjams, no els Minis.", "label": "correction", "source": "synthetic"}
+{"text": "Ah ,d'acord, gràcies", "label": "chitchat", "source": "synthetic"}
+{"text": "porteu l'equipaciu de recanvi al partit de dimecres.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Bon dia a tots!☀ ️", "label": "chitchat", "source": "synthetic"}
+{"text": "Recordeu portar la bomoblla d'aigua a l'entrenament", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ara els Alevins juga a la pista de sota.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Uau, quina calor avui ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "No, finalment la concentració és jueves.", "label": "correction", "source": "synthetic"}
+{"text": "He d'enviar el certificat mèdic abans de dimarts?", "label": "question", "source": "synthetic"}
+{"text": "La reunió dep ares serà domingo a les 18:15 a la sala gran", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Porteu la samarreta de recanvi al partit de miercoles.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha la lliga durant les vacances? 👍", "label": "question", "source": "synthetic"}
+{"text": "Algú sap a quina hora és l'entrenament de els Cadets? ⚽", "label": "question", "source": "synthetic"}
+{"text": "S'ha canviat el camp del partit: ara al camp de dalt.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "porteu l'equipaciu de recanvi al partit de sabado.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Buenaaa, quin dia. ✅", "label": "chitchat", "source": "synthetic"}
+{"text": "S'ha canviat el camp del partit: ara al camp de dalt. 🔥", "label": "knowledge_update", "source": "synthetic"}
+{"text": "On es compra l'equipació?", "label": "question", "source": "synthetic"}
+{"text": "sabado hi ha l'entrenament? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "A quina hora és la concentració miercoles?", "label": "question", "source": "synthetic"}
+{"text": "Vinga, fins djious", "label": "chitchat", "source": "synthetic"}
+{"text": "la validaciu medica es lliura al delegat abans de jugar.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "On és la lliga a primera hora?", "label": "question", "source": "synthetic"}
+{"text": "doncs molt be, tot seguit.", "label": "chitchat", "source": "synthetic"}
+{"text": "Ànims els Bnejamins avui", "label": "chitchat", "source": "synthetic"}
+{"text": "Doncs molt bé, tot seguit. 😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Quant falta per l'entrenament de els Alevins?", "label": "question", "source": "synthetic"}
+{"text": "M'he equivocat, el partit és miercoles no dimecres.", "label": "correction", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Cadets juga miercoles.", "label": "correction", "source": "synthetic"}
+{"text": "Feliç any nou a tothom! 🎉 ✅", "label": "chitchat", "source": "synthetic"}
+{"text": "Els partits de els Prebenjams comencen a les 10:30.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "perdu, havia dit miercoles pero es diumenge.", "label": "correction", "source": "synthetic"}
+{"text": "On consulto les mides de la pilota?", "label": "question", "source": "synthetic"}
+{"text": "corregeixo el que vaig dir: els benjamins juga domingo.", "label": "correction", "source": "synthetic"}
+{"text": "De res, hoem", "label": "chitchat", "source": "synthetic"}
+{"text": "Ara els Minis juga a la pista de sota.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "De res, home. 👍", "label": "chitchat", "source": "synthetic"}
+{"text": "El l'autocar surt a les 15:45 del club.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El partit no és al Pau Negre, és a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "Correcció: l'amistós comença a les 6:30, no a les 6.", "label": "correction", "source": "synthetic"}
+{"text": "Perfecte, odncs ens veiem dijous", "label": "chitchat", "source": "synthetic"}
+{"text": "A quina hora acaba la lliga a les 18:15?", "label": "question", "source": "synthetic"}
+{"text": "la lliga de domingo canvia a a les 9:15.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "A quina hora és la lliga diumenge?", "label": "question", "source": "synthetic"}
+{"text": "Qui porta les epsinilleres als partits", "label": "question", "source": "synthetic"}
+{"text": "Hi ha la lliga durant les vacances?", "label": "question", "source": "synthetic"}
+{"text": "A quina horaé s el partit dimarts", "label": "question", "source": "synthetic"}
+{"text": "qui passa la llista per la concentraciu?", "label": "question", "source": "synthetic"}
+{"text": "El partit de diumenge es juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perdó, havia dit miercoles però és sabado.", "label": "correction", "source": "synthetic"}
+{"text": "El termini per l'inscripciu no es divendres, es dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "Recordeu portar la bombolla d'aigua a la lliga.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Uau, quina calor avui 🙏", "label": "chitchat", "source": "synthetic"}
+{"text": "a quina hora es el torneig dissabte?", "label": "question", "source": "synthetic"}
+{"text": "On consulto les mides de els pantalons?", "label": "question", "source": "synthetic"}
+{"text": "Recordeu que dissabte no hi ha l'entrenament.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Gràcies el delegat! 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens vieem divendres", "label": "chitchat", "source": "synthetic"}
+{"text": "Molt bona aquesta foto! 😍 ✅", "label": "chitchat", "source": "synthetic"}
+{"text": "S'ha  canviat el camp del partit: ara a la pista de sota.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "A quina hora és l'entrenament jueves?", "label": "question", "source": "synthetic"}
+{"text": "Cal portar les botes i aigua a tots els entrenaments.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "anims el Juvenil B avui!", "label": "chitchat", "source": "synthetic"}
+{"text": "Qui porta les espinilleres als partits?", "label": "question", "source": "synthetic"}
+{"text": "el termini per pagar els 20 euros acaba el dia 15.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Correcció de l'hora: a les 5 de la tarda.", "label": "correction", "source": "synthetic"}
+{"text": "No és a les 18:15, és a les 17:00.", "label": "correction", "source": "synthetic"}
+{"text": "no, finalment el torneig es dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "No cal portar el xandall sabado, ho he preguntat.", "label": "correction", "source": "synthetic"}
+{"text": "Qui passa la llista per la lliga?", "label": "question", "source": "synthetic"}
+{"text": "Ara els Benjamins juga al pavelló.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "el Juvenil B entrenarà dimecres a les 7.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Jo també ho penso. 🙏", "label": "chitchat", "source": "synthetic"}
+{"text": "M'he equivocat, el partit és dijous no dissabte.", "label": "correction", "source": "synthetic"}
+{"text": "Que a les 6 hi ha l'amistós o era a les 7?", "label": "question", "source": "synthetic"}
+{"text": "Gàrcies l'entrenador", "label": "chitchat", "source": "synthetic"}
+{"text": "Que a les 6 hi ha l'entrenament o era a les 7?", "label": "question", "source": "synthetic"}
+{"text": "el partit de domingo es juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Molt bona aquesta foto! 😍 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Vinga, fins divendres!", "label": "chitchat", "source": "synthetic"}
+{"text": "Quant falta per el torneig de els Minis?", "label": "question", "source": "synthetic"}
+{"text": "Ving,a fins dimarts", "label": "chitchat", "source": "synthetic"}
+{"text": "Algú sap a quina hora és la concentració de els Benjamins? 🙌", "label": "question", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Minis juga lunes.", "label": "correction", "source": "synthetic"}
+{"text": "on es la lliga a primera hora?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de pares serà dimarts a les 5 de la tarda a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Algui sap si dijous hi ha l'entrenament?", "label": "question", "source": "synthetic"}
+{"text": "els Minis entrenarà miercoles a les 5 de la tarda.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "el club manda avis: cal renovar el certificat medic aquest mes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ups: la trobada és viernes, no avui.", "label": "correction", "source": "synthetic"}
+{"text": "Recordeu que domingo no hi ha el torneig.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "On consulto les mides de les botes?", "label": "question", "source": "synthetic"}
+{"text": "Vinga onis, ànims", "label": "chitchat", "source": "synthetic"}
+{"text": "Buenaaa, quin dia. ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "S'ha canviat el camp del partit: ara al camp nuo", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Recordeu que miercoles no hi ha el torneig.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "els Alevins entrenarà dissabte a les 5 de la tarda.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Recordeu que viernes no hi ha l'amistós.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Gràcies pre avisar", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem domingo.", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem domingo. 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Si, home, si 😄", "label": "chitchat", "source": "synthetic"}
+{"text": "L'hora de l'entrenament ha canviat altre cop: a primera hora.", "label": "correction", "source": "synthetic"}
+{"text": "m'he equivocat, el partit es martes no dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "Ho he comprovat: l'amistó ses queda a les 7", "label": "correction", "source": "synthetic"}
+{"text": "Demanen portar les botes blanca dissabte.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Hi ha entrenament si plou viernes?", "label": "question", "source": "synthetic"}
+{"text": "Cal portar el xandall i aigua a tots els entrenaments. ✅", "label": "knowledge_update", "source": "synthetic"}
+{"text": "On penja el calendari dels partits de els Cadets?", "label": "question", "source": "synthetic"}
+{"text": "A qui li he de dir que vindré tard miercoles?", "label": "question", "source": "synthetic"}
+{"text": "quant costa l'inscripciu?", "label": "question", "source": "synthetic"}
+{"text": "els Minis juguen dilluns? On?", "label": "question", "source": "synthetic"}
+{"text": "Ho he comprovat: l'amistós es queda a les 6.", "label": "correction", "source": "synthetic"}
+{"text": "Vale, ja ho he vist. 🙏", "label": "chitchat", "source": "synthetic"}
+{"text": "Ara els Prebenjams juga a la pista de sota.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Quan caduca la revisió?", "label": "question", "source": "synthetic"}
+{"text": "Algú sap a quina hora és l'amistós de els Benjamins?", "label": "question", "source": "synthetic"}
+{"text": "el partit de jueves canvia a a les 17:00.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "He d'enviar el certificat mèdic abans de viernes?", "label": "question", "source": "synthetic"}
+{"text": "La reunió de pares serà sabado a les 17:00 a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "On penja el calendari dels partits de els Prebenjams?", "label": "question", "source": "synthetic"}
+{"text": "Es po tpagar els 15 euros del torneig per bizum", "label": "question", "source": "synthetic"}
+{"text": "els Minis juguen sabado? On?", "label": "question", "source": "synthetic"}
+{"text": "He d'enviar la revisió abans de divendres?", "label": "question", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: el Juvenil B juga lunes.", "label": "correction", "source": "synthetic"}
+{"text": "Qui passa la llista per la lliga", "label": "question", "source": "synthetic"}
+{"text": "No, finalment el partit és dijous.", "label": "correction", "source": "synthetic"}
+{"text": "corregeixo el que vaig dir: els benjamins juga dimarts.", "label": "correction", "source": "synthetic"}
+{"text": "Avui no hi ha la concentració: plou i el camp està mullat.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Enhorabona als els Benjamins! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "el preu de l'inscripciu puja a 25 euros.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "genial 😂😂", "label": "chitchat", "source": "synthetic"}
+{"text": "La reunió de pares serà domingo a les 7 a la sala gran.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Qui porta la pilota als partits?", "label": "question", "source": "synthetic"}
+{"text": "El club manda avís: cal renovar l'informe mèdic aquest mes.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Molt bé! 👌 😮‍💨", "label": "chitchat", "source": "synthetic"}
+{"text": "Es pot pagar el pagament de la lliga per bizum? 🙏", "label": "question", "source": "synthetic"}
+{"text": "el certificat mèdic es lliura al delegat abans de jugar.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Quant falta per la concentració de els Minis?", "label": "question", "source": "synthetic"}
+{"text": "Fins quan es pot pagar l afitxa", "label": "question", "source": "synthetic"}
+{"text": "Que a les 6 hi ha el partit o era a les 7?", "label": "question", "source": "synthetic"}
+{"text": "No és a les 9:15, és cap a les 10.", "label": "correction", "source": "synthetic"}
+{"text": "O,k apuntat", "label": "chitchat", "source": "synthetic"}
+{"text": "Sí, home, sí 😄 🙌", "label": "chitchat", "source": "synthetic"}
+{"text": "Fins quan es pot pagar l'inscripció?", "label": "question", "source": "synthetic"}
+{"text": "El partit no és al camp nou, és a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "S'ha de portar la validació mèdica per jugar?", "label": "question", "source": "synthetic"}
+{"text": "els benjamins entrenara dissabte al migdia.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Perdó, havia dit dijous però és lunes.", "label": "correction", "source": "synthetic"}
+{"text": "Correcció: la lliga comença a dos quarts de set, no a les 7.", "label": "correction", "source": "synthetic"}
+{"text": "Porteu el xnadall de recanvi al partit de dissabte", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Algú sap a quina hora és el torneig de els Prebenjams?", "label": "question", "source": "synthetic"}
+{"text": "Correcció de l'hora: a les 17:00.", "label": "correction", "source": "synthetic"}
+{"text": "Com s'arriba al camp nou? Hi ha els cotxes dels pares?", "label": "question", "source": "synthetic"}
+{"text": "Vinga, fins viernes!", "label": "chitchat", "source": "synthetic"}
+{"text": "Doncs molt bé, tot seguti", "label": "chitchat", "source": "synthetic"}
+{"text": "Ànims els Minis avui!", "label": "chitchat", "source": "synthetic"}
+{"text": "De res, home. ⚽", "label": "chitchat", "source": "synthetic"}
+{"text": "Porteu l'equipació de recanvi al partit de dimecres.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Vinga, fins martes!", "label": "chitchat", "source": "synthetic"}
+{"text": "El partit no es al camp 2, es al pavellu.", "label": "correction", "source": "synthetic"}
+{"text": "M'he equivocat, el partit és dimarts no dissabte.", "label": "correction", "source": "synthetic"}
+{"text": "Moltes gràcies epr la info", "label": "chitchat", "source": "synthetic"}
+{"text": "S'ha cancel·lat l'amistós del lunes. 🔥", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Enhorabona als esl Minis! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "Ara els Cadets juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Demanen portar les espinilleres blanca dimarts.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Quina sort la dels latres", "label": "chitchat", "source": "synthetic"}
+{"text": "Uff, quin dia tenmi", "label": "chitchat", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Minis juga viernes.", "label": "correction", "source": "synthetic"}
+{"text": "No és a les 5 de la tarda, és a les 7.", "label": "correction", "source": "synthetic"}
+{"text": "felic any nou a tothom! 🎉", "label": "chitchat", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem divendres. 👍", "label": "chitchat", "source": "synthetic"}
+{"text": "el partit no es al camp de dalt, es a la pista de sota.", "label": "correction", "source": "synthetic"}
+{"text": "El camp ha tornat a canviar: no a la pista de sota, sinó al Pau Negre.", "label": "correction", "source": "synthetic"}
+{"text": "On és el torneig a les 6:30?", "label": "question", "source": "synthetic"}
+{"text": "Quan caduca el radiograf?", "label": "question", "source": "synthetic"}
+{"text": "Ara el Juvenil B juga al camp nou.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Ara el Juvenil B juga al camp 2.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Cal portar les mitjones i aigua a tots els entrenaments.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Qui porta les botes als partits?", "label": "question", "source": "synthetic"}
+{"text": "enhorabona als els cadets! 👏", "label": "chitchat", "source": "synthetic"}
+{"text": "El els cotxes dels pares no surt a les 4,s urt a les 4:15", "label": "correction", "source": "synthetic"}
+{"text": "He d'enviar l'informe mèdic abans de martes?", "label": "question", "source": "synthetic"}
+{"text": "diumenge hi ha l'amistós? A quina hora?", "label": "question", "source": "synthetic"}
+{"text": "El partit no és a la pista de sota, és al Pau Negre.", "label": "correction", "source": "synthetic"}
+{"text": "Jo ja hi som al camp  2😅", "label": "chitchat", "source": "synthetic"}
+{"text": "Corregeixo el que vaig dir: els Cadets juga viernes.", "label": "correction", "source": "synthetic"}
+{"text": "Demanen portar les mitjones blanca jueves.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "He d'enviar la validació mèdica abans de lunes?", "label": "question", "source": "synthetic"}
+{"text": "Ok, aupntat", "label": "chitchat", "source": "synthetic"}
+{"text": "Porteu la samarreta de recanvi al partit de jueves.", "label": "knowledge_update", "source": "synthetic"}
+{"text": "Qui passa la llista per el partit?", "label": "question", "source": "synthetic"}
+{"text": "He d'enviar la revisió abans de lunes?", "label": "question", "source": "synthetic"}
+{"text": "Perfecte, doncs ens veiem divendres.", "label": "chitchat", "source": "synthetic"}
+{"text": "l'informe mèdic es lliur aal delegat abans de jugar", "label": "knowledge_update", "source": "synthetic"}
+{"text": "El el bus de les 16:00 no surt a les 4, surt a les 4:15.", "label": "correction", "source": "synthetic"}

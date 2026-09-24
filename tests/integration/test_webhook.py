@@ -9,9 +9,8 @@ from fastapi.testclient import TestClient
 from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
-from knowledge_bot.domain.enums import IntentLabel
 from knowledge_bot.infrastructure.context import AppContext
-from tests.fakes.ai import FakeEmbedder
+from tests.fakes.ai import FakeEmbedder, linear_head
 from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
 from tests.fakes.support import InMemoryAiUsageRepository
 
@@ -150,34 +149,30 @@ def test_listener_ingests_unaddressed_messages() -> None:
     assert _stored(context) is not None
 
 
-def _listener_context(tag: str, **vectors: list[float]) -> AppContext:
-    """Build a listener context with a tiny-prototype classifier."""
+def _listener_context(**vectors: list[float]) -> AppContext:
+    """Build a listener context with a controllable linear classifier head."""
     context, _ = build_test_context(background_listener_enabled=True)
-    embedder = FakeEmbedder(by_text=dict(vectors))
+    embedder = FakeEmbedder(vector=[0.25, 0.25, 0.25, 0.25], by_text=dict(vectors))
     return replace(
         context,
         classifier=MessageClassifier(
             embedder=embedder,
-            prototypes={
-                IntentLabel.QUESTION: (f"qp-{tag}",),
-                IntentLabel.KNOWLEDGE_UPDATE: (f"up-{tag}",),
-                IntentLabel.CORRECTION: (f"cp-{tag}",),
-                IntentLabel.CHITCHAT: (f"cc-{tag}",),
-            },
+            head=linear_head(len(embedder.vector)),
         ),
     )
 
 
-_Q = [1.0, 0.0]
-_U = [0.0, 1.0]
+_Q = [1.0, 0.0, 0.0, 0.0]
+_U = [0.0, 1.0, 0.0, 0.0]
+_C = [0.0, 0.0, 1.0, 0.0]
+_CC = [0.0, 0.0, 0.0, 1.0]
 
 
 def test_listener_stores_pure_chitchat_without_evidence_status() -> None:
     """Classification controls indexing, never whether the raw message is stored."""
     context = _listener_context(
-        "discard",
         **{
-            "gràcies, cracks!": _Q,
+            "gràcies, cracks!": _CC,
             "qp-discard": _U,
             "up-discard": _U,
             "cp-discard": _U,
@@ -199,9 +194,8 @@ def test_listener_stores_pure_chitchat_without_evidence_status() -> None:
 def test_listener_labels_kept_context() -> None:
     """A chatty message with a real signal is kept with its intent label."""
     context = _listener_context(
-        "labels",
         **{
-            "gràcies, demà a les sis?": [0.7, 0.7],
+            "gràcies, demà a les sis?": [0.7, 0.7, 0.0, 0.0],
             "qp-labels": _Q,
             "up-labels": _U,
             "cp-labels": _U,
@@ -222,7 +216,7 @@ def test_listener_labels_kept_context() -> None:
 
 def test_listener_persists_budget_deferred_message_without_ai() -> None:
     """The budget guard defers background work but never drops the message."""
-    context = _listener_context("deferred")
+    context = _listener_context()
     usage = context.budget.usage
     assert isinstance(usage, InMemoryAiUsageRepository)
     usage.seed("2026-09-19", 6_000.0)
@@ -276,11 +270,10 @@ def test_bounded_backlog_processes_deferred_background_messages() -> None:
 def test_listener_indexes_relevant_background_evidence_immediately() -> None:
     """A standalone knowledge update becomes searchable without a full rebuild."""
     context = _listener_context(
-        "index",
         **{
-            "recordem que demà hi ha entrenament": _Q,
+            "recordem que demà hi ha entrenament": _U,
             "qp-index": _U,
-            "up-index": _Q,
+            "up-index": _U,
             "cp-index": _U,
             "cc-index": _U,
         },
@@ -295,7 +288,7 @@ def test_listener_indexes_relevant_background_evidence_immediately() -> None:
     assert stored is not None and stored.index_status.value == "indexed"
     matches = asyncio.run(
         context.answer.retrieval.vectors.query(
-            [1.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
             top_k=5,
             filters={"kind": "message_evidence", "scope_key": "space:" + SPACE_A},
         )
@@ -307,11 +300,10 @@ def test_listener_indexes_relevant_background_evidence_immediately() -> None:
 def test_admin_background_evidence_uses_connector_sender_authority() -> None:
     """The Telegram connector declares admin authority without app-side branching."""
     context = _listener_context(
-        "admin",
         **{
-            "recordem que l'horari ha canviat": _Q,
+            "recordem que l'horari ha canviat": _U,
             "qp-admin": _U,
-            "up-admin": _Q,
+            "up-admin": _U,
             "cp-admin": _U,
             "cc-admin": _U,
         },
@@ -324,7 +316,7 @@ def test_admin_background_evidence_uses_connector_sender_authority() -> None:
     assert response.json() == {"status": "ingest"}
     matches = asyncio.run(
         context.answer.retrieval.vectors.query(
-            [1.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
             top_k=5,
             filters={"kind": "message_evidence"},
         )
@@ -335,10 +327,9 @@ def test_admin_background_evidence_uses_connector_sender_authority() -> None:
 def test_listener_matches_a_reply_to_its_parent_question() -> None:
     """An answer-like reply to a stored question is paired with it."""
     context = _listener_context(
-        "pair",
         **{
             "a quina hora entrenen?": _Q,
-            "finalment a les sis": [0.9, 0.4],
+            "finalment a les sis": _U,
             "qp-pair": _Q,
             "up-pair": _Q,
             "cp-pair": _U,

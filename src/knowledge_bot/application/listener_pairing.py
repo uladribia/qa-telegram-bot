@@ -1,180 +1,134 @@
 # SPDX-License-Identifier: MIT
-"""Batched temporal question-answer pairing for listener messages."""
+"""Conservative deterministic pairing of listener questions and answers.
+
+No model call is made to pair ordinary messages. An explicit Telegram reply
+is paired at ingest time (``app.py``); this service handles the temporal
+case: a confident standalone update or correction is paired only when the
+conversation has exactly one plausible unresolved recent question.
+"""
 
 import hashlib
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from knowledge_bot.application.budget import AiBudget
+from knowledge_bot.application.classifier import message_is_confident
 from knowledge_bot.application.indexing import SearchProjectionService
-from knowledge_bot.domain.entities import (
-    ListenerPairingWindow,
-    Message,
-    MessagePairCandidate,
-)
+from knowledge_bot.domain.entities import Message, MessagePairCandidate
 from knowledge_bot.domain.enums import AiWorkClass, IndexStatus
 from knowledge_bot.domain.errors import ModelUnavailableError, ProjectionError
 from knowledge_bot.domain.policies import effective_message_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.index import IndexableMessage
-from knowledge_bot.ports.pairing import PairingModel, PairMessage
 from knowledge_bot.ports.repositories import (
     ConversationRepository,
-    ListenerPairingWindowRepository,
     MessagePairCandidateRepository,
     MessageRepository,
     SourceRepository,
 )
 
-
-@dataclass(frozen=True, slots=True)
-class PairingWindowResult:
-    """Outcome of evaluating one listener window."""
-
-    processed: bool
-    accepted: int = 0
+_QUESTION_LABEL = "question"
+_ANSWER_LABELS = frozenset({"knowledge_update", "correction"})
+_MAX_QUESTION_CHARS = 500
 
 
 @dataclass(frozen=True, slots=True)
 class MessagePairingService:
-    """Extract accepted pairs as ordinary stable message evidence."""
+    """Pair confident answers with one unambiguous recent question."""
 
     messages: MessageRepository
     conversations: ConversationRepository
     sources: SourceRepository
     candidates: MessagePairCandidateRepository
-    windows: ListenerPairingWindowRepository
     projector: SearchProjectionService
-    model: PairingModel
     clock: Clock
     budget: AiBudget | None = None
-    window_minutes: int = 10
-    quiet_minutes: int = 2
-    overlap_minutes: int = 3
-    max_messages: int = 20
-    min_confidence: float = 0.60
+    question_window_minutes: int = 5
+    max_pending_questions: int = 5
+    confidence_threshold: float = 0.60
+    margin_threshold: float = 0.15
 
     async def on_message(self, message_id: str) -> int:
-        """Close an old window before starting or extending the new one."""
+        """Evaluate one freshly classified message for temporal pairing.
+
+        High-confidence questions stay as pending question candidates (they
+        are never indexed as evidence). Confident standalone updates or
+        corrections pair only when exactly one plausible unresolved question
+        is recent enough; anything else remains a standalone factual update.
+        """
         message = await self.messages.get(message_id)
         if message is None or not message.text:
             return 0
-        now = self.clock.now()
-        window = await self.windows.get(message.conversation_id)
-        if window is not None and now - window.last_message_at >= timedelta(
-            minutes=self.quiet_minutes
+        if not message_is_confident(
+            message.intent_label,
+            message.intent_score,
+            message.intent_scores_json,
+            confidence_threshold=self.confidence_threshold,
+            margin_threshold=self.margin_threshold,
         ):
-            result = await self._process_window(window)
-            if not result.processed:
-                return result.accepted
-            window = None
-        if window is None:
-            await self.windows.save(
-                ListenerPairingWindow(
-                    id=f"window:{message.conversation_id}",
-                    conversation_id=message.conversation_id,
-                    started_at=now,
-                    last_message_at=now,
-                )
-            )
-        else:
-            await self.windows.save(replace(window, last_message_at=now))
-        return 0
-
-    async def flush_due(self, now: datetime | None = None) -> int:
-        """Flush due windows explicitly."""
-        current = now or self.clock.now()
-        accepted = 0
-        for window in await self.windows.list_due(
-            current - timedelta(minutes=self.quiet_minutes)
+            return 0
+        if (
+            message.intent_label not in _ANSWER_LABELS
+            or message.context_question is not None
         ):
-            accepted += (await self._process_window(window)).accepted
-        return accepted
-
-    async def _process_window(
-        self, window: ListenerPairingWindow
-    ) -> PairingWindowResult:
-        """Process one pending window and distinguish failure from zero pairs."""
-        messages = await self.messages.list_recent_listener(
-            window.conversation_id,
-            window.started_at - timedelta(minutes=self.overlap_minutes),
-            self.max_messages,
-        )
-        messages = [
-            item for item in messages if item.created_at <= window.last_message_at
-        ]
-        if len(messages) < 2:
-            await self.windows.save(
-                replace(window, processed_at=self.clock.now(), status="processed")
-            )
-            return PairingWindowResult(True, 0)
+            return 0
         if self.budget is not None and not await self.budget.work_allowed(
             AiWorkClass.BACKGROUND
         ):
-            return PairingWindowResult(False, 0)
-        try:
-            output = await self.model.pair(
-                [
-                    PairMessage(
-                        item.id,
-                        item.text or "",
-                        item.created_at,
-                        item.reply_to_message_id,
-                    )
-                    for item in messages
-                ]
-            )
-        except (ModelUnavailableError, RuntimeError, ValueError):
-            return PairingWindowResult(False, 0)
-        by_id = {item.id: item for item in messages}
-        accepted = 0
-        for pair in sorted(
-            output.pairs, key=lambda item: item.confidence, reverse=True
-        ):
-            if pair.confidence < self.min_confidence:
-                continue
-            question = by_id.get(pair.question_id)
-            answer = by_id.get(pair.answer_id)
-            if (
-                question is None
-                or answer is None
-                or question.id == answer.id
-                or answer.context_question is not None
-            ):
-                continue
-            if self.budget is not None and not await self.budget.work_allowed(
-                AiWorkClass.BACKGROUND
-            ):
-                return PairingWindowResult(False, accepted)
-            candidate = MessagePairCandidate(
-                id=self._candidate_id(window.conversation_id, question.id, answer.id),
-                conversation_id=window.conversation_id,
-                question_message_id=question.id,
-                answer_message_id=answer.id,
-                confidence=pair.confidence,
-                source="temporal_window_llm",
-                created_at=self.clock.now(),
-            )
-            if not await self.candidates.add(candidate):
-                continue
-            updated_answer = replace(
-                answer,
-                context_question=question.text,
-                index_status=IndexStatus.PENDING,
-            )
-            await self.messages.save(updated_answer)
-            accepted += 1
-            try:
-                await self._project_answer(updated_answer, question)
-            except (ProjectionError, ModelUnavailableError, RuntimeError, ValueError):
-                await self.messages.save(
-                    replace(updated_answer, index_status=IndexStatus.FAILED)
-                )
-        await self.windows.save(
-            replace(window, processed_at=self.clock.now(), status="processed")
+            return 0
+        questions = await self._recent_questions(message)
+        if len(questions) != 1:
+            # 0 plausible questions: standalone update. More than one:
+            # ambiguous, refuse to pair automatically.
+            return 0
+        return await self._pair(message, questions[0])
+
+    async def _recent_questions(self, answer: Message) -> list[Message]:
+        """Return confident unresolved questions inside the pairing window."""
+        since = answer.created_at - timedelta(minutes=self.question_window_minutes)
+        candidates = await self.messages.list_recent_unpaired_questions(
+            answer.conversation_id, since, answer.created_at, self.max_pending_questions
         )
-        return PairingWindowResult(True, accepted)
+        return [
+            question
+            for question in candidates
+            if question.id != answer.id
+            and message_is_confident(
+                question.intent_label,
+                question.intent_score,
+                question.intent_scores_json,
+                confidence_threshold=self.confidence_threshold,
+                margin_threshold=self.margin_threshold,
+            )
+        ]
+
+    async def _pair(self, answer: Message, question: Message) -> int:
+        """Record the pair, mark the answer as paired evidence, and project it."""
+        candidate = MessagePairCandidate(
+            id=self._candidate_id(answer.conversation_id, question.id, answer.id),
+            conversation_id=answer.conversation_id,
+            question_message_id=question.id,
+            answer_message_id=answer.id,
+            confidence=answer.intent_score or 0.0,
+            source="deterministic_reply_window",
+            created_at=self.clock.now(),
+        )
+        if not await self.candidates.add(candidate):
+            return 0
+        updated = replace(
+            answer,
+            context_question=question.text[:_MAX_QUESTION_CHARS]
+            if question.text
+            else None,
+            index_status=IndexStatus.PENDING,
+        )
+        await self.messages.save(updated)
+        try:
+            await self._project_answer(updated, question)
+        except (ProjectionError, ModelUnavailableError, RuntimeError, ValueError):
+            await self.messages.save(replace(updated, index_status=IndexStatus.FAILED))
+        return 1
 
     async def _project_answer(self, answer: Message, question: Message) -> None:
         """Project the accepted answer under its stable message id."""

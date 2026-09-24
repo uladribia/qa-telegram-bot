@@ -254,18 +254,6 @@ class MessagePairCandidate:
 
 
 @dataclass(frozen=True, slots=True)
-class ListenerPairingWindow:
-    """Durable accumulation state for one conversation's listener window."""
-
-    id: str
-    conversation_id: str
-    started_at: datetime
-    last_message_at: datetime
-    processed_at: datetime | None = None
-    status: str = "pending"
-
-
-@dataclass(frozen=True, slots=True)
 class Feedback:
     """A correction proposed by a user and its review state.
 

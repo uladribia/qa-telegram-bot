@@ -1,0 +1,1405 @@
+# SPDX-License-Identifier: MIT
+# Synthetic retrieval-eval queries generated from existing seed anchors
+# by scripts/generate_retrieval_eval.py (deterministic seed).
+# No new anchors or facts; Catalan, Spanish, mixed, typos, keywords.
+- query: "una cosa: han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "necessito saber quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "Per què els minis han de pagar la fitxa fdeerativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "què inclou el pagament de l'inscripció??"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "no em queda clar què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "A quién puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "no sé què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "necessito saber els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "no em queda clar quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "important certificat medic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "una cosa: què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "displica està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "em pots explicar per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "no em queda clar on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "una pregunta: hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "no sé quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "buens, si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "buens, a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "displica on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "cop feta revisiu medica"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "Els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "displica té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "disculpa, com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "cómo funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "hola! com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "algú em pot dir quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "algú em pot dir per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "cómo i cuando s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "necessito saber on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "disculpa, hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "hay algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "hola! on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "què he de fer per inscriure o renovar un jugador/a??"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "disculpa, on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "cómo està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "displica per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "Quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "displica què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "Quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "donde puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "algú em pot dir per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "necessito saber per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "disculpa, on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "Com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "Està contemplada possibilitat d'utilitzar"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "disculpa, què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "El club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber??"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "no em queda clar on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "una pregunta: com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "jugadores porten faldilla lloc"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "algun cost revisiu medica"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "saps a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "una cosa: què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "una pregunta: han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "qué valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "disculpa, per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana??"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "una pregunta: com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "una cosa: si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "algú em pot dir té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "una pregunta: per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "no em queda clar per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "una cosa: com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "inclou pagament l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "buens, el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "em pots explicar per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "buens, està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "una cosa: els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "què és això dels BALL-KIDS??"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "els minis juguen a les competicions??"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "buens, com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "com puc saber quines talles escollir dels equipaments del FCB??"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "important certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "quins valors defensa el club??"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "Com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "no em queda clar com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "hola! si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "buens, què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "buens, on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "no em queda clar han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "una pregunta: el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "displica per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "em pots explicar té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "donde entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "necessito saber per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "em pots explicar els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "displica per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "em pots explicar està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "una pregunta: per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "buens, per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "em pots explicar un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "necessito saber a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "una cosa: quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat??"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "una pregunta: per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "no em queda clar quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "displica si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "buens, els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "em pots explicar on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "displica els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "Per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "no sé com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "una pregunta: a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "no sé per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "displica per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "com funciona el servei d'autobús??"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "Esta contemplada possibilitat d'utilitzar"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "em pots explicar com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "Com i quan s'ha de demanar l'euqipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "funciona servei d'autobus"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "han d'estar presents els pares/mares a la revisió mèdica??"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "saps qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "no em queda clar si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "buens, què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "necessito saber per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "una cosa: qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "algú em pot dir on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "necessito saber per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "Què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "una pregunta: on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "em pots explicar com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "saps un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "no em queda clar el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "A qui puc contactar si tinc un dubte que el deelgat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "disculpa, com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "hola! com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "saps està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "el club organitza algun casal d'estiu??"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "em pots explicar què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "no sé hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "algú em pot dir quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "una pregunta: com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "necessito saber té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "buens, té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "necessito saber com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "com està organitzada l'escola??"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "hola! té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "no em queda clar a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "no sé com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "disculpa, què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "hola! com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "una cosa: per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "disculpa, per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "Està contemplada la possibliitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "hola! on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "disculpa, on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "una pregunta: què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "Si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "displica el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "puc descarregar l'app Federaciu"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "una pregunta: com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "buens, com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "disculpa, el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "saps té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "saps per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre??"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "displica com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "no em queda clar què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "saps quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "saps què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "hola! què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "club organitza algun casal"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "una cosa: on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "funciona servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "em pots explicar on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "Per què és important el cetrificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "hi ha algun horari d'atenció presencial per a dubtes administratius??"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "una pregunta: què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "algú em pot dir com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "displica com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "displica quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "buens, com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "una cosa: per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "Com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "algú em pot dir un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "hola! un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "disculpa, els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "displica hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "no sé què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "hola! està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "cuánto costa l'equipament del BHC i donde es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "displica com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "algú em pot dir els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "hola! com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "Qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "necessito saber qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "entrenen juguen partits equips"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "Quins valors defensa club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "buens, quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "no em queda clar té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "no em queda clar com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "puc saber quines talles"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "una cosa: té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "em pots explicar quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "una pregunta: per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "displica quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "no sé on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "saps hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "inclou pagament l'inscripciu"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "saps com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "m'han convidat grup WhatsApp"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "disculpa, com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "puc consultar taules mides"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "una pregunta: quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "minis pagar fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "hola! han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "no em queda clar com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "displica què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "no em queda clar com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "una cosa: quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "On puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "necessito saber on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "em pots explicar qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "algú em pot dir hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "disculpa, a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "saps per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "inscriure renovar jugador"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "hola! a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "hola! com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "cómo puc saber qué talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "aixo BALL KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "com puc saber la data de caducitat del certificat mèdic per a la Federació??"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)??"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "no sé com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "una pregunta: un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "on entrenen i juguen els partits els equips del club??"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "fan revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "Què he de fer per inscirure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "necessito saber què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "algú em pot dir si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "no sé els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "algun cost revisió mèdica"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "em pots explicar com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "una pregunta: té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "buens, per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "saps on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "On puc consultar les taules de mides de l'equipament del BHC (samarreta, pnataló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "hola! quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "saps si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "una cosa: hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "Si plou, s'netrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "displica com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "Està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "displica han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "hola! quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "no sé un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "on puc descarregar l'app de la Federació Catalana d'Hoquei??"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "disculpa, quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "algú em pot dir què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "em pots explicar han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "Per què les jugadores porten faldilla en lloc de pantaló, i qui la proporcoina"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "una pregunta: com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "Què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "una pregunta: si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "hola! quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "necessito saber si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "disculpa, té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "no sé qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "una pregunta: qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "cop feta revisió mèdica"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "displica quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "hola! què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "hola! per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "qui i quan es fan les revisions mèdiques??"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "Hi ha algun horari d'atenció presencial per a dubtes administraitus"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "algú em pot dir està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "saps com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "no em queda clar qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "disculpa, com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "On entreenn i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "no sé a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "no sé com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "no em queda clar un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "buens, què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "algun horari d'atenciu presencial"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "em pots explicar si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "algun horari d'atenció presencial"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "On puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "minis juguen competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "una pregunta: quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "displica on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "necessito saber quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "saps quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "no em queda clar per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "saps com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "no sé el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "cómo puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "On puc descraregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "no sé quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "una cosa: quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "em pots explicar on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "em pots explicar com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "no sé han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "disculpa, com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "una cosa: com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "necessito saber està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "displica què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "no em queda clar per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "algú em pot dir com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "una cosa: a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "necessito saber on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "no em queda clar hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "no em queda clar com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "em pots explicar quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "no sé està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "plou s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "no em queda clar quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "hola! per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "Com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "saps com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "algú em pot dir a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "Té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "com i quan s'ha de demanar l'equipament??"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "displica on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "buens, quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "disculpa, han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "necessito saber un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "necessito saber com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "saps els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "algú em pot dir on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "saps com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "algú em pot dir com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "Què tengo que fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "una cosa: com funciona el servei d'autobús"
+  expected_anchor: qa-servei-autobus
+  source: synthetic
+- query: "s'ha demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona??"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "buens, un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "disculpa, quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "no em queda clar està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "saps on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "A qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "disculpa, qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "Com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "buens, han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "Quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "em pots explicar què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "no sé té algun cost la revisió mèdica que proposa el club"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "hola! on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "necessito saber quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "puc descarregar l'app Federació"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "Quines edats corresponen cada"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "disculpa, què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "no sé per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "hola! per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "per què és important el certificat mèdic??"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "displica a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "si plou, s'entrena igualment??"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "displica com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "hola! per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "esta organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "saps per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "no sé què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "qué edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "Per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "algú em pot dir quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "una cosa: on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "una cosa: el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "disculpa, per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "una cosa: on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "saps per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "fan revisions mediques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "em pots explicar quant costa l'equipament del BHC i on es demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "Hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "una pregunta: on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "algú em pot dir qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "necessito saber com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "una pregunta: on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "algú em pot dir han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "displica un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "buens, hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "no em queda clar on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "hola! hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "una cosa: com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "necessito saber han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "buens, on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "necessito saber hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "puc contactar tinc dubte"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "necessito saber com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "necessito saber què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "Han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "no sé on puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "quant costa l'equipament del BHC i on es demana??"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "displica qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "buens, com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "algú em pot dir per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "Un cop feta la revisió mèdica, he d'enviar al delegatd/a l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "quines edats corresponen a cada categoria??"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "no sé com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "una pregunta: està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "hola! els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "buens, per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "buens, com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "no em queda clar què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "hola! què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "una cosa: què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "això BALL KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "una cosa: com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "disculpa, un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "saps què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "per què els minis han de pagar la fitxa federativa??"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "una cosa: està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "algú em pot dir com puc saber quines talles escollir dels equipaments del FCB"
+  expected_anchor: qa-talles-equipament
+  source: synthetic
+- query: "una cosa: un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat"
+  expected_anchor: qa-informe-revisio-medica
+  source: synthetic
+- query: "algú em pot dir com està organitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "Com està ogranitzada l'escola"
+  expected_anchor: qa-organitzacio-escola
+  source: synthetic
+- query: "em pots explicar el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "necessito saber el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "puc saber data caducitat"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "algú em pot dir per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "una cosa: per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "buens, per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "no sé si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "em pots explicar per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "em pots explicar hi ha algun horari d'atenció presencial per a dubtes administratius"
+  expected_anchor: qa-despatx-atencio-pau-negre
+  source: synthetic
+- query: "Els minis juguen a les competciions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "Han d'estar presents els pares/amres a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "Per què no m'han conivdat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "no sé per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "donde puc descarregar l'app de la Federació Catalana d'Hoquei"
+  expected_anchor: qa-app-federacio-descarrega
+  source: synthetic
+- query: "El club orgnaitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "no sé quins valors defensa el club"
+  expected_anchor: qa-valors-club
+  source: synthetic
+- query: "saps on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "saps què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "em pots explicar per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "algú em pot dir què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "em pots explicar com puc saber la data de caducitat del certificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "una pregunta: els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "algú em pot dir on puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla, mitges, dessuadora, softshell, impermeable)"
+  expected_anchor: qa-guia-talles-roba-thunder
+  source: synthetic
+- query: "disculpa, quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "saps quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "saps el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "necessito saber com i quan s'ha de demanar l'equipament"
+  expected_anchor: qa-equipament-com-demanar
+  source: synthetic
+- query: "una pregunta: què és això dels BALL-KIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "Què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "no sé on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "em pots explicar què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "algú em pot dir el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "Què és això dels BAL-LKIDS"
+  expected_anchor: qa-ball-kids
+  source: synthetic
+- query: "té algun cost la revisió mèdica que proposa el club??"
+  expected_anchor: qa-revisio-medica-cost
+  source: synthetic
+- query: "d'estar presents pares mares"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "quién i cuando es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "algú em pot dir què inclou el pagament de l'inscripció"
+  expected_anchor: qa-que-inclou-pagament
+  source: synthetic
+- query: "costa l'equipament BHC demana"
+  expected_anchor: qa-preus-comanda-roba-thunder
+  source: synthetic
+- query: "no em queda clar per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "buens, on entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "buens, quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "On entrenen i juguen els partits els equips del club"
+  expected_anchor: qa-instalacions-pau-negre
+  source: synthetic
+- query: "disculpa, si plou, s'entrena igualment"
+  expected_anchor: qa-entrenaments-pluja
+  source: synthetic
+- query: "no sé per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va fill/a al Cluber"
+  expected_anchor: qa-grup-whatsapp
+  source: synthetic
+- query: "Com puc saber la data de caducitat del cetrificat mèdic per a la Federació"
+  expected_anchor: qa-caducitat-certificat-medic
+  source: synthetic
+- query: "Per què les jugadores porten faldilla en lloc de pantaló, i quién la proporciona"
+  expected_anchor: qa-faldilla-equipament
+  source: synthetic
+- query: "buens, qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic
+- query: "em pots explicar a qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre"
+  expected_anchor: qa-contacte-club
+  source: synthetic
+- query: "una cosa: per què és important el certificat mèdic"
+  expected_anchor: qa-certificat-medic
+  source: synthetic
+- query: "Per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "necessito saber què he de fer per inscriure o renovar un jugador/a"
+  expected_anchor: qa-inscripcio-renovacio
+  source: synthetic
+- query: "una pregunta: quines edats corresponen a cada categoria"
+  expected_anchor: qa-taula-categories-edats
+  source: synthetic
+- query: "hola! el club organitza algun casal d'estiu"
+  expected_anchor: qa-casal-estiu-bhc
+  source: synthetic
+- query: "no em queda clar els minis juguen a les competicions"
+  expected_anchor: qa-mini-competicions
+  source: synthetic
+- query: "saps han d'estar presents els pares/mares a la revisió mèdica"
+  expected_anchor: qa-acompanyament-revisio-medica
+  source: synthetic
+- query: "disculpa, per què els minis han de pagar la fitxa federativa"
+  expected_anchor: qa-mini-fitxa-federativa
+  source: synthetic
+- query: "disculpa, està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana"
+  expected_anchor: qa-bus-un-dia
+  source: synthetic
+- query: "hola! qui i quan es fan les revisions mèdiques"
+  expected_anchor: qa-revisions-mediques
+  source: synthetic

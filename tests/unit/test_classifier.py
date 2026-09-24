@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the embedding-prototype message classifier."""
+"""Tests for the linear-head message classifier."""
 
 import asyncio
 
@@ -7,95 +7,121 @@ from knowledge_bot.application.classifier import (
     QUESTION,
     IntentScores,
     MessageClassifier,
+    parse_margin,
 )
 from knowledge_bot.domain.enums import IntentLabel
-from tests.fakes.ai import FakeEmbedder
+from tests.fakes.ai import FakeEmbedder, linear_head
 
-PROTOTYPES: dict[IntentLabel, tuple[str, ...]] = {
-    IntentLabel.QUESTION: ("qp",),
-    IntentLabel.KNOWLEDGE_UPDATE: ("up",),
-    IntentLabel.CORRECTION: ("cp",),
-    IntentLabel.CHITCHAT: ("cc",),
-}
-
-Q = [1.0, 0.0]
-U = [0.0, 1.0]
+Q = [1.0, 0.0, 0.0, 0.0]
+U = [0.0, 1.0, 0.0, 0.0]
+C = [0.0, 0.0, 1.0, 0.0]
+CC = [0.0, 0.0, 0.0, 1.0]
+AMBIGUOUS = [0.5, 0.5, 0.0, 0.0]
 
 
 def _classifier(texts: dict[str, list[float]]) -> MessageClassifier:
-    return MessageClassifier(
-        embedder=FakeEmbedder(by_text=texts), prototypes=PROTOTYPES
-    )
+    return MessageClassifier(embedder=FakeEmbedder(by_text=texts), head=linear_head())
 
 
-def test_classify_scores_each_label_by_best_prototype() -> None:
-    """A text identical to the question prototype scores 1.0 there."""
-    classifier = _classifier({"hola?": Q, "qp": Q, "up": U, "cp": U, "cc": U})
+def test_classify_softmaxes_the_linear_head() -> None:
+    """An exact label vector produces a confident softmax for that label."""
+    classifier = _classifier({"hola?": Q})
     classification = asyncio.run(classifier.classify("hola?"))
-    scores = classification.scores
-    assert classification.embedding == (1.0, 0.0)
-    assert scores.question == 1.0
-    assert scores.knowledge_update == 0.0
-    assert scores.correction == 0.0
-    assert scores.chitchat == 0.0
-    assert scores.best() == (QUESTION, 1.0)
-
-
-def test_prototypes_are_embedded_once_per_classifier_instance() -> None:
-    """The first call batches everything; later calls embed only the text."""
-    embedder = FakeEmbedder(
-        by_text={"hola?": Q, "adeu!": U, "qp": Q, "up": U, "cp": U, "cc": U}
-    )
-    classifier = MessageClassifier(
-        embedder=embedder,
-        prototypes={**PROTOTYPES, IntentLabel.QUESTION: ("qp-x",)},
-    )
-    asyncio.run(classifier.classify("hola?"))
-    asyncio.run(classifier.classify("adeu!"))
-    assert len(embedder.calls) == 2
-    assert len(embedder.calls[0]) == 5
-    assert embedder.calls[1] == ["adeu!"]
+    assert classification.embedding == (1.0, 0.0, 0.0, 0.0)
+    assert classification.best_label is QUESTION
+    assert classification.best_score > 0.60
+    assert classification.margin > 0.15
+    assert classification.scores.question == classification.best_score
 
 
 def test_prefilter_chitchat_skips_embedding() -> None:
-    """Exact acknowledgements are classified without an AI call."""
+    """Exact acknowledgements and emoji-only texts need no AI call."""
     embedder = FakeEmbedder()
-    classifier = MessageClassifier(embedder=embedder, prototypes=PROTOTYPES)
-    classification = asyncio.run(classifier.classify("gràcies"))
-    assert classification.best_label is IntentLabel.CHITCHAT
-    assert classification.embedding == ()
+    classifier = MessageClassifier(embedder=embedder, head=linear_head())
+    for text in ("gràcies", "ok", "😂😂", "9"):
+        classification = asyncio.run(classifier.classify(text))
+        assert classification.best_label is IntentLabel.CHITCHAT
+        assert classification.embedding == ()
     assert embedder.calls == []
 
 
-def test_pure_chitchat_is_discarded() -> None:
-    """Strong chitchat with no other signal is not worth keeping."""
-    classifier = _classifier({})
-    assert not classifier.should_keep(
-        IntentScores(question=0.1, knowledge_update=0.2, correction=0.0, chitchat=0.95)
+def test_each_label_can_win_confidently() -> None:
+    """Basis vectors map one-to-one onto the four labels."""
+    classifier = _classifier({"hola?": Q, "avís": U, "correcció!": C, "jeje": CC})
+    for text, label in (
+        ("hola?", QUESTION),
+        ("avís", IntentLabel.KNOWLEDGE_UPDATE),
+        ("correcció!", IntentLabel.CORRECTION),
+        ("jeje", IntentLabel.CHITCHAT),
+    ):
+        classification = asyncio.run(classifier.classify(text))
+        assert classification.best_label is label
+        assert classification.confident
+
+
+def test_low_margin_is_ambiguous() -> None:
+    """A tie between the top two labels does not clear the policy."""
+    classification = asyncio.run(_classifier({"mitjà": AMBIGUOUS}).classify("mitjà"))
+    assert classification.best_score < 0.60 or classification.margin < 0.15
+    assert not classification.confident
+
+
+def test_is_question_and_is_answer_like_require_confidence() -> None:
+    """Ambiguous outputs never become pending questions or evidence."""
+    classifier = _classifier({"hola?": Q, "mitjà": AMBIGUOUS})
+    assert classifier.is_question(asyncio.run(classifier.classify("hola?")))
+    assert not classifier.is_question(asyncio.run(classifier.classify("mitjà")))
+    answer_classifier = _classifier({"avís": U, "mitjà": AMBIGUOUS})
+    assert answer_classifier.is_answer_like(
+        asyncio.run(answer_classifier.classify("avís"))
+    )
+    assert not answer_classifier.is_answer_like(
+        asyncio.run(answer_classifier.classify("mitjà"))
     )
 
 
-def test_chitchat_with_a_real_signal_is_kept() -> None:
-    """A keep signal above the bar saves even a chatty message."""
-    classifier = _classifier({})
-    assert classifier.should_keep(
-        IntentScores(question=0.5, knowledge_update=0.1, correction=0.0, chitchat=0.95)
+def test_head_rejects_mismatched_dimensions() -> None:
+    """A 2-dimensional embedding cannot enter a 4-dimensional head."""
+    head = linear_head()
+    classifier = MessageClassifier(embedder=FakeEmbedder(vector=[1.0, 0.0]), head=head)
+    try:
+        asyncio.run(classifier.classify("hola?"))
+    except ValueError as error:
+        assert "dimensions" in str(error)
+    else:
+        raise AssertionError("dimension mismatch was not rejected")  # noqa: TRY003
+
+
+def test_parse_margin_reads_stored_scores() -> None:
+    """The stored margin round-trips through intent_scores_json."""
+    import json
+
+    payload = json.dumps({"question": 0.7, "margin": 0.2}, sort_keys=True)
+    assert parse_margin(payload) == 0.2
+    assert parse_margin(None) is None
+    assert parse_margin("{not json") is None
+
+
+def test_head_labels_order_is_fixed() -> None:
+    """The exported head must use the canonical label order."""
+    head = linear_head()
+    assert head.labels == (
+        IntentLabel.QUESTION,
+        IntentLabel.KNOWLEDGE_UPDATE,
+        IntentLabel.CORRECTION,
+        IntentLabel.CHITCHAT,
     )
 
 
-def test_mild_chitchat_is_always_kept() -> None:
-    """Below the discard bar, everything is kept as context."""
-    classifier = _classifier({})
-    assert classifier.should_keep(
-        IntentScores(question=0.1, knowledge_update=0.1, correction=0.0, chitchat=0.5)
+def test_intent_scores_best_tie_breaks_deterministically() -> None:
+    """Equal probabilities pick the canonical label order."""
+    assert IntentScores(0.25, 0.25, 0.25, 0.25).best()[0] is QUESTION
+
+
+def test_custom_thresholds_shape_confidence() -> None:
+    """Explicit thresholds can tighten or loosen the confidence policy."""
+    classifier = MessageClassifier(
+        embedder=FakeEmbedder(by_text={"mitjà": AMBIGUOUS}), head=linear_head()
     )
-
-
-def test_pair_matching_bars() -> None:
-    """Questions and answers are recognized only above their bars."""
-    classifier = _classifier({})
-    assert classifier.is_question(IntentScores(question=0.7))
-    assert not classifier.is_question(IntentScores(question=0.5))
-    assert classifier.is_answer_like(IntentScores(knowledge_update=0.6))
-    assert classifier.is_answer_like(IntentScores(correction=0.9))
-    assert not classifier.is_answer_like(IntentScores(chitchat=0.9))
+    classification = asyncio.run(classifier.classify("mitjà"))
+    assert not classification.is_confident_with(0.60, 0.15)

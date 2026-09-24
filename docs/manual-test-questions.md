@@ -128,7 +128,7 @@ DIRECT_QA_THRESHOLD=0.70
 SYNTHESIS_THRESHOLD=0.30
 ```
 
-`SYNTHESIS_THRESHOLD` remains `0.30` because this question set validates direct-answer selection and abstention, not a separate labeled synthesis boundary. Lowering it would turn weak or mismatched matches into generated answers, which is unsafe for this bot. Re-run this calibration after changing the embedding model, seed content, or prototype set.
+`SYNTHESIS_THRESHOLD` remains `0.30` because this question set validates direct-answer selection and abstention, not a separate labeled synthesis boundary. Lowering it would turn weak or mismatched matches into generated answers, which is unsafe for this bot. Re-run this calibration after changing the embedding model, seed content, or the retrieval projection.
 
 ## Retrieval and safety checks
 

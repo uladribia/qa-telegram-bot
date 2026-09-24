@@ -14,7 +14,6 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
-    ListenerPairingWindow,
     Message,
     MessagePairCandidate,
     QAEvidence,
@@ -26,7 +25,7 @@ from knowledge_bot.domain.entities import (
     Space,
     TelegramInteraction,
 )
-from knowledge_bot.domain.enums import ClassificationStatus, FeedbackStatus
+from knowledge_bot.domain.enums import FeedbackStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
@@ -252,25 +251,26 @@ class InMemoryMessageRepository:
             key=lambda message: message.created_at,
         )[:limit]
 
-    async def list_recent_listener(
-        self, conversation_id: str, start: datetime, limit: int
+    async def list_recent_unpaired_questions(
+        self,
+        conversation_id: str,
+        since: datetime,
+        until: datetime,
+        limit: int,
     ) -> list[Message]:
-        """Return recent messages classified by the background listener."""
-        statuses = {
-            ClassificationStatus.CLASSIFIED.value,
-            ClassificationStatus.PREFILTER_CHITCHAT.value,
-            ClassificationStatus.DEFERRED_BUDGET.value,
-            ClassificationStatus.FAILED.value,
-        }
+        """Return recent unpaired question candidates, newest first."""
         return sorted(
             [
                 message
                 for message in self._items.values()
                 if message.conversation_id == conversation_id
-                and message.created_at >= start
-                and message.classification_status.value in statuses
+                and message.intent_label == "question"
+                and message.context_question is None
+                and message.text
+                and since <= message.created_at <= until
             ],
             key=lambda message: message.created_at,
+            reverse=True,
         )[:limit]
 
     async def listener_stats_between(
@@ -286,38 +286,6 @@ class InMemoryMessageRepository:
             if message.context_question is not None:
                 paired += 1
         return (ingested, paired)
-
-
-class InMemoryListenerPairingWindowRepository:
-    """Dict-backed durable listener pairing windows."""
-
-    def __init__(self) -> None:
-        """Create an empty repository."""
-        self._items: dict[str, ListenerPairingWindow] = {}
-
-    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
-        """Return the current pending window for a conversation."""
-        return next(
-            (
-                window
-                for window in self._items.values()
-                if window.conversation_id == conversation_id
-                and window.status == "pending"
-            ),
-            None,
-        )
-
-    async def save(self, window: ListenerPairingWindow) -> None:
-        """Create or update a conversation window."""
-        self._items[window.id] = window
-
-    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
-        """Return pending windows whose quiet period has elapsed."""
-        return [
-            window
-            for window in self._items.values()
-            if window.status == "pending" and window.last_message_at <= before
-        ]
 
 
 class InMemoryMessagePairCandidateRepository:
