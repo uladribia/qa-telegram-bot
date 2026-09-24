@@ -42,6 +42,24 @@ or receives the material. The shared application does not contain a registry of
 channel names: a new connector can provide its own source kind and source
 instance without adding a branch to ingestion or space management.
 
+### How retrieval works
+
+When you ask a question, the bot makes exactly one embedding call and then
+fuses two rankings:
+
+- **Semantic search** over the derived vector projection. Vectors are
+  question-focused: Q&A embeds the canonical question only (the answer stays
+  in metadata), a paired message embeds its context question, and a standalone
+  factual update embeds its own text.
+- **Lexical BM25 search** over an FTS5 projection (`search_fts`) of the same
+  question texts. It is a derived index, rebuilt from SQL truth, adding only
+  SQL work and no AI quota.
+
+The two ranked lists are combined with Reciprocal Rank Fusion, a group's own
+variant suppresses the global answer for the same canonical question, and
+authority breaks remaining ties. The answer model (GLM) and correction
+workflow are unchanged.
+
 ---
 
 ## Adding knowledge from a web page
@@ -138,25 +156,30 @@ With `BACKGROUND_LISTENER_ENABLED=true`, every accepted unaddressed message is
 stored. Classification controls evidence indexing and reporting, not whether
 raw context exists. The bot still never answers these messages.
 
-The classifier (plan §12) embeds each message once, in the same batch as a
-set of Catalan prototype phrases, and scores it by best cosine similarity
-per label (`question`, `knowledge_update`, `correction`, `chitchat`). The
-scores are similarities, never probabilities. Deterministic acknowledgements
-skip the embedding call. Stored questions, chitchat, bot commands, media without
-text, and other ineligible messages are not indexed as factual evidence.
-Relevant standalone updates and corrections are indexed immediately.
+The classifier embeds each message once and applies a locally trained linear
+head (multinomial logistic regression over the embedding, exported by
+`scripts/train_classifier.py` to `data/classifier/model.json`), returning a
+probability per label (`question`, `knowledge_update`, `correction`,
+`chitchat`). A decision is **confident** only when the top probability is at
+least `CLASSIFIER_CONFIDENCE` (0.60) and the top1-top2 margin is at least
+`CLASSIFIER_MARGIN` (0.15); anything else is operationally ambiguous.
+Deterministic acknowledgements (empty, emoji-only, `ok`, `gràcies`,
+`perfecte`, ...) skip the embedding call entirely. Confident questions become
+pending question candidates; confident updates and corrections are indexed
+immediately as factual evidence; chitchat and ambiguous messages are stored
+but never indexed or paired.
 
-Answer pairing is windowed and event-driven. Each accepted listener message
-updates a durable pending window. After the configured quiet period, the window
-is flushed once rather than calling the model for every message. The flush reads
-the current window plus a short overlapping influence area, so a question near
-the end of one chunk can pair with an answer in the next. Pair candidates have
-stable ids, making repeated overlap processing idempotent. The model may return
-several candidate pairs; ids and confidence are validated before anything is
-stored. A candidate is embedded and indexed as message evidence, but it is never
-promoted to canonical Q&A. Explicit reply links and deterministic classifier
-scores remain the preferred path; the model handles mixed chats where the answer
-is nearby but not a direct reply.
+Answer pairing is fully deterministic and makes no model call. An explicit
+Telegram reply from an answer-like message to a confident question pairs
+immediately. Otherwise a confident standalone update or correction pairs only
+when the conversation has **exactly one** plausible unresolved question inside
+the last `PAIRING_QUESTION_WINDOW_MINUTES` (5) and at most
+`PAIRING_MAX_PENDING_QUESTIONS` (5) candidates; with zero or several recent
+questions the message stays a standalone factual update and nothing is paired
+automatically. Sender identity is never used as proof of an answer. Pair
+candidates have stable ids, making repeated processing idempotent. A paired
+answer is embedded and indexed as message evidence, but it is never promoted
+to canonical Q&A.
 
 When the background AI budget is above its configured ceiling, accepted messages
 are still stored with deferred classification state and no model call. They do
@@ -248,11 +271,14 @@ on it goes through the normal Telegram correction flow.
 
 ## Data rules
 
-- **Never commit data.** `data/` is gitignored; `data/raw/*` and `data/seed/` are
-  not in the repository.
+- **Never commit raw exports.** `data/raw/*` is gitignored; the bot's
+  self-explanation Q&A (`data/seed/bot_self_qa.json`) and the classifier
+  artifacts (`data/classifier/model.json`, the 500-case train and test
+  splits) are versioned on purpose: the runtime head and the eval splits are
+  reproducible build outputs, regenerated by the scripts in `scripts/`.
 - Tests use synthetic fixtures only, never a real export.
-- Seeding goes through `POST /internal/seed`, not a committed SQL file, so no data
-  ever enters git history.
+- Seeding goes through `POST /internal/seed`, not a committed SQL file, so no
+  data ever enters git history.
 
 ---
 
