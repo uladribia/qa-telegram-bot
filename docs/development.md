@@ -155,10 +155,11 @@ Every `.py` file starts with `# SPDX-License-Identifier: MIT`.
 
 - **`entry.py` builds context from `request.scope["env"]`.** The top-level
   `workers.env` is empty at import time; the context is cached per isolate.
-- **D1 is the source of truth; Vectorize is rebuildable.** Never store anything
-  that exists only in the index.
-- **Vectorize needs metadata indexes** on `kind` and `status` or filtered queries
-  silently return nothing.
+- **SQL is the source of truth for the active runtime; Vectorize is rebuildable.**
+  Production uses D1; the Phase 8 local runtime will use SQLite. Never store
+  anything that exists only in the index.
+- **Vectorize needs metadata indexes** on `kind`, `status`, and `scope_key` or
+  filtered queries silently return nothing.
 - **Async everywhere** for I/O. No blocking calls in request paths.
 - **No backwards compatibility.** This is a prototype: change the call sites,
   tests and docs together rather than adding a compatibility path.

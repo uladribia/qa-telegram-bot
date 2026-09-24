@@ -21,6 +21,7 @@ Runs entirely inside the **Cloudflare free tier** (Python Worker + D1 + Vectoriz
 | [docs/knowledge-base.md](docs/knowledge-base.md) | Adding and correcting knowledge |
 | [docs/operations.md](docs/operations.md) | Quota, logs, troubleshooting, routine maintenance |
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
+| [docs/session-handoff.md](docs/session-handoff.md) | Current v2 state and next-session starting point |
 | [AGENTS.md](AGENTS.md) | How to write code here |
 | [instructions/](instructions/) | The binding implementation plan and current status |
 
