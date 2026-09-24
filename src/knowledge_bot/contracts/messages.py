@@ -47,6 +47,7 @@ class NormalizedMessage(BaseModel):
     content_type: ContentType
     space_id: str | None = None
     principal_id: str | None = None
+    sender_authority: int | None = Field(default=None, ge=0, le=100)
     source_message_id: str | None = None
     sender_id: str | None = None
     sender_name: str | None = None

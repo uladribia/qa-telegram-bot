@@ -124,7 +124,7 @@ class RetrievalService:
     embedder: Embedder
     vectors: VectorStore
     qa_top_k: int = 5
-    message_top_k: int = 8
+    message_top_k: int = 4
 
     async def retrieve(
         self,

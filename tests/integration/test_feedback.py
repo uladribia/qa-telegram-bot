@@ -27,6 +27,7 @@ from tests.fakes.repositories import (
     InMemoryQAVersionRepository,
 )
 from tests.fakes.support import FrozenClock
+from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 SPACE_ID = "sp_" + "1" * 32
@@ -49,8 +50,13 @@ async def _service() -> tuple[
         feedback=feedback,
         qa_items=items,
         qa_versions=versions,
-        evidence=InMemoryQAEvidenceRepository(),
         conversations=InMemoryConversationRepository(),
+        commits=InMemoryCorrectionCommitStore(
+            items,
+            versions,
+            InMemoryQAEvidenceRepository(),
+            feedback,
+        ),
         clock=FrozenClock(NOW),
     )
     return service, answers, items, versions, feedback
@@ -126,7 +132,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
 
     proposed = await service.propose(started.id, "La llista la passa l'entrenador.")
     assert proposed is not None
-    assert proposed.status is FeedbackStatus.PENDING_ADMIN
+    assert proposed.status is FeedbackStatus.PENDING_REVIEW
 
     request = await service.correction_request(started.id)
     assert request is not None

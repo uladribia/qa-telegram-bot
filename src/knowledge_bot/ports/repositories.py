@@ -104,10 +104,20 @@ class MessageRepository(Protocol):
         """Return a message by id, if present."""
         ...
 
+    async def save(self, message: Message) -> None:
+        """Persist classification and indexing state changes."""
+        ...
+
     async def get_by_external_id(
         self, source_id: str, external_id: str
     ) -> Message | None:
         """Return a message by its idempotency key, if present."""
+        ...
+
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
         ...
 
     async def listener_stats_between(

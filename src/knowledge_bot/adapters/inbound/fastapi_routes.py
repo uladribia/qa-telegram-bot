@@ -40,7 +40,13 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import ReviewerEvent
-from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.domain.enums import (
+    AiWorkClass,
+    AnswerMode,
+    ClassificationStatus,
+    IndexStatus,
+    ReviewAction,
+)
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
@@ -77,7 +83,12 @@ def _must_start_bot_alert(name: str) -> str:
 
 
 async def _deliver_review(
-    context: AppContext, destination: str, text: str, feedback_id: str
+    context: AppContext,
+    destination: str,
+    text: str,
+    feedback_id: str,
+    origin_space_id: str | None,
+    origin_conversation_id: str | None,
 ) -> None:
     """Send a review to its reviewer, or back to the admin on failure.
 
@@ -86,18 +97,33 @@ async def _deliver_review(
         destination: The reviewer's private chat id.
         text: The rendered review.
         feedback_id: The correction under review.
+        origin_space_id: Logical space used for reviewer lookup.
+        origin_conversation_id: Conversation used for the group activation notice.
     """
-    sent = await context.transport.send_review(destination, text, feedback_id)
+    include_global = await context.router.can_approve_global(destination)
+    sent = await context.transport.send_review(
+        destination,
+        text,
+        feedback_id,
+        include_global=include_global,
+    )
     admin = context.settings.admin_telegram_user_id
-    if sent is None and admin and destination != admin:
-        # The admin may always confirm, so send the actionable review (buttons
-        # included) instead of leaving the proposal stuck for everyone.
-        await context.transport.send_review(
-            admin,
-            "\u26a0\ufe0f El revisor no t\u00e9 encara un xat privat amb el bot; "
-            "revises-la tu.\n\n" + text,
-            feedback_id,
-        )
+    if sent is None and destination != admin:
+        if admin:
+            await context.transport.send_message(
+                admin,
+                "\u26a0\ufe0f El revisor no t\u00e9 encara disponible per privat. "
+                "La correcció continua pendent; no l'has d'aprovar en el seu lloc.",
+            )
+        if origin_conversation_id is not None:
+            reviewer_name = await context.router.reviewer_name(
+                destination, origin_space_id
+            )
+            await context.transport.send_message(
+                origin_conversation_id,
+                f"\u26a0\ufe0f @{reviewer_name}, obre un xat privat amb el bot "
+                "per activar la revisio. La correccio continua pendent.",
+            )
 
 
 def create_app(resolve_context: ContextResolver) -> FastAPI:
@@ -157,9 +183,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
 
-        Returns the decided mode, the rendered answer, the citations (with the
-        evidence text, so the judge can run as a separate, conditional call),
-        and the retrieved evidence ids. No message ever reaches Telegram.
+        Returns the decided mode, rendered answer, citations, and retrieved
+        evidence ids for explicitly authorized deterministic evaluations. No
+        message ever reaches Telegram.
         """
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
@@ -200,34 +226,6 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
                 if item.source_id in outcome.source_ids
             ],
         }
-
-    @app.post("/internal/eval/judge")
-    async def internal_eval_judge(
-        request: Request,
-        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, str]:
-        """Judge one answer against its cited evidence.
-
-        The eval harness calls this only for cases that already passed the
-        deterministic checks, halving the judge's share of the AI quota.
-        """
-        context = resolve_context(request)
-        if not secrets_match(key, context.settings.internal_admin_key):
-            raise HTTPException(status_code=401, detail="invalid key")
-        await _require_evaluation_budget(context)
-        payload = await request.json()
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail="invalid payload")
-        evidence = payload.get("evidence") or []
-        try:
-            verdict = await context.answer.judge(
-                str(payload.get("question", "")),
-                str(payload.get("answer", "")),
-                [str(item) for item in evidence],
-            )
-        except ModelUnavailableError:
-            return {"verdict": "error", "reason": "model unavailable"}
-        return {"verdict": verdict.verdict, "reason": verdict.reason}
 
     @app.post("/internal/recap")
     async def internal_recap(
@@ -364,6 +362,24 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             "messages": message_count,
         }
 
+    @app.post("/internal/background/process-backlog")
+    async def internal_process_background_backlog(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int]:
+        """Process a bounded batch of budget-deferred background messages."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
+            raise HTTPException(status_code=429, detail="maintenance budget exhausted")
+        payload = await request.json()
+        limit = int(payload.get("limit", 100)) if isinstance(payload, dict) else 100
+        processed = await context.background_indexer.process_backlog(
+            max(1, min(limit, 1000))
+        )
+        return {"processed": processed}
+
     @app.post("/internal/groups")
     async def internal_groups(
         request: Request,
@@ -469,19 +485,45 @@ async def _handle_background_message(
     """
     text = (message.text or "").strip()
     if not text:
-        await context.ingestor.ingest(message)
+        await context.ingestor.ingest(
+            message,
+            classification_status=ClassificationStatus.NO_TEXT,
+            index_status=IndexStatus.NOT_ELIGIBLE,
+        )
         return "ingest"
-    scores = await context.classifier.classify(text)
-    if not context.classifier.should_keep(scores):
-        return "ignored_chitchat"
-    label, score = scores.best()
+    if not await context.budget.work_allowed(AiWorkClass.BACKGROUND):
+        await context.ingestor.ingest(
+            message,
+            classification_status=ClassificationStatus.DEFERRED_BUDGET,
+            index_status=IndexStatus.NOT_INDEXED,
+        )
+        return "ingest"
+    classification = await context.classifier.classify(text)
+    scores = classification.scores
+    label = classification.best_label.value
+    score = classification.best_score
     context_question = await _match_parent_question(context, message, scores)
-    await context.ingestor.ingest(
+    status = (
+        ClassificationStatus.PREFILTER_CHITCHAT
+        if not classification.embedding
+        else ClassificationStatus.CLASSIFIED
+    )
+    result = await context.ingestor.ingest(
         message,
         intent_label=label,
         intent_score=score,
         context_question=context_question,
+        classification_status=status,
+        intent_scores={
+            "question": scores.question,
+            "knowledge_update": scores.knowledge_update,
+            "correction": scores.correction,
+            "chitchat": scores.chitchat,
+        },
+        index_status=IndexStatus.NOT_ELIGIBLE,
     )
+    if result.created:
+        await context.background_indexer.process(message.id, classification.embedding)
     await context.recap.maybe_send()
     await context.reviewer_report.maybe_send()
     return "ingest_pair" if context_question is not None else "ingest"
@@ -636,7 +678,9 @@ async def _handle_feedback_reply(
     if feedback is not None:
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
-            message.sender_user_id, review.origin_space_id
+            message.sender_user_id,
+            review.origin_space_id,
+            ReviewAction.EDIT,
         ):
             return None
         await context.feedback.admin_edit(feedback.id, message.text)
@@ -644,7 +688,12 @@ async def _handle_feedback_reply(
         review = await context.feedback.correction_request(feedback.id)
         if destination is not None and review is not None:
             await _deliver_review(
-                context, destination, render_review(review), feedback.id
+                context,
+                destination,
+                render_review(review),
+                feedback.id,
+                review.origin_space_id,
+                review.origin_conversation_id,
             )
         return "reviewer_edited"
     feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
@@ -662,7 +711,12 @@ async def _handle_feedback_reply(
         destination = await context.router.destination(review.origin_space_id)
         if destination is not None:
             await _deliver_review(
-                context, destination, render_review(review), proposed.id
+                context,
+                destination,
+                render_review(review),
+                proposed.id,
+                review.origin_space_id,
+                review.origin_conversation_id,
             )
     return "proposed"
 
@@ -728,9 +782,19 @@ async def _handle_callback(
         return "feedback_prompt_undelivered"
     # Confirming a correction is only for its reviewer (the group's reviewer,
     # the global reviewer, or the admin), enforced here on the server.
+    review_action = {
+        "approve_global": ReviewAction.APPROVE_GLOBAL,
+        "approve_group": ReviewAction.APPROVE_LOCAL,
+        "edit": ReviewAction.EDIT,
+        "reject": ReviewAction.REJECT,
+    }.get(action)
+    if review_action is None:
+        return "ignored"
     review = await context.feedback.correction_request(target)
     if review is None or not await context.router.can_confirm(
-        reporter_chat_id, review.origin_space_id
+        reporter_chat_id,
+        review.origin_space_id,
+        review_action,
     ):
         return "ignored"
     if action == "approve_global" or action == "approve_group":

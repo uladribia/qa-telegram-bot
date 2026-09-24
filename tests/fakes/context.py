@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
@@ -35,6 +36,7 @@ from tests.fakes.ai import (
 )
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 DEFAULT_NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 WEBHOOK_SECRET = "secret"
@@ -100,6 +102,7 @@ def build_test_context(
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
+    projection_manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
         sources=backend.sources,
@@ -140,6 +143,13 @@ def build_test_context(
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )
+    classifier = MessageClassifier(embedder=embedder)
+    correction_commits = InMemoryCorrectionCommitStore(
+        backend.qa_items,
+        backend.qa_versions,
+        backend.qa_evidence,
+        feedback_repo,
+    )
     identity = TelegramIdentity(
         allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
@@ -152,14 +162,25 @@ def build_test_context(
         identity=identity,
         clock=clock,
         ingestor=ingestor,
-        classifier=MessageClassifier(embedder=embedder),
+        classifier=classifier,
+        background_indexer=BackgroundIndexer(
+            messages=ingestor.messages,
+            conversations=backend.conversations,
+            sources=backend.sources,
+            classifier=classifier,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=projection_manifest,
+            clock=clock,
+            answer_threshold=0.55,
+        ),
         answer=answer,
         recap=recap,
         reindex=ReindexService(
             source=FakeSearchIndexSource(),
             embedder=embedder,
             vectors=vectors,
-            manifest=InMemorySearchProjectionRepository(),
+            manifest=projection_manifest,
             clock=clock,
         ),
         seed=SeedService(
@@ -184,8 +205,8 @@ def build_test_context(
             feedback=feedback_repo,
             qa_items=backend.qa_items,
             qa_versions=backend.qa_versions,
-            evidence=backend.qa_evidence,
             conversations=backend.conversations,
+            commits=correction_commits,
             clock=clock,
         ),
         feedback_repo=feedback_repo,

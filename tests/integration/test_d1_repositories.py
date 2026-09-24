@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Integration tests for the D1 repositories against a SQLite-backed D1 fake."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.contracts.messages import (
@@ -13,21 +16,32 @@ from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
     Conversation,
+    Feedback,
     Message,
+    QAEvidence,
+    QAItem,
+    QAVersion,
     Source,
     Space,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
     ContentType,
+    EvidenceType,
+    FeedbackStatus,
     ProcessingStatus,
+    QAStatus,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1AttachmentRepository,
     D1BotAnswerRepository,
     D1ChannelBindingRepository,
     D1ConversationRepository,
+    D1CorrectionCommitStore,
+    D1FeedbackRepository,
     D1MessageRepository,
+    D1QAItemRepository,
+    D1QAVersionRepository,
     D1RecapStateRepository,
     D1ReviewSource,
     D1SearchProjectionRepository,
@@ -40,6 +54,7 @@ from knowledge_bot.ports.repositories import (
     MessageRepository,
     SourceRepository,
 )
+from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.d1 import FakeD1Database
 
@@ -142,6 +157,102 @@ async def test_conversation_round_trip() -> None:
     assert loaded is not None
     assert loaded.source_id == "telegram"
     assert loaded.space_id == space_id
+
+
+async def test_correction_commit_rolls_back_every_sql_write() -> None:
+    """A failed evidence insert leaves version, pointer, and feedback untouched."""
+    import sqlite3
+
+    database = FakeD1Database()
+    feedback_repo = D1FeedbackRepository(database)
+    item_repo = D1QAItemRepository(database)
+    await D1SourceRepository(database).add(
+        Source(
+            id="src-test",
+            source_type="test",
+            authority=40,
+            created_at=NOW,
+        )
+    )
+    await D1ConversationRepository(database).add(
+        Conversation(
+            id="conversation-1",
+            source_id="src-test",
+            created_at=NOW,
+        )
+    )
+    await D1BotAnswerRepository(database).add(
+        BotAnswer(
+            id="ans-1",
+            conversation_id="conversation-1",
+            question="Question?",
+            answer="Old",
+            answer_mode=AnswerMode.DIRECT_QA,
+            created_at=NOW,
+        )
+    )
+    await feedback_repo.add(
+        Feedback(
+            id="fb-1",
+            bot_answer_id="ans-1",
+            status=FeedbackStatus.PENDING_REVIEW,
+            created_at=NOW,
+            proposed_answer="Corrected",
+        )
+    )
+    item = QAItem(
+        id="qa-1",
+        canonical_key="key",
+        canonical_question="Question?",
+        status=QAStatus.ACTIVE,
+        created_at=NOW,
+        updated_at=NOW,
+        current_version_id="v1",
+    )
+    await item_repo.add(item)
+    version = QAVersion(
+        id="v2",
+        qa_id=item.id,
+        answer="Corrected",
+        authority=100,
+        origin="human_approved",
+        created_at=NOW,
+        supersedes_version_id="v1",
+    )
+    approved = replace(item, current_version_id="v2", updated_at=NOW)
+    pending = await feedback_repo.get("fb-1")
+    assert pending is not None
+    feedback = replace(
+        pending,
+        status=FeedbackStatus.APPROVED,
+        resolved_at=NOW,
+    )
+    database.connection.execute(
+        "CREATE TRIGGER fail_evidence BEFORE INSERT ON qa_evidence"
+        " BEGIN SELECT RAISE(ABORT, 'forced failure'); END"
+    )
+    database.connection.commit()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        await D1CorrectionCommitStore(database).approve(
+            ApproveCorrectionCommand(
+                feedback=feedback,
+                item=approved,
+                version=version,
+                evidence=QAEvidence(
+                    qa_version_id="v2",
+                    evidence_type=EvidenceType.MESSAGE,
+                    evidence_id="ans-1",
+                ),
+            )
+        )
+
+    assert await D1QAVersionRepository(database).get("v2") is None
+    stored_item = await item_repo.get("qa-1")
+    assert stored_item is not None and stored_item.current_version_id == "v1"
+    stored_feedback = await feedback_repo.get("fb-1")
+    assert stored_feedback is not None
+    assert stored_feedback.status is FeedbackStatus.PENDING_REVIEW
 
 
 async def test_search_projection_manifest_round_trip() -> None:

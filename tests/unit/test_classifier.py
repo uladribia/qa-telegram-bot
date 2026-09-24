@@ -8,13 +8,14 @@ from knowledge_bot.application.classifier import (
     IntentScores,
     MessageClassifier,
 )
+from knowledge_bot.domain.enums import IntentLabel
 from tests.fakes.ai import FakeEmbedder
 
-PROTOTYPES: dict[str, tuple[str, ...]] = {
-    "question": ("qp",),
-    "knowledge_update": ("up",),
-    "correction": ("cp",),
-    "chitchat": ("cc",),
+PROTOTYPES: dict[IntentLabel, tuple[str, ...]] = {
+    IntentLabel.QUESTION: ("qp",),
+    IntentLabel.KNOWLEDGE_UPDATE: ("up",),
+    IntentLabel.CORRECTION: ("cp",),
+    IntentLabel.CHITCHAT: ("cc",),
 }
 
 Q = [1.0, 0.0]
@@ -30,7 +31,9 @@ def _classifier(texts: dict[str, list[float]]) -> MessageClassifier:
 def test_classify_scores_each_label_by_best_prototype() -> None:
     """A text identical to the question prototype scores 1.0 there."""
     classifier = _classifier({"hola?": Q, "qp": Q, "up": U, "cp": U, "cc": U})
-    scores = asyncio.run(classifier.classify("hola?"))
+    classification = asyncio.run(classifier.classify("hola?"))
+    scores = classification.scores
+    assert classification.embedding == (1.0, 0.0)
     assert scores.question == 1.0
     assert scores.knowledge_update == 0.0
     assert scores.correction == 0.0
@@ -38,20 +41,30 @@ def test_classify_scores_each_label_by_best_prototype() -> None:
     assert scores.best() == (QUESTION, 1.0)
 
 
-def test_prototypes_are_embedded_once_per_process() -> None:
+def test_prototypes_are_embedded_once_per_classifier_instance() -> None:
     """The first call batches everything; later calls embed only the text."""
     embedder = FakeEmbedder(
         by_text={"hola?": Q, "adeu!": U, "qp": Q, "up": U, "cp": U, "cc": U}
     )
     classifier = MessageClassifier(
         embedder=embedder,
-        prototypes={**PROTOTYPES, "question": ("qp-x",)},
+        prototypes={**PROTOTYPES, IntentLabel.QUESTION: ("qp-x",)},
     )
     asyncio.run(classifier.classify("hola?"))
     asyncio.run(classifier.classify("adeu!"))
     assert len(embedder.calls) == 2
     assert len(embedder.calls[0]) == 5
     assert embedder.calls[1] == ["adeu!"]
+
+
+def test_prefilter_chitchat_skips_embedding() -> None:
+    """Exact acknowledgements are classified without an AI call."""
+    embedder = FakeEmbedder()
+    classifier = MessageClassifier(embedder=embedder, prototypes=PROTOTYPES)
+    classification = asyncio.run(classifier.classify("gràcies"))
+    assert classification.best_label is IntentLabel.CHITCHAT
+    assert classification.embedding == ()
+    assert embedder.calls == []
 
 
 def test_pure_chitchat_is_discarded() -> None:

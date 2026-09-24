@@ -7,6 +7,7 @@ from typing import Protocol
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.feedback import FeedbackService
@@ -30,10 +31,10 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1BotAnswerRepository,
     D1ChannelBindingRepository,
     D1ConversationRepository,
+    D1CorrectionCommitStore,
     D1Database,
     D1FeedbackRepository,
     D1MessageRepository,
-    D1QAEvidenceRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
     D1RecapStateRepository,
@@ -80,6 +81,7 @@ class AppContext:
     clock: Clock
     ingestor: MessageIngestor
     classifier: MessageClassifier
+    background_indexer: BackgroundIndexer
     answer: AnswerService
     recap: RecapService
     reindex: ReindexService
@@ -162,9 +164,15 @@ def build_context(env: WorkerEnv) -> AppContext:
         direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
         synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
         qa_top_k=_int(env, "QA_TOP_K", 5),
-        message_top_k=_int(env, "MESSAGE_TOP_K", 8),
+        message_top_k=_int(env, "MESSAGE_TOP_K", 4),
         ai_daily_neuron_budget=_float(env, "AI_DAILY_NEURON_BUDGET", 10_000.0),
         ai_neuron_reserve_fraction=_float(env, "AI_NEURON_RESERVE_FRACTION", 0.25),
+        ai_background_budget_fraction=_float(
+            env, "AI_BACKGROUND_BUDGET_FRACTION", 0.50
+        ),
+        ai_maintenance_budget_fraction=_float(
+            env, "AI_MAINTENANCE_BUDGET_FRACTION", 0.70
+        ),
         ai_embed_neurons_per_char=_float(env, "AI_EMBED_NEURONS_PER_CHAR", 0.015),
         ai_chat_neurons_per_char=_float(env, "AI_CHAT_NEURONS_PER_CHAR", 0.020),
     )
@@ -177,6 +185,8 @@ def build_context(env: WorkerEnv) -> AppContext:
         clock=clock,
         daily_neurons=settings.ai_daily_neuron_budget,
         reserve_fraction=settings.ai_neuron_reserve_fraction,
+        background_fraction=settings.ai_background_budget_fraction,
+        maintenance_fraction=settings.ai_maintenance_budget_fraction,
         embed_neurons_per_char=settings.ai_embed_neurons_per_char,
         chat_neurons_per_char=settings.ai_chat_neurons_per_char,
     )
@@ -188,6 +198,17 @@ def build_context(env: WorkerEnv) -> AppContext:
     )
     vectors = VectorizeStore(env.VECTORIZE)
     listener_messages = D1MessageRepository(database)
+    listener_sources = D1SourceRepository(database)
+    listener_conversations = D1ConversationRepository(database)
+    projection_manifest = D1SearchProjectionRepository(database)
+    correction_commits = D1CorrectionCommitStore(database)
+    classifier = MessageClassifier(
+        embedder=embedder,
+        chitchat_discard_threshold=settings.classifier_chitchat_discard_threshold,
+        keep_signal_threshold=settings.classifier_keep_signal_threshold,
+        question_match_threshold=settings.classifier_question_match_threshold,
+        answer_match_threshold=settings.classifier_answer_match_threshold,
+    )
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
@@ -199,17 +220,22 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         clock=clock,
         ingestor=MessageIngestor(
-            sources=D1SourceRepository(database),
-            conversations=D1ConversationRepository(database),
+            sources=listener_sources,
+            conversations=listener_conversations,
             messages=listener_messages,
             attachments=D1AttachmentRepository(database),
         ),
-        classifier=MessageClassifier(
+        classifier=classifier,
+        background_indexer=BackgroundIndexer(
+            messages=listener_messages,
+            conversations=listener_conversations,
+            sources=listener_sources,
+            classifier=classifier,
             embedder=embedder,
-            chitchat_discard_threshold=(settings.classifier_chitchat_discard_threshold),
-            keep_signal_threshold=settings.classifier_keep_signal_threshold,
-            question_match_threshold=(settings.classifier_question_match_threshold),
-            answer_match_threshold=settings.classifier_answer_match_threshold,
+            vectors=vectors,
+            manifest=projection_manifest,
+            clock=clock,
+            answer_threshold=settings.classifier_answer_match_threshold,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
@@ -243,7 +269,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             source=D1SearchIndexSource(database),
             embedder=embedder,
             vectors=vectors,
-            manifest=D1SearchProjectionRepository(database),
+            manifest=projection_manifest,
             clock=clock,
         ),
         seed=SeedService(
@@ -274,8 +300,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             feedback=D1FeedbackRepository(database),
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
-            evidence=D1QAEvidenceRepository(database),
             conversations=D1ConversationRepository(database),
+            commits=correction_commits,
             clock=clock,
         ),
         feedback_repo=D1FeedbackRepository(database),

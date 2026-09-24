@@ -249,8 +249,8 @@ def test_the_dm_prompt_repeats_the_flagged_question_and_answer() -> None:
     assert "Resposta antiga." in prompt
 
 
-def test_unreachable_reviewer_sends_the_review_to_the_admin() -> None:
-    """When the reviewer's DM fails, the admin gets the actionable review."""
+def test_unreachable_reviewer_keeps_feedback_pending_and_activates_reviewer() -> None:
+    """A failed reviewer DM notifies admin and asks the reviewer to activate the bot."""
     context, transport = build_test_context()
     transport.dead_chats = frozenset({str(REVIEWER_ID)})
     asyncio.run(_seed_answer(context))
@@ -263,11 +263,11 @@ def test_unreachable_reviewer_sends_the_review_to_the_admin() -> None:
         headers=SECRET_HEADER,
     )
     assert all(chat != str(REVIEWER_ID) for chat, _, _ in transport.reviews)
-    admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
+    assert not any(chat == "1" for chat, _, _ in transport.reviews)
     assert any(
-        "revisor no té" in text and "Correcció proposada" in text
-        for text in admin_reviews
+        chat == "1" and "continua pendent" in text for chat, text in transport.messages
     )
+    assert any(chat == "-100" and "@Pepe" in text for chat, text in transport.messages)
 
 
 def test_reviewer_off_removes_the_group_reviewer() -> None:
@@ -302,6 +302,7 @@ def test_proposal_from_the_group_goes_to_its_reviewer_not_the_admin() -> None:
     ]
     admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
     assert any("Correcció proposada" in text for text in reviewer_reviews)
+    assert transport.review_global_access[str(REVIEWER_ID)] is False
     assert admin_reviews == []
 
 
@@ -320,7 +321,7 @@ def test_group_reviewer_can_confirm_and_admin_gets_a_report() -> None:
     response = client.post(
         "/telegram/webhook",
         json=_callback(
-            "feedback:approve-global:fb:ans:-100:10",
+            "feedback:approve-group:fb:ans:-100:10",
             from_id=REVIEWER_ID,
             first_name="Pepe",
         ),
@@ -333,6 +334,32 @@ def test_group_reviewer_can_confirm_and_admin_gets_a_report() -> None:
     report = [text for chat, text in transport.messages if chat == "1"]
     assert any("Correccions revisades" in text for text in report)
     assert any("Pepe" in text for text in report)
+
+
+def test_local_reviewer_global_approval_is_denied_by_server() -> None:
+    """A forged global callback cannot bypass authorization."""
+    context, _ = build_test_context()
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    _nominate_reviewer(context, client)
+    prompt_id = _open_proposal(client)
+    client.post(
+        "/telegram/webhook",
+        json=_reply("Resposta global.", reply_to=prompt_id),
+        headers=SECRET_HEADER,
+    )
+    response = client.post(
+        "/telegram/webhook",
+        json=_callback(
+            "feedback:approve-global:fb:ans:-100:10",
+            from_id=REVIEWER_ID,
+        ),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ignored"}
+    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    assert feedback is not None
+    assert feedback.status.value == "pending_review"
 
 
 def test_a_stranger_cannot_confirm() -> None:
@@ -355,7 +382,7 @@ def test_a_stranger_cannot_confirm() -> None:
     assert response.json() == {"status": "ignored"}
     feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
-    assert feedback.status is FeedbackStatus.PENDING_ADMIN
+    assert feedback.status is FeedbackStatus.PENDING_REVIEW
 
 
 def test_batch_mode_sends_the_report_only_when_poked() -> None:
@@ -372,7 +399,7 @@ def test_batch_mode_sends_the_report_only_when_poked() -> None:
     )
     client.post(
         "/telegram/webhook",
-        json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=REVIEWER_ID),
+        json=_callback("feedback:approve-group:fb:ans:-100:10", from_id=REVIEWER_ID),
         headers=SECRET_HEADER,
     )
     assert not any("Correccions revisades" in text for _, text in transport.messages)

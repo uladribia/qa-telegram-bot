@@ -9,9 +9,11 @@ from fastapi.testclient import TestClient
 from knowledge_bot.adapters.inbound.fastapi_routes import create_app
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
+from knowledge_bot.domain.enums import IntentLabel
 from knowledge_bot.infrastructure.composition import AppContext
 from tests.fakes.ai import FakeEmbedder
 from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
+from tests.fakes.support import InMemoryAiUsageRepository
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
 
@@ -147,10 +149,10 @@ def _listener_context(tag: str, **vectors: list[float]) -> AppContext:
         classifier=MessageClassifier(
             embedder=embedder,
             prototypes={
-                "question": (f"qp-{tag}",),
-                "knowledge_update": (f"up-{tag}",),
-                "correction": (f"cp-{tag}",),
-                "chitchat": (f"cc-{tag}",),
+                IntentLabel.QUESTION: (f"qp-{tag}",),
+                IntentLabel.KNOWLEDGE_UPDATE: (f"up-{tag}",),
+                IntentLabel.CORRECTION: (f"cp-{tag}",),
+                IntentLabel.CHITCHAT: (f"cc-{tag}",),
             },
         ),
     )
@@ -160,8 +162,8 @@ _Q = [1.0, 0.0]
 _U = [0.0, 1.0]
 
 
-def test_listener_discards_pure_chitchat() -> None:
-    """Clear-cut chitchat is dropped before storage."""
+def test_listener_stores_pure_chitchat_without_evidence_status() -> None:
+    """Classification controls indexing, never whether the raw message is stored."""
     context = _listener_context(
         "discard",
         **{
@@ -177,8 +179,11 @@ def test_listener_discards_pure_chitchat() -> None:
         json=_update("gràcies, cracks!"),
         headers=SECRET_HEADER,
     )
-    assert response.json() == {"status": "ignored_chitchat"}
-    assert _stored(context) is None
+    assert response.json() == {"status": "ingest"}
+    stored = _stored(context)
+    assert stored is not None
+    assert stored.intent_label == "chitchat"
+    assert stored.index_status.value == "not_eligible"
 
 
 def test_listener_labels_kept_context() -> None:
@@ -202,6 +207,119 @@ def test_listener_labels_kept_context() -> None:
     stored = _stored(context)
     assert stored is not None
     assert stored.intent_label == "question"
+    assert stored.index_status.value == "not_eligible"
+
+
+def test_listener_persists_budget_deferred_message_without_ai() -> None:
+    """The budget guard defers background work but never drops the message."""
+    context = _listener_context("deferred")
+    usage = context.budget.usage
+    assert isinstance(usage, InMemoryAiUsageRepository)
+    usage.seed("2026-09-19", 6_000.0)
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("recordem que demà hi ha entrenament", message_id=29),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    stored = _stored(context, "-100:29")
+    assert stored is not None
+    assert stored.classification_status.value == "deferred_budget"
+    assert stored.index_status.value == "not_indexed"
+    matches = asyncio.run(
+        context.answer.retrieval.vectors.query(
+            [1.0, 0.0], top_k=5, filters={"kind": "message_evidence"}
+        )
+    )
+    assert matches == []
+
+
+def test_bounded_backlog_processes_deferred_background_messages() -> None:
+    """An explicit bounded request handles deferred background messages."""
+    context = build_test_context(
+        background_listener_enabled=True,
+        spent_neurons=6_000.0,
+    )[0]
+    client = _client(context)
+    response = client.post(
+        "/telegram/webhook",
+        json=_update("recordem que demà hi ha entrenament", message_id=28),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    usage = context.budget.usage
+    assert isinstance(usage, InMemoryAiUsageRepository)
+    usage.seed("2026-09-19", 0.0)
+
+    processed = client.post(
+        "/internal/background/process-backlog",
+        json={"limit": 10},
+        headers={"X-Internal-Key": "internal"},
+    )
+
+    assert processed.json() == {"processed": 1}
+    stored = _stored(context, "-100:28")
+    assert stored is not None
+    assert stored.classification_status.value == "classified"
+
+
+def test_listener_indexes_relevant_background_evidence_immediately() -> None:
+    """A standalone knowledge update becomes searchable without a full rebuild."""
+    context = _listener_context(
+        "index",
+        **{
+            "recordem que demà hi ha entrenament": _Q,
+            "qp-index": _U,
+            "up-index": _Q,
+            "cp-index": _U,
+            "cc-index": _U,
+        },
+    )
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("recordem que demà hi ha entrenament", message_id=30),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    stored = _stored(context, "-100:30")
+    assert stored is not None and stored.index_status.value == "indexed"
+    matches = asyncio.run(
+        context.answer.retrieval.vectors.query(
+            [1.0, 0.0],
+            top_k=5,
+            filters={"kind": "message_evidence", "scope_key": "space:" + SPACE_A},
+        )
+    )
+    assert len(matches) == 1
+    assert matches[0].metadata["authority"] == 40
+
+
+def test_admin_background_evidence_uses_connector_sender_authority() -> None:
+    """The Telegram connector declares admin authority without app-side branching."""
+    context = _listener_context(
+        "admin",
+        **{
+            "recordem que l'horari ha canviat": _Q,
+            "qp-admin": _U,
+            "up-admin": _Q,
+            "cp-admin": _U,
+            "cc-admin": _U,
+        },
+    )
+    response = _client(context).post(
+        "/telegram/webhook",
+        json=_update("recordem que l'horari ha canviat", message_id=31, from_id=1),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ingest"}
+    matches = asyncio.run(
+        context.answer.retrieval.vectors.query(
+            [1.0, 0.0],
+            top_k=5,
+            filters={"kind": "message_evidence"},
+        )
+    )
+    assert matches[0].metadata["authority"] == 95
 
 
 def test_listener_matches_a_reply_to_its_parent_question() -> None:
@@ -230,6 +348,7 @@ def test_listener_matches_a_reply_to_its_parent_question() -> None:
     stored = asyncio.run(context.ingestor.messages.get("-100:21"))
     assert stored is not None
     assert stored.context_question == "a quina hora entrenen?"
+    assert stored.index_status.value == "indexed"
 
 
 def test_reprocessing_the_same_update_is_idempotent() -> None:

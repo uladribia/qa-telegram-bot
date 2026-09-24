@@ -6,6 +6,7 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
@@ -26,14 +27,17 @@ from knowledge_bot.domain.entities import (
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
+    ClassificationStatus,
     ContentType,
     FeedbackStatus,
+    IndexStatus,
     ProcessingStatus,
     QAStatus,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.review import ReviewItem
+from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from knowledge_bot.ports.vector_store import VectorRecord
 
 
@@ -64,6 +68,10 @@ class D1Database(Protocol):
 
     def prepare(self, sql: str) -> D1Statement:
         """Prepare a statement."""
+        ...
+
+    async def batch(self, statements: Sequence[D1Statement]) -> object:
+        """Execute statements in one transaction."""
         ...
 
 
@@ -417,10 +425,12 @@ class D1MessageRepository:
             self._db.prepare(
                 "INSERT INTO messages"
                 " (id, source_id, conversation_id, external_id, sender_hash,"
-                " sender_name, sender_is_admin, sent_at, text, content_type,"
-                " reply_to_message_id, created_at,"
-                " intent_label, intent_score, context_question)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " sender_name, sender_is_admin, sender_authority, sent_at, text,"
+                " content_type, reply_to_message_id, created_at, intent_label,"
+                " intent_score, context_question, classification_status,"
+                " intent_scores_json,"
+                " index_status, indexed_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 message.id,
@@ -430,6 +440,7 @@ class D1MessageRepository:
                 message.sender_hash,
                 message.sender_name,
                 int(message.sender_is_admin),
+                message.sender_authority,
                 _iso(message.sent_at),
                 message.text,
                 message.content_type.value,
@@ -438,6 +449,10 @@ class D1MessageRepository:
                 message.intent_label,
                 message.intent_score,
                 message.context_question,
+                message.classification_status.value,
+                message.intent_scores_json,
+                message.index_status.value,
+                _iso(message.indexed_at) if message.indexed_at is not None else None,
             )
             .run()
         )
@@ -452,6 +467,28 @@ class D1MessageRepository:
         )
         return _message(row) if row is not None else None
 
+    async def save(self, message: Message) -> None:
+        """Persist classification and indexing state changes."""
+        await (
+            self._db.prepare(
+                "UPDATE messages SET intent_label = ?, intent_score = ?,"
+                " context_question = ?, classification_status = ?,"
+                " intent_scores_json = ?, index_status = ?, indexed_at = ?"
+                " WHERE id = ?"
+            )
+            .bind(
+                message.intent_label,
+                message.intent_score,
+                message.context_question,
+                message.classification_status.value,
+                message.intent_scores_json,
+                message.index_status.value,
+                _iso(message.indexed_at) if message.indexed_at is not None else None,
+                message.id,
+            )
+            .run()
+        )
+
     async def get_by_external_id(
         self, source_id: str, external_id: str
     ) -> Message | None:
@@ -464,6 +501,20 @@ class D1MessageRepository:
             .first()
         )
         return _message(row) if row is not None else None
+
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
+        result = (
+            await self._db.prepare(
+                "SELECT * FROM messages WHERE classification_status = ?"
+                " ORDER BY created_at LIMIT ?"
+            )
+            .bind(status, limit)
+            .run()
+        )
+        return [_message(row) for row in _rows(result)]
 
     async def listener_stats_between(
         self, start: datetime, end: datetime
@@ -638,6 +689,7 @@ def _message(row: dict[str, object]) -> Message:
         sent_at=_dt(row["sent_at"]),
         created_at=_dt(row["created_at"]),
         sender_is_admin=bool(row["sender_is_admin"]),
+        sender_authority=_opt_int(row.get("sender_authority")),
         external_id=_opt_str(row["external_id"]),
         sender_hash=_opt_str(row["sender_hash"]),
         sender_name=_opt_str(row["sender_name"]),
@@ -646,6 +698,17 @@ def _message(row: dict[str, object]) -> Message:
         intent_label=_opt_str(row.get("intent_label")),
         intent_score=_opt_float(row.get("intent_score")),
         context_question=_opt_str(row.get("context_question")),
+        classification_status=ClassificationStatus(
+            str(
+                row.get("classification_status")
+                or ClassificationStatus.NOT_CLASSIFIED.value
+            )
+        ),
+        intent_scores_json=_opt_str(row.get("intent_scores_json")),
+        index_status=IndexStatus(
+            str(row.get("index_status") or IndexStatus.NOT_INDEXED.value)
+        ),
+        indexed_at=_opt_dt(row.get("indexed_at")),
     )
 
 
@@ -837,7 +900,7 @@ class D1SearchIndexSource:
             " c.space_id, s.source_type AS source_kind, s.authority AS source_authority"
             " FROM messages m JOIN sources s ON s.id = m.source_id"
             " JOIN conversations c ON c.id = m.conversation_id"
-            " WHERE m.text IS NOT NULL AND m.text != ''"
+            " WHERE m.text IS NOT NULL AND m.text != '' AND m.index_status = 'indexed'"
         )
         params: list[object] = []
         if after is not None:
@@ -1068,6 +1131,92 @@ class D1AiUsageRepository:
         if row is None:
             return (0.0, 0)
         return (float(cast(float, row["neurons"])), int(cast(int, row["calls"])))
+
+
+class D1CorrectionCommitStore:
+    """D1 transactional implementation of correction decisions."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def approve(self, command: ApproveCorrectionCommand) -> QAVersion:
+        """Commit version, current pointer, evidence, and feedback atomically."""
+        version = command.version
+        item = command.item
+        evidence = command.evidence
+        feedback = command.feedback
+        await self._db.batch(
+            [
+                self._db.prepare(
+                    "INSERT INTO qa_versions"
+                    " (id, qa_id, answer, authority, confidence, origin, created_by,"
+                    " supersedes_version_id, created_at, source_url, source_anchor,"
+                    " author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                ).bind(
+                    version.id,
+                    version.qa_id,
+                    version.answer,
+                    version.authority,
+                    version.confidence,
+                    version.origin,
+                    version.created_by,
+                    version.supersedes_version_id,
+                    _iso(version.created_at),
+                    version.source_url,
+                    version.source_anchor,
+                    version.author,
+                ),
+                self._db.prepare(
+                    "UPDATE qa_items SET canonical_question = ?, status = ?,"
+                    " current_version_id = ?, updated_at = ? WHERE id = ?"
+                ).bind(
+                    item.canonical_question,
+                    item.status.value,
+                    item.current_version_id,
+                    _iso(item.updated_at),
+                    item.id,
+                ),
+                self._db.prepare(
+                    "INSERT INTO qa_evidence"
+                    " (qa_version_id, evidence_type, evidence_id) VALUES (?, ?, ?)"
+                ).bind(
+                    evidence.qa_version_id,
+                    evidence.evidence_type.value,
+                    evidence.evidence_id,
+                ),
+                self._db.prepare(
+                    "UPDATE feedback SET status = ?, proposed_answer = ?,"
+                    " admin_edited_answer = ?, resolved_at = ? WHERE id = ?"
+                ).bind(
+                    feedback.status.value,
+                    feedback.proposed_answer,
+                    feedback.admin_edited_answer,
+                    _iso(feedback.resolved_at)
+                    if feedback.resolved_at is not None
+                    else None,
+                    feedback.id,
+                ),
+            ]
+        )
+        return version
+
+    async def reject(self, feedback: Feedback) -> Feedback:
+        """Persist one rejected feedback decision."""
+        await (
+            self._db.prepare(
+                "UPDATE feedback SET status = ?, resolved_at = ? WHERE id = ?"
+            )
+            .bind(
+                feedback.status.value,
+                _iso(feedback.resolved_at)
+                if feedback.resolved_at is not None
+                else None,
+                feedback.id,
+            )
+            .run()
+        )
+        return feedback
 
 
 class D1FeedbackRepository:

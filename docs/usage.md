@@ -101,20 +101,22 @@ discussion.
 Telegram only lets a bot DM someone who has **opened a private chat with it at
 least once** (pressed Start on its profile). Anyone who wants to flag answers or
 serve as a reviewer must do that first; otherwise the bot cannot reach them.
-When it happens anyway, the bot says so instead of failing silently: the button
-press shows a popup asking to open the chat first, the group gets a message
-with a direct `t.me` link to the bot, and if a review cannot be delivered to
-its reviewer, the admin receives the full review — buttons included — and may
-resolve it themselves.
+When it happens anyway, the bot says so instead of failing silently. The button
+press shows a popup asking to open the chat first and the group receives a
+direct bot link. If a review cannot be delivered privately, the task remains
+pending, the admin is notified, and the group is asked to prompt the assigned
+reviewer to open a private chat with the bot. The admin does not silently take
+over the review.
 
 Who may do what:
 
 - **Anyone in the group** can flag an answer and propose a correction.
 - **Corrections are confirmed by reviewers**: the reviewer nominated for the
   group the answer came from, or the global reviewer when that group has none,
-  or the admin when nobody is nominated. Anyone nominated may approve, edit or
-  reject — and choose 🌐 or 👥 at approval time. This is enforced server-side:
-  a confirmation from anyone else is ignored, not just hidden.
+  or the admin when nobody is nominated. A group reviewer may edit, reject, or
+  approve only for that group; a global reviewer or admin may choose 🌐 or 👥.
+  This is enforced server-side: a forged confirmation from anyone else is
+  ignored, not just hidden.
 - The admin is the fallback reviewer and the only one who can nominate or
   remove reviewers (see below) or roll a correction back (CLI only, see
   [operations.md](operations.md)).

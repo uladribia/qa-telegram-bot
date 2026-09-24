@@ -150,12 +150,33 @@ class InMemoryMessageRepository:
         """Return a message by id, if present."""
         return self._items.get(message_id)
 
+    async def save(self, message: Message) -> None:
+        """Persist classification and indexing state changes."""
+        if message.id not in self._items:
+            error = f"unknown message: {message.id}"
+            raise KeyError(error)
+        self._items[message.id] = message
+
     async def get_by_external_id(
         self, source_id: str, external_id: str
     ) -> Message | None:
         """Return a message by its idempotency key, if present."""
         message_id = self._external.get((source_id, external_id))
         return self._items.get(message_id) if message_id is not None else None
+
+    async def list_by_classification_status(
+        self, status: str, limit: int
+    ) -> list[Message]:
+        """Return a bounded batch with the requested classification state."""
+        matching = sorted(
+            (
+                message
+                for message in self._items.values()
+                if message.classification_status.value == status
+            ),
+            key=lambda message: message.created_at,
+        )
+        return matching[:limit]
 
     async def listener_stats_between(
         self, start: datetime, end: datetime

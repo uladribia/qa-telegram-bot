@@ -43,9 +43,56 @@ class FeedbackStatus(StrEnum):
     """Lifecycle of a correction proposal."""
 
     AWAITING_PROPOSAL = "awaiting_proposal"
-    PENDING_ADMIN = "pending_admin"
+    PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class IntentLabel(StrEnum):
+    """Semantic intent labels used by background classification."""
+
+    QUESTION = "question"
+    KNOWLEDGE_UPDATE = "knowledge_update"
+    CORRECTION = "correction"
+    CHITCHAT = "chitchat"
+
+
+class ClassificationStatus(StrEnum):
+    """Lifecycle of background message classification."""
+
+    NOT_CLASSIFIED = "not_classified"
+    NO_TEXT = "no_text"
+    PREFILTER_CHITCHAT = "prefilter_chitchat"
+    CLASSIFIED = "classified"
+    DEFERRED_BUDGET = "deferred_budget"
+    FAILED = "failed"
+
+
+class IndexStatus(StrEnum):
+    """Lifecycle of background evidence indexing."""
+
+    NOT_INDEXED = "not_indexed"
+    NOT_ELIGIBLE = "not_eligible"
+    PENDING = "pending"
+    INDEXED = "indexed"
+    FAILED = "failed"
+
+
+class ReviewAction(StrEnum):
+    """Actions available in correction review."""
+
+    APPROVE_LOCAL = "approve_local"
+    APPROVE_GLOBAL = "approve_global"
+    EDIT = "edit"
+    REJECT = "reject"
+
+
+class AiWorkClass(StrEnum):
+    """Priority classes for estimated AI budget admission."""
+
+    USER = "user"
+    BACKGROUND = "background"
+    MAINTENANCE = "maintenance"
 
 
 class AnswerMode(StrEnum):

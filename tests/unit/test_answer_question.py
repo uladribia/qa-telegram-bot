@@ -3,6 +3,9 @@
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from knowledge_bot.application.answer_question import AnswerService, clean_question
 from knowledge_bot.application.retrieval import (
     Evidence,
@@ -91,6 +94,36 @@ async def test_no_evidence_abstains_without_generator() -> None:
     outcome = await service.decide("pregunta", RetrievedEvidence())
     assert outcome.mode is AnswerMode.ABSTENTION
     assert generator.requests == []
+
+
+async def test_synthesis_caps_qa_and_message_evidence() -> None:
+    """The generator receives at most two Q&A and three message records."""
+    qa = [_qa(0.4) for _ in range(3)]
+    messages = [_message_evidence(0.5) for _ in range(4)]
+    service, generator = _service(
+        GenerationOutput(
+            status="answered",
+            answer="resposta",
+            source_ids=["qa1", "m1"],
+        )
+    )
+    outcome = await service.decide(
+        "pregunta", RetrievedEvidence(qa=qa, messages=messages)
+    )
+    assert outcome.mode is AnswerMode.SYNTHESIS
+    assert len(generator.requests[0].evidence) == 5
+
+
+def test_generation_output_rejects_invalid_citation_shapes() -> None:
+    """Generator output cannot cite duplicate, missing, or insufficient sources."""
+    with pytest.raises(ValidationError):
+        GenerationOutput(
+            status="answered", answer="resposta", source_ids=["qa1", "qa1"]
+        )
+    with pytest.raises(ValidationError):
+        GenerationOutput(status="answered", answer="", source_ids=["qa1"])
+    with pytest.raises(ValidationError):
+        GenerationOutput(status="insufficient", source_ids=["qa1"])
 
 
 async def test_unknown_source_id_abstains() -> None:

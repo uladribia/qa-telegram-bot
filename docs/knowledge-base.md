@@ -140,28 +140,27 @@ authorized full rebuild: scope changes alter the metadata of every record).
 
 ## Adding knowledge by talking to the bot
 
-With `BACKGROUND_LISTENER_ENABLED=true`, unaddressed group messages are
-classified and stored as low-authority knowledge. The bot still does not
-answer them. This is how the base grows from real conversation.
+With `BACKGROUND_LISTENER_ENABLED=true`, every accepted unaddressed message is
+stored. Classification controls evidence indexing and reporting, not whether
+raw context exists. The bot still never answers these messages.
 
 The classifier (plan §12) embeds each message once, in the same batch as a
 set of Catalan prototype phrases, and scores it by best cosine similarity
 per label (`question`, `knowledge_update`, `correction`, `chitchat`). The
-scores are similarities, never probabilities. The policy is conservative:
-only a message scoring strongly as chitchat (`CLASSIFIER_CHITCHAT_DISCARD`,
-default 0.80) while no other label clears the keep signal
-(`CLASSIFIER_KEEP_SIGNAL`, default 0.45) is discarded; everything else is
-kept as context, with its winning label stored on the message row.
+scores are similarities, never probabilities. Deterministic acknowledgements
+skip the embedding call. Stored questions, chitchat, bot commands, media without
+text, and other ineligible messages are not indexed as factual evidence.
+Relevant standalone updates and corrections are indexed immediately.
 
 A reply that looks like an answer (`CLASSIFIER_ANSWER_MATCH`, default 0.55)
 to a stored message that looks like a question
 (`CLASSIFIER_QUESTION_MATCH`, default 0.60) is matched into a
-question-answer pair: the parent question is stored on the reply, and
-reindex embeds the pair together so it retrieves as one unit instead of an
-orphaned answer.
+question-answer pair: the parent question is stored on the reply, and the pair is
+embedded and indexed immediately as one evidence record.
 
-Keep the listener **off** unless you want that: it stores everything said in
-the group that is not clear-cut chitchat.
+When the background AI budget is above its configured ceiling, accepted messages
+are still stored with deferred classification state and no model call. They do
+not run an unbounded automatic catch-up.
 
 ---
 
@@ -174,8 +173,10 @@ The normal path, and the only one that produces a human-approved answer:
 3. The admin gets it privately and approves / edits / rejects.
 
 An approval creates a **new version** with the proposer's name and the proposal
-date, and supersedes the old one. Nothing is overwritten, so every answer stays
-auditable back to its source. At approval the reviewer also chooses the
+date, and supersedes the old one. The version, current pointer, evidence link,
+and feedback decision commit in one SQL transaction; a failed write rolls back
+all four. The derived vector refresh happens afterward. Nothing is overwritten,
+so every answer stays auditable back to its source. At approval the reviewer also chooses the
 **scope**: 🌐 global (all groups) or 👥 a group-only variant of the answer; in
 its group the variant outranks the global answer. See [usage.md](usage.md) for
 the flow, including how the admin nominates reviewers with `/reviewer`.

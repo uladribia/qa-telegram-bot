@@ -6,9 +6,11 @@ from datetime import datetime
 
 from knowledge_bot.domain.enums import (
     AnswerMode,
+    ClassificationStatus,
     ContentType,
     EvidenceType,
     FeedbackStatus,
+    IndexStatus,
     ProcessingStatus,
     QAStatus,
 )
@@ -74,6 +76,7 @@ class Message:
     sent_at: datetime
     created_at: datetime
     sender_is_admin: bool = False
+    sender_authority: int | None = None
     external_id: str | None = None
     sender_hash: str | None = None
     sender_name: str | None = None
@@ -82,6 +85,10 @@ class Message:
     intent_label: str | None = None
     intent_score: float | None = None
     context_question: str | None = None
+    classification_status: ClassificationStatus = ClassificationStatus.NOT_CLASSIFIED
+    intent_scores_json: str | None = None
+    index_status: IndexStatus = IndexStatus.NOT_INDEXED
+    indexed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

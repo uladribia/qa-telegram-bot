@@ -24,9 +24,12 @@ from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
     ConversationRepository,
     FeedbackRepository,
-    QAEvidenceRepository,
     QAItemRepository,
     QAVersionRepository,
+)
+from knowledge_bot.ports.transactions import (
+    ApproveCorrectionCommand,
+    CorrectionCommitStore,
 )
 
 #: Approve target meaning "the conversation the corrected answer came from".
@@ -119,6 +122,7 @@ class CorrectionRequest:
     group_label: str | None = None
     current_origin: str | None = None
     origin_space_id: str | None = None
+    origin_conversation_id: str | None = None
 
 
 _CURRENT_ORIGIN_LABEL: dict[str, str] = {
@@ -169,8 +173,8 @@ class FeedbackService:
     feedback: FeedbackRepository
     qa_items: QAItemRepository
     qa_versions: QAVersionRepository
-    evidence: QAEvidenceRepository
     conversations: ConversationRepository
+    commits: CorrectionCommitStore
     clock: Clock
 
     async def start(
@@ -269,7 +273,7 @@ class FeedbackService:
             return None
         updated = replace(
             feedback,
-            status=FeedbackStatus.PENDING_ADMIN,
+            status=FeedbackStatus.PENDING_REVIEW,
             proposed_answer=proposed_answer,
             admin_edited_answer=feedback.admin_edited_answer,
             reporter_name=reporter_name or feedback.reporter_name,
@@ -293,7 +297,7 @@ class FeedbackService:
             return None
         return await self._update(
             feedback,
-            status=FeedbackStatus.PENDING_ADMIN,
+            status=FeedbackStatus.PENDING_REVIEW,
             proposed_answer=feedback.proposed_answer,
             admin_edited_answer=edited_answer,
         )
@@ -313,13 +317,12 @@ class FeedbackService:
             FeedbackStatus.REJECTED,
         }:
             return None
-        return await self._update(
+        rejected = replace(
             feedback,
             status=FeedbackStatus.REJECTED,
-            proposed_answer=feedback.proposed_answer,
-            admin_edited_answer=feedback.admin_edited_answer,
-            resolved=True,
+            resolved_at=self.clock.now(),
         )
+        return await self.commits.reject(rejected)
 
     async def correction_request(self, feedback_id: str) -> CorrectionRequest | None:
         """Build the admin review payload for a proposal.
@@ -349,6 +352,7 @@ class FeedbackService:
             group_label=group_label,
             current_origin=await self._current_origin(feedback.qa_id),
             origin_space_id=answer.space_id,
+            origin_conversation_id=answer.conversation_id,
         )
 
     async def _current_origin(self, qa_ref: str | None) -> str | None:
@@ -414,28 +418,28 @@ class FeedbackService:
             author=feedback.reporter_name or "admin",
             supersedes_version_id=item.current_version_id,
         )
-        await self.qa_versions.add(version)
-        await self.qa_items.save(
-            replace(
-                item,
-                status=QAStatus.ACTIVE,
-                updated_at=now,
-                current_version_id=version.id,
-            )
+        updated_item = replace(
+            item,
+            status=QAStatus.ACTIVE,
+            updated_at=now,
+            current_version_id=version.id,
         )
-        await self.evidence.add(
-            QAEvidence(
-                qa_version_id=version.id,
-                evidence_type=EvidenceType.MESSAGE,
-                evidence_id=feedback.bot_answer_id,
-            )
-        )
-        await self._update(
+        approved_feedback = replace(
             feedback,
             status=FeedbackStatus.APPROVED,
-            proposed_answer=feedback.proposed_answer,
-            admin_edited_answer=feedback.admin_edited_answer,
-            resolved=True,
+            resolved_at=now,
+        )
+        await self.commits.approve(
+            ApproveCorrectionCommand(
+                feedback=approved_feedback,
+                item=updated_item,
+                version=version,
+                evidence=QAEvidence(
+                    qa_version_id=version.id,
+                    evidence_type=EvidenceType.MESSAGE,
+                    evidence_id=feedback.bot_answer_id,
+                ),
+            )
         )
         return version
 

@@ -12,8 +12,15 @@
 > a `refactor/v2-correctness`. Els espais, els bindings de canal i les fonts
 > declarades pels connectors ja estan separats de Telegram. La identitat
 > semàntica i la projecció estable de vectors ja estan implementades en el
-> mateix treball. Aquest document històric no descriu cap d'aquests
-> comportaments com a sistema actual.
+> mateix treball. L'escolta de fons ja desa els missatges acceptats, classifica
+> amb memòria per instància i indexa immediatament només evidència elegible. Els
+> missatges ajornats tenen un processador explícit i limitat. Les autoritzacions
+> de revisió apliquen l'abast al servidor i els revisors locals no poden
+> aprovar globalment. La decisió de correcció commits atòmicament a SQL i
+> després refresca la projecció derivada. La resta de la refactorització
+> continua en curs.
+> Aquest document històric no descriu cap d'aquests comportaments com a
+> sistema actual.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;

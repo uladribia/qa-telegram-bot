@@ -4,6 +4,7 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.application.budget import AiBudget
+from knowledge_bot.domain.enums import AiWorkClass
 from tests.fakes.support import FrozenClock, InMemoryAiUsageRepository
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
@@ -52,6 +53,16 @@ async def test_evaluations_are_refused_once_the_reserve_is_reached() -> None:
     assert await budget.evaluation_allowed() is False
     # Still short of the hard limit: user questions may keep spending.
     assert (await budget.spend()).exhausted is False
+
+
+async def test_background_work_stops_at_its_lower_budget_ceiling() -> None:
+    """User work remains admissible after background work is refused."""
+    usage = InMemoryAiUsageRepository()
+    await usage.add("2026-09-19", 510.0, 1)
+    budget = _budget(usage)
+    assert await budget.work_allowed(AiWorkClass.BACKGROUND) is False
+    assert await budget.work_allowed(AiWorkClass.MAINTENANCE) is True
+    assert await budget.work_allowed(AiWorkClass.USER) is True
 
 
 async def test_the_hard_limit_stops_everything() -> None:

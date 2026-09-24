@@ -48,10 +48,12 @@ class Settings(BaseSettings):
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
     qa_top_k: int = 5
-    message_top_k: int = 8
+    message_top_k: int = 4
 
     ai_daily_neuron_budget: float = 10_000.0
     ai_neuron_reserve_fraction: float = 0.25
+    ai_background_budget_fraction: float = 0.50
+    ai_maintenance_budget_fraction: float = 0.70
     ai_embed_neurons_per_char: float = 0.015
     ai_chat_neurons_per_char: float = 0.020
 
@@ -90,6 +92,19 @@ class Settings(BaseSettings):
             if not 0.0 <= value <= 1.0:
                 message = f"{name} must be between 0 and 1, got {value!r}"
                 raise ValueError(message)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_budget_fractions(self) -> "Settings":
+        """Keep background and maintenance budget ceilings ordered."""
+        background = self.ai_background_budget_fraction
+        maintenance = self.ai_maintenance_budget_fraction
+        if not 0.0 < background < maintenance < 1.0:
+            message = (
+                "AI background/maintenance fractions must satisfy "
+                "0 < background < maintenance < 1"
+            )
+            raise ValueError(message)
         return self
 
     @model_validator(mode="after")

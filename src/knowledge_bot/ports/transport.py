@@ -39,6 +39,7 @@ class MessageTransport(Protocol):
         conversation_id: str,
         text: str,
         feedback_id: str,
+        include_global: bool = True,
     ) -> str | None:
         """Send an admin review message with approve/edit/reject buttons."""
         ...

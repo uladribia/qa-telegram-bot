@@ -6,7 +6,10 @@ a faithful offline test of the repository SQL.
 """
 
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
+
+from knowledge_bot.infrastructure.cloudflare.d1 import D1Statement
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
@@ -72,3 +75,20 @@ class FakeD1Database:
     def prepare(self, sql: str) -> FakeD1Statement:
         """Prepare a statement."""
         return FakeD1Statement(self.connection, sql)
+
+    async def batch(self, statements: Sequence[D1Statement]) -> list[FakeD1Result]:
+        """Execute statements in one SQLite transaction."""
+        results: list[FakeD1Result] = []
+        with self.connection:
+            for raw_statement in statements:
+                assert isinstance(raw_statement, FakeD1Statement)
+                cursor = self.connection.execute(
+                    raw_statement._sql, raw_statement._params
+                )
+                rows = (
+                    [dict(row) for row in cursor.fetchall()]
+                    if cursor.description
+                    else []
+                )
+                results.append(FakeD1Result(rows))
+        return results

@@ -170,7 +170,7 @@ def test_maybe_send_appends_the_activity_footer() -> None:
             Feedback(
                 id="fb:a2",
                 bot_answer_id="a2",
-                status=FeedbackStatus.PENDING_ADMIN,
+                status=FeedbackStatus.PENDING_REVIEW,
                 created_at=START + timedelta(minutes=25),
             )
         )

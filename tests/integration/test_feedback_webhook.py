@@ -121,6 +121,7 @@ def test_proposal_goes_to_the_admin_dm_and_acks_the_reporter() -> None:
     assert ("555", PROPOSAL_ACK) in transport.messages
     admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
     assert any("Correcci\u00f3 proposada" in text for text in admin_reviews)
+    assert transport.review_global_access["1"] is True
 
 
 def test_approve_creates_a_version_and_thanks_the_reporter() -> None:
@@ -197,7 +198,7 @@ def test_non_admin_cannot_confirm() -> None:
     assert response.json() == {"status": "ignored"}
     feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
-    assert feedback.status is FeedbackStatus.PENDING_ADMIN
+    assert feedback.status is FeedbackStatus.PENDING_REVIEW
 
 
 def test_unknown_callback_is_ignored() -> None:
@@ -262,5 +263,5 @@ def test_a_group_member_who_is_not_allowlisted_can_still_propose() -> None:
     assert response.json() == {"status": "proposed"}
     feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
     assert feedback is not None
-    assert feedback.status is FeedbackStatus.PENDING_ADMIN
+    assert feedback.status is FeedbackStatus.PENDING_REVIEW
     assert feedback.proposed_answer == "Resposta nova."

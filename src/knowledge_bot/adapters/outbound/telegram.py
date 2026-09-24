@@ -23,27 +23,35 @@ def feedback_keyboard(answer_id: str) -> dict[str, object]:
     }
 
 
-def review_keyboard(feedback_id: str) -> dict[str, object]:
+def review_keyboard(
+    feedback_id: str, *, include_global: bool = True
+) -> dict[str, object]:
     """Build the admin review buttons for a correction.
 
     Args:
         feedback_id: The correction under review.
+        include_global: Whether to render the global approval action.
 
     Returns:
         A Telegram ``reply_markup`` payload.
     """
+    approval_buttons = [
+        {
+            "text": "\U0001f465 Aprovar grup",
+            "callback_data": f"feedback:approve-group:{feedback_id}",
+        }
+    ]
+    if include_global:
+        approval_buttons.insert(
+            0,
+            {
+                "text": "\U0001f310 Aprovar global",
+                "callback_data": f"feedback:approve-global:{feedback_id}",
+            },
+        )
     return {
         "inline_keyboard": [
-            [
-                {
-                    "text": "\U0001f310 Aprovar global",
-                    "callback_data": f"feedback:approve-global:{feedback_id}",
-                },
-                {
-                    "text": "\U0001f465 Aprovar grup",
-                    "callback_data": f"feedback:approve-group:{feedback_id}",
-                },
-            ],
+            approval_buttons,
             [
                 {
                     "text": "\u270f\ufe0f Editar",
@@ -137,7 +145,11 @@ class TelegramTransport:
         return response.get("ok") is True
 
     async def send_review(
-        self, conversation_id: str, text: str, feedback_id: str
+        self,
+        conversation_id: str,
+        text: str,
+        feedback_id: str,
+        include_global: bool = True,
     ) -> str | None:
         """Send an admin review message with approve/edit/reject buttons.
 
@@ -145,6 +157,7 @@ class TelegramTransport:
             conversation_id: The admin's private chat.
             text: The review text.
             feedback_id: The correction under review.
+            include_global: Whether to render the global approval action.
 
         Returns:
             The Telegram message id, if available.
@@ -154,7 +167,9 @@ class TelegramTransport:
             {
                 "chat_id": conversation_id,
                 "text": text,
-                "reply_markup": review_keyboard(feedback_id),
+                "reply_markup": review_keyboard(
+                    feedback_id, include_global=include_global
+                ),
             },
         )
         return self._message_id(response)

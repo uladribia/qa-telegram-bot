@@ -167,18 +167,18 @@ async def test_d1_source_reads_only_current_active_qa_and_text_messages() -> Non
     connection.execute(
         "INSERT INTO messages"
         " (id, source_id, conversation_id, external_id, sender_hash, sender_name,"
-        " sender_is_admin, sent_at, text, content_type, reply_to_message_id,"
-        " created_at)"
-        " VALUES ('m1','telegram','-100','-100:1',NULL,'Ada',0,'2026-01-01','hola',"
-        "'text',NULL,'2026-01-01')"
+        " sender_is_admin, sender_authority, sent_at, text, content_type,"
+        " reply_to_message_id, created_at, index_status)"
+        " VALUES ('m1','telegram','-100','-100:1',NULL,'Ada',0,NULL,"
+        "'2026-01-01','hola','text',NULL,'2026-01-01','indexed')"
     )
     connection.execute(
         "INSERT INTO messages"
         " (id, source_id, conversation_id, external_id, sender_hash, sender_name,"
-        " sender_is_admin, sent_at, text, content_type, reply_to_message_id,"
-        " created_at)"
-        " VALUES ('m2','telegram','-100','-100:2',NULL,NULL,0,'2026-01-01',NULL,"
-        "'image',NULL,'2026-01-01')"
+        " sender_is_admin, sender_authority, sent_at, text, content_type,"
+        " reply_to_message_id, created_at, index_status)"
+        " VALUES ('m2','telegram','-100','-100:2',NULL,NULL,0,NULL,'2026-01-01',NULL,"
+        "'image',NULL,'2026-01-01','not_indexed')"
     )
     connection.execute(
         "INSERT INTO qa_items (id, canonical_key, canonical_question, status,"
