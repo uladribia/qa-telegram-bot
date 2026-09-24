@@ -9,6 +9,14 @@ Read it before starting any work. The historical plan under `instructions/` is
 deprecated and must not be used as a second implementation contract. If this file
 and the binding plan disagree, stop and ask; never silently pick one.
 
+When a refactor or implementation plan is provided in Markdown, follow it
+autonomously and do not stop for user input at ordinary implementation steps,
+checkpoints, test results, or documentation updates. Ask only when a genuine
+product or architecture decision is required, when the plan is internally
+contradictory, or when an external permission/credential/resource is necessary.
+A decision deferred by the plan is not a reason to pause; record it and continue
+with the work that is still unblocked.
+
 ---
 
 ## 0. Harness tools (strict)

@@ -19,7 +19,7 @@ from knowledge_bot.contracts.api import (
 )
 from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.security import secrets_match
 
 
@@ -67,7 +67,7 @@ def build_api_router(
             body.reporter_principal_id,
             reporter_name=body.reporter_name,
         )
-        answer = await context.answer.answers.get(body.answer_id)
+        answer = await context.answer.get_answer(body.answer_id)
         if feedback is None or answer is None:
             raise HTTPException(status_code=404, detail="answer not found")
         return StartFeedbackResponse(
@@ -86,7 +86,7 @@ def build_api_router(
     ) -> dict[str, str]:
         """Submit the reporter's proposed correction."""
         context = await context_for(request, key)
-        feedback = await context.feedback.feedback.get(feedback_id)
+        feedback = await context.feedback.get_feedback(feedback_id)
         if feedback is None:
             raise HTTPException(status_code=404, detail="feedback not found")
         if feedback.reporter_hash != body.reporter_principal_id:

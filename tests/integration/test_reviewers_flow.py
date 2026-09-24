@@ -11,7 +11,7 @@ from knowledge_bot.application.feedback import PROPOSAL_ACK, PROPOSAL_PROMPT
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
 from knowledge_bot.domain.scope import scope_for_space
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from tests.fakes.context import (
     SPACE_A,
     WEBHOOK_SECRET,
@@ -209,7 +209,7 @@ def test_flagging_twice_reuses_the_open_feedback() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_started"}
-    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.reporter_chat_id == "777"
     assert len(transport.force_replies) == 2
@@ -232,7 +232,7 @@ def test_flag_prompt_fails_with_an_alert_when_dm_is_unreachable() -> None:
         chat == "-100" and "https://t.me/bot" in text
         for chat, text in transport.messages
     )
-    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.proposal_prompt_message_id is None
 
@@ -265,9 +265,61 @@ def test_unreachable_reviewer_keeps_feedback_pending_and_activates_reviewer() ->
     assert all(chat != str(REVIEWER_ID) for chat, _, _ in transport.reviews)
     assert not any(chat == "1" for chat, _, _ in transport.reviews)
     assert any(
-        chat == "1" and "continua pendent" in text for chat, text in transport.messages
+        chat == "1" and "després de 86400 s" in text
+        for chat, text in transport.messages
     )
     assert any(chat == "-100" and "@Pepe" in text for chat, text in transport.messages)
+
+
+def test_unreachable_reviewer_escalates_to_admin_after_configured_timeout() -> None:
+    """Escalate an undelivered review when the test timeout is zero."""
+    context, transport = build_test_context(reviewer_escalation_timeout_seconds=0)
+    transport.dead_chats = frozenset({str(REVIEWER_ID)})
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    _nominate_reviewer(context, client)
+    prompt_id = _open_proposal(client)
+    client.post(
+        "/telegram/webhook",
+        json=_reply("Resposta corregida.", reply_to=prompt_id),
+        headers=SECRET_HEADER,
+    )
+    assert any(chat == "1" for chat, _, _ in transport.reviews)
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
+    assert feedback is not None
+    assert feedback.reviewer_escalated_at is not None
+    assert any("0 s" in text for _, text in transport.messages)
+
+    client.post(
+        "/telegram/webhook",
+        json=_callback(
+            "feedback:edit:fb:ans:-100:10", from_id=ADMIN_ID, first_name="Admin"
+        ),
+        headers=SECRET_HEADER,
+    )
+    edit_prompt = transport.force_replies[-1][0]
+    client.post(
+        "/telegram/webhook",
+        json=_reply(
+            "La resposta local corregida és VERIFICAT-LOCAL.",
+            reply_to=int(edit_prompt),
+            from_id=ADMIN_ID,
+        ),
+        headers=SECRET_HEADER,
+    )
+    approval = client.post(
+        "/telegram/webhook",
+        json=_callback(
+            "feedback:approve-group:fb:ans:-100:10",
+            from_id=ADMIN_ID,
+            first_name="Admin",
+        ),
+        headers=SECRET_HEADER,
+    )
+    assert approval.json() == {"status": "feedback_approved"}
+    approved = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
+    assert approved is not None
+    assert approved.status is FeedbackStatus.APPROVED
 
 
 def test_reviewer_off_removes_the_group_reviewer() -> None:
@@ -328,7 +380,7 @@ def test_group_reviewer_can_confirm_and_admin_gets_a_report() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "feedback_approved"}
-    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.APPROVED
     report = [text for chat, text in transport.messages if chat == "1"]
@@ -357,7 +409,7 @@ def test_local_reviewer_global_approval_is_denied_by_server() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
-    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status.value == "pending_review"
 
@@ -380,7 +432,7 @@ def test_a_stranger_cannot_confirm() -> None:
         headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
-    feedback = asyncio.run(context.feedback_repo.get("fb:ans:-100:10"))
+    feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.PENDING_REVIEW
 

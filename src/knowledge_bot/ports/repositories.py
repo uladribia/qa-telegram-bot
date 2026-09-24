@@ -5,6 +5,7 @@ Implemented by infrastructure adapters (D1 in production) and by the in-memory
 fakes used in tests. All operations are asynchronous because D1 is.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -15,7 +16,9 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
+    MessagePairCandidate,
     QAEvidence,
     QAItem,
     QAVersion,
@@ -130,6 +133,44 @@ class MessageRepository(Protocol):
         Only messages classified by the background listener count as
         ingested; ``paired`` counts those matched to a parent question.
         """
+        ...
+
+    async def list_recent(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages in a conversation ordered by creation time."""
+        ...
+
+
+@runtime_checkable
+class ListenerPairingWindowRepository(Protocol):
+    """Persistence for event-driven listener pairing windows."""
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current window for a conversation."""
+        ...
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        ...
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
+        ...
+
+
+@runtime_checkable
+class MessagePairCandidateRepository(Protocol):
+    """Persistence for non-authoritative listener pairing candidates."""
+
+    async def add(self, candidate: MessagePairCandidate) -> bool:
+        """Persist one candidate, returning false when already present."""
+        ...
+
+    async def list_for_conversation(
+        self, conversation_id: str
+    ) -> list[MessagePairCandidate]:
+        """Return candidates for one conversation."""
         ...
 
 
@@ -276,6 +317,10 @@ class FeedbackRepository(Protocol):
         """Return the correction proposals created in ``[start, end)``."""
         ...
 
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        ...
+
 
 @runtime_checkable
 class RecapStateRepository(Protocol):
@@ -325,6 +370,40 @@ class ReviewerEventRepository(Protocol):
 
     async def mark_reported(self, feedback_ids: list[str]) -> None:
         """Mark the events of these feedback ids as reported."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class DailyReportSnapshot:
+    """Deterministic daily report counters and audit labels."""
+
+    addressed_total: int = 0
+    direct: int = 0
+    synthesis: int = 0
+    abstention: int = 0
+    unavailable: int = 0
+    flagged: int = 0
+    background_questions: int = 0
+    background_paired: int = 0
+    messages_stored: int = 0
+    evidence_indexed: int = 0
+    non_evidence: int = 0
+    deferred: int = 0
+    failures: int = 0
+    corrections_proposed: int = 0
+    approved_local: int = 0
+    approved_global: int = 0
+    rejected: int = 0
+    audit_labels: tuple[str, ...] = ()
+    seed_divergences: int = 0
+
+
+@runtime_checkable
+class DailyReportSource(Protocol):
+    """Read-only source for deterministic daily report data."""
+
+    async def collect(self, start: datetime, end: datetime) -> DailyReportSnapshot:
+        """Collect report data for one half-open window."""
         ...
 
 

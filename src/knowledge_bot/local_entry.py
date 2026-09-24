@@ -6,7 +6,7 @@ import asyncio
 from fastapi import Request
 
 from knowledge_bot.adapters.http.app import create_app
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.composition import build_context
 from knowledge_bot.infrastructure.settings import Settings
 

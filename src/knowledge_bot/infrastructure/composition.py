@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Compose the application context from Cloudflare Worker bindings."""
 
-from dataclasses import dataclass
 from typing import Protocol
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
@@ -14,6 +13,8 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -33,10 +34,13 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ChannelBindingRepository,
     D1ConversationRepository,
     D1CorrectionCommitStore,
+    D1DailyReportSource,
     D1DailyReportStateRepository,
     D1Database,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1ListenerPairingWindowRepository,
+    D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
@@ -60,16 +64,11 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     AiRunner,
     WorkersAIEmbedder,
     WorkersAIGenerator,
+    WorkersAIPairingModel,
 )
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
-from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import (
-    DeliveryReceiptRepository,
-    FeedbackRepository,
-    TelegramInteractionRepository,
-)
-from knowledge_bot.ports.transport import MessageTransport
 
 
 class WorkerEnv(Protocol):
@@ -80,35 +79,6 @@ class WorkerEnv(Protocol):
     VECTORIZE: VectorizeIndex
 
 
-@dataclass(frozen=True, slots=True)
-class AppContext:
-    """Everything the HTTP layer needs, wired once per isolate."""
-
-    settings: Settings
-    identity: TelegramIdentity
-    clock: Clock
-    ingestor: MessageIngestor
-    classifier: MessageClassifier
-    background_indexer: BackgroundIndexer
-    answer: AnswerService
-    recap: RecapService
-    reindex: ReindexService
-    seed: SeedService
-    spaces: SpaceDirectory
-    review: ReviewService
-    feedback: FeedbackService
-    feedback_repo: FeedbackRepository
-    delivery_receipts: DeliveryReceiptRepository
-    telegram_interactions: TelegramInteractionRepository
-    reviewers: ReviewerManager
-    router: ReviewerRouter
-    reviewer_report: ReviewerReportService
-    daily_report: DailyReportService
-    reverter: CorrectionReverter
-    budget: AiBudget
-    transport: MessageTransport
-
-
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
     value = getattr(env, name, None)
     return default if value is None else str(value)
@@ -117,27 +87,6 @@ def _text(env: WorkerEnv, name: str, default: str = "") -> str:
 def _ids(value: str) -> frozenset[str]:
     """Parse a comma-separated id list into a set of stripped ids."""
     return frozenset(part.strip() for part in value.split(",") if part.strip())
-
-
-def _flag(env: WorkerEnv, name: str, default: bool = False) -> bool:
-    value = getattr(env, name, None)
-    if value is None:
-        return default
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _int(env: WorkerEnv, name: str, default: int) -> int:
-    try:
-        return int(_text(env, name, str(default)))
-    except ValueError:
-        return default
-
-
-def _float(env: WorkerEnv, name: str, default: float) -> float:
-    try:
-        return float(_text(env, name, str(default)))
-    except ValueError:
-        return default
 
 
 def build_context(env: WorkerEnv) -> AppContext:
@@ -158,34 +107,40 @@ def build_context(env: WorkerEnv) -> AppContext:
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
         telegram_bot_username=_text(env, "TELEGRAM_BOT_USERNAME"),
         internal_admin_key=_text(env, "INTERNAL_ADMIN_KEY"),
-        recap_enabled=_flag(env, "RECAP_ENABLED", True),
-        recap_interval_hours=_int(env, "RECAP_INTERVAL_HOURS", 24),
-        recap_language=_text(env, "RECAP_LANGUAGE", "ca") or "ca",
-        admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always") or "always",
-        admin_report_interval_min=_int(env, "ADMIN_REPORT_INTERVAL_MIN", 60),
-        background_listener_enabled=_flag(env, "BACKGROUND_LISTENER_ENABLED", False),
-        classifier_chitchat_discard_threshold=_float(
-            env, "CLASSIFIER_CHITCHAT_DISCARD", 0.80
+        recap_enabled=_text(env, "RECAP_ENABLED", "true"),
+        recap_interval_hours=_text(env, "RECAP_INTERVAL_HOURS", "24"),
+        recap_language=_text(env, "RECAP_LANGUAGE", "ca"),
+        admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always"),
+        admin_report_interval_min=_text(env, "ADMIN_REPORT_INTERVAL_MIN", "60"),
+        reviewer_escalation_timeout_seconds=_text(
+            env, "REVIEWER_ESCALATION_TIMEOUT_SECONDS", "86400"
         ),
-        classifier_keep_signal_threshold=_float(env, "CLASSIFIER_KEEP_SIGNAL", 0.45),
-        classifier_question_match_threshold=_float(
-            env, "CLASSIFIER_QUESTION_MATCH", 0.60
+        pairing_window_minutes=_text(env, "PAIRING_WINDOW_MINUTES", "10"),
+        pairing_quiet_minutes=_text(env, "PAIRING_QUIET_MINUTES", "2"),
+        pairing_overlap_minutes=_text(env, "PAIRING_OVERLAP_MINUTES", "3"),
+        background_listener_enabled=_text(env, "BACKGROUND_LISTENER_ENABLED", "false"),
+        classifier_chitchat_discard_threshold=_text(
+            env, "CLASSIFIER_CHITCHAT_DISCARD", "0.80"
         ),
-        classifier_answer_match_threshold=_float(env, "CLASSIFIER_ANSWER_MATCH", 0.55),
-        direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
-        synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
-        qa_top_k=_int(env, "QA_TOP_K", 5),
-        message_top_k=_int(env, "MESSAGE_TOP_K", 4),
-        ai_daily_neuron_budget=_float(env, "AI_DAILY_NEURON_BUDGET", 10_000.0),
-        ai_neuron_reserve_fraction=_float(env, "AI_NEURON_RESERVE_FRACTION", 0.25),
-        ai_background_budget_fraction=_float(
-            env, "AI_BACKGROUND_BUDGET_FRACTION", 0.50
+        classifier_keep_signal_threshold=_text(env, "CLASSIFIER_KEEP_SIGNAL", "0.45"),
+        classifier_question_match_threshold=_text(
+            env, "CLASSIFIER_QUESTION_MATCH", "0.60"
         ),
-        ai_maintenance_budget_fraction=_float(
-            env, "AI_MAINTENANCE_BUDGET_FRACTION", 0.70
+        classifier_answer_match_threshold=_text(env, "CLASSIFIER_ANSWER_MATCH", "0.55"),
+        direct_qa_threshold=_text(env, "DIRECT_QA_THRESHOLD", "0.7"),
+        synthesis_threshold=_text(env, "SYNTHESIS_THRESHOLD", "0.3"),
+        qa_top_k=_text(env, "QA_TOP_K", "5"),
+        message_top_k=_text(env, "MESSAGE_TOP_K", "4"),
+        ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
+        ai_neuron_reserve_fraction=_text(env, "AI_NEURON_RESERVE_FRACTION", "0.25"),
+        ai_background_budget_fraction=_text(
+            env, "AI_BACKGROUND_BUDGET_FRACTION", "0.50"
         ),
-        ai_embed_neurons_per_char=_float(env, "AI_EMBED_NEURONS_PER_CHAR", 0.015),
-        ai_chat_neurons_per_char=_float(env, "AI_CHAT_NEURONS_PER_CHAR", 0.020),
+        ai_maintenance_budget_fraction=_text(
+            env, "AI_MAINTENANCE_BUDGET_FRACTION", "0.70"
+        ),
+        ai_embed_neurons_per_char=_text(env, "AI_EMBED_NEURONS_PER_CHAR", "0.015"),
+        ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
     )
     database = env.DB
     answers = D1BotAnswerRepository(database)
@@ -212,6 +167,8 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    pair_candidates = D1MessagePairCandidateRepository(database)
+    pair_windows = D1ListenerPairingWindowRepository(database)
     correction_commits = D1CorrectionCommitStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
@@ -288,6 +245,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
+            conversations=listener_conversations,
+            sources=listener_sources,
         ),
         recap=recap,
         reindex=ReindexService(
@@ -329,9 +288,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             commits=correction_commits,
             clock=clock,
         ),
-        feedback_repo=D1FeedbackRepository(database),
-        delivery_receipts=D1DeliveryReceiptRepository(database),
-        telegram_interactions=D1TelegramInteractionRepository(database),
+        interactions=InteractionService(D1TelegramInteractionRepository(database)),
         reviewers=ReviewerManager(
             reviewers=D1ReviewerRepository(database),
             clock=clock,
@@ -342,10 +299,10 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         reviewer_report=reviewer_report,
         daily_report=DailyReportService(
-            recap=recap,
-            reviewer_report=reviewer_report,
+            source=D1DailyReportSource(database),
             state=D1DailyReportStateRepository(database),
             transport=transport,
+            budget=budget,
             clock=clock,
             admin_principal_id=settings.admin_telegram_user_id,
         ),
@@ -355,4 +312,18 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         budget=budget,
         transport=transport,
+        pairing=MessagePairingService(
+            messages=listener_messages,
+            conversations=listener_conversations,
+            candidates=pair_candidates,
+            windows=pair_windows,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=projection_manifest,
+            model=WorkersAIPairingModel(env.AI, settings.generation_model),
+            clock=clock,
+            window_minutes=settings.pairing_window_minutes,
+            quiet_minutes=settings.pairing_quiet_minutes,
+            overlap_minutes=settings.pairing_overlap_minutes,
+        ),
     )

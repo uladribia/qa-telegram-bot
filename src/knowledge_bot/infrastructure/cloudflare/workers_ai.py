@@ -6,6 +6,7 @@ from typing import Protocol, cast
 
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
+from knowledge_bot.ports.pairing import PairingModel, PairingOutput, PairMessage
 
 _SYSTEM_PROMPT = """You answer questions using ONLY the evidence below.
 
@@ -78,6 +79,41 @@ def _render_user(request: GenerationRequest) -> str:
     ]
     evidence = "\n".join(evidence_lines) if evidence_lines else "(no evidence)"
     return f"QUESTION:\n{request.question}\n\nEVIDENCE:\n{evidence}"
+
+
+class WorkersAIPairingModel(PairingModel):
+    """Extract candidate question-answer pairs with Workers AI."""
+
+    def __init__(self, ai: AiRunner, model: str) -> None:
+        """Configure the pairing model."""
+        self._ai = ai
+        self._model = model
+
+    async def pair(self, messages: list[PairMessage]) -> PairingOutput:
+        """Return validated pairs for one bounded window."""
+        prompt = (
+            "Pair each answer-like message with its question in this chat window. "
+            "Return only JSON matching the schema. Do not invent ids or pair "
+            "unrelated messages.\n\n"
+            + "\n".join(f"[{message.id}] {message.text}" for message in messages)
+        )
+        try:
+            result = await self._ai.run(
+                self._model,
+                {
+                    "messages": [{"role": "user", "content": prompt}],
+                    "format": PairingOutput.model_json_schema(),
+                },
+            )
+            content = _extract_content(result)
+            match = _JSON_OBJECT.search(content)
+            return (
+                PairingOutput.model_validate_json(match.group(0))
+                if match
+                else PairingOutput()
+            )
+        except Exception as error:
+            raise ModelUnavailableError("pairing") from error
 
 
 class WorkersAIGenerator:

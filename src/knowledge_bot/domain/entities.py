@@ -238,6 +238,31 @@ class BotAnswer:
 
 
 @dataclass(frozen=True, slots=True)
+class MessagePairCandidate:
+    """A non-authoritative question-answer pair extracted from listener messages."""
+
+    id: str
+    conversation_id: str
+    question_message_id: str
+    answer_message_id: str
+    confidence: float
+    source: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ListenerPairingWindow:
+    """Durable accumulation state for one conversation's listener window."""
+
+    id: str
+    conversation_id: str
+    started_at: datetime
+    last_message_at: datetime
+    processed_at: datetime | None = None
+    status: str = "pending"
+
+
+@dataclass(frozen=True, slots=True)
 class Feedback:
     """A correction proposed by a user and its review state.
 
@@ -259,3 +284,6 @@ class Feedback:
     edit_prompt_message_id: str | None = None
     proposed_at: datetime | None = None
     resolved_at: datetime | None = None
+    reviewer_delivery_failed_at: datetime | None = None
+    reviewer_escalated_at: datetime | None = None
+    reviewer_destination: str | None = None

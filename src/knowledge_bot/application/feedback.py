@@ -10,7 +10,13 @@ mutated destructively.
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from knowledge_bot.domain.entities import Feedback, QAEvidence, QAItem, QAVersion
+from knowledge_bot.domain.entities import (
+    BotAnswer,
+    Feedback,
+    QAEvidence,
+    QAItem,
+    QAVersion,
+)
 from knowledge_bot.domain.enums import (
     EvidenceType,
     FeedbackStatus,
@@ -176,6 +182,22 @@ class FeedbackService:
     conversations: ConversationRepository
     commits: CorrectionCommitStore
     clock: Clock
+
+    async def get_answer(self, answer_id: str) -> BotAnswer | None:
+        """Return the answer associated with a correction."""
+        return await self.answers.get(answer_id)
+
+    async def get_feedback(self, feedback_id: str) -> Feedback | None:
+        """Return a correction state for transport orchestration."""
+        return await self.feedback.get(feedback_id)
+
+    async def save_feedback(self, feedback: Feedback) -> None:
+        """Persist a correction state transition for transport orchestration."""
+        await self.feedback.save(feedback)
+
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews eligible for timeout escalation."""
+        return await self.feedback.list_escalatable()
 
     async def start(
         self,

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.context import build_test_context
 

@@ -7,6 +7,7 @@ from datetime import datetime
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.pairing import PairingOutput, PairMessage
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
@@ -109,6 +110,20 @@ class FakeGenerator:
         """Record the request and return the fixed result."""
         self.requests.append(request)
         return self.result
+
+
+class FakePairingModel:
+    """Deterministic pairing model for listener tests."""
+
+    def __init__(self, output: PairingOutput | None = None) -> None:
+        """Configure fixed pair output."""
+        self.output = output or PairingOutput()
+        self.windows: list[list[PairMessage]] = []
+
+    async def pair(self, messages: list[PairMessage]) -> PairingOutput:
+        """Record a window and return its configured pairs."""
+        self.windows.append(messages)
+        return self.output
 
 
 class InMemorySearchProjectionRepository:

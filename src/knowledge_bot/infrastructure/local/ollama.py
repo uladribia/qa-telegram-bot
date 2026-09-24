@@ -12,6 +12,7 @@ from knowledge_bot.ports.generator import (
     GenerationOutput,
     GenerationRequest,
 )
+from knowledge_bot.ports.pairing import PairingModel, PairingOutput, PairMessage
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -98,6 +99,56 @@ class OllamaEmbedder(Embedder):
         if len(dimensions) != 1 or 0 in dimensions:
             raise ModelUnavailableError("embedding")
         return [[float(value) for value in vector] for vector in payload.embeddings]
+
+
+class OllamaPairingModel(PairingModel):
+    """Extract candidate question-answer pairs from one local window."""
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        model: str,
+        timeout_seconds: float = 120.0,
+    ) -> None:
+        """Configure the local pairing model."""
+        self._client = client
+        self._url = f"{base_url.rstrip('/')}/api/chat"
+        self._model = model
+        self._timeout = timeout_seconds
+
+    async def pair(self, messages: list[PairMessage]) -> PairingOutput:
+        """Return validated pairs for one bounded message window."""
+        prompt = (
+            "Pair each answer-like message with its question in this chat window. "
+            "Return only JSON matching the schema. Do not invent ids or pair "
+            "unrelated messages.\n\n"
+            + "\n".join(f"[{message.id}] {message.text}" for message in messages)
+        )
+        try:
+            response = await self._client.post(
+                self._url,
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "format": PairingOutput.model_json_schema(),
+                    "options": {"temperature": 0},
+                },
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+            content = _OllamaChatResponse.model_validate(
+                response.json()
+            ).message.content
+            match = _JSON_OBJECT.search(content)
+            return (
+                PairingOutput.model_validate_json(match.group(0))
+                if match
+                else PairingOutput()
+            )
+        except (httpx.HTTPError, ValueError, ValidationError) as error:
+            raise ModelUnavailableError("pairing") from error
 
 
 class OllamaGenerator:

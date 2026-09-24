@@ -17,7 +17,9 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
+    MessagePairCandidate,
     QAEvidence,
     QAItem,
     QAVersion,
@@ -38,6 +40,7 @@ from knowledge_bot.domain.enums import (
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.repositories import DailyReportSnapshot
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from knowledge_bot.ports.vector_store import VectorRecord
@@ -647,6 +650,20 @@ class D1MessageRepository:
         )
         return [_message(row) for row in _rows(result)]
 
+    async def list_recent(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages in a conversation ordered by creation time."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM messages WHERE conversation_id = ?"
+                " AND created_at >= ? ORDER BY created_at LIMIT ?"
+            )
+            .bind(conversation_id, _iso(start), limit)
+            .run()
+        )
+        return [_message(row) for row in _rows(result)]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:
@@ -670,6 +687,110 @@ class D1MessageRepository:
             .first()
         )
         return (_count(ingested), _count(paired))
+
+
+class D1ListenerPairingWindowRepository:
+    """D1 implementation of durable listener pairing windows."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current window for a conversation."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM listener_pairing_windows"
+                " WHERE conversation_id = ? AND status = 'pending'"
+                " ORDER BY started_at DESC LIMIT 1"
+            )
+            .bind(conversation_id)
+            .first()
+        )
+        return _pairing_window(row) if row is not None else None
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        await (
+            self._db.prepare(
+                "INSERT INTO listener_pairing_windows"
+                " (id, conversation_id, started_at, last_message_at,"
+                " processed_at, status) VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET"
+                " last_message_at=excluded.last_message_at,"
+                " processed_at=excluded.processed_at, status=excluded.status"
+            )
+            .bind(
+                window.id,
+                window.conversation_id,
+                _iso(window.started_at),
+                _iso(window.last_message_at),
+                _iso(window.processed_at) if window.processed_at is not None else None,
+                window.status,
+            )
+            .run()
+        )
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM listener_pairing_windows"
+                " WHERE status = 'pending' AND last_message_at <= ?"
+                " ORDER BY last_message_at"
+            )
+            .bind(_iso(before))
+            .run()
+        )
+        return [_pairing_window(row) for row in _rows(result)]
+
+
+class D1MessagePairCandidateRepository:
+    """D1 implementation of non-authoritative listener pair candidates."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, candidate: MessagePairCandidate) -> bool:
+        """Persist one candidate idempotently."""
+        try:
+            await (
+                self._db.prepare(
+                    "INSERT INTO message_pair_candidates"
+                    " (id, conversation_id, question_message_id, answer_message_id,"
+                    " confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                )
+                .bind(
+                    candidate.id,
+                    candidate.conversation_id,
+                    candidate.question_message_id,
+                    candidate.answer_message_id,
+                    candidate.confidence,
+                    candidate.source,
+                    _iso(candidate.created_at),
+                )
+                .run()
+            )
+        except Exception as error:
+            if "UNIQUE" in str(error).upper():
+                return False
+            raise
+        return True
+
+    async def list_for_conversation(
+        self, conversation_id: str
+    ) -> list[MessagePairCandidate]:
+        """Return candidates for one conversation."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM message_pair_candidates"
+                " WHERE conversation_id = ? ORDER BY created_at"
+            )
+            .bind(conversation_id)
+            .run()
+        )
+        return [_pair_candidate(row) for row in _rows(result)]
 
 
 class D1AttachmentRepository:
@@ -850,6 +971,29 @@ def _message(row: dict[str, object]) -> Message:
             str(row.get("index_status") or IndexStatus.NOT_INDEXED.value)
         ),
         indexed_at=_opt_dt(row.get("indexed_at")),
+    )
+
+
+def _pairing_window(row: dict[str, object]) -> ListenerPairingWindow:
+    return ListenerPairingWindow(
+        id=str(row["id"]),
+        conversation_id=str(row["conversation_id"]),
+        started_at=_dt(row["started_at"]),
+        last_message_at=_dt(row["last_message_at"]),
+        processed_at=_opt_dt(row.get("processed_at")),
+        status=str(row["status"]),
+    )
+
+
+def _pair_candidate(row: dict[str, object]) -> MessagePairCandidate:
+    return MessagePairCandidate(
+        id=str(row["id"]),
+        conversation_id=str(row["conversation_id"]),
+        question_message_id=str(row["question_message_id"]),
+        answer_message_id=str(row["answer_message_id"]),
+        confidence=float(cast(float, row["confidence"])),
+        source=str(row["source"]),
+        created_at=_dt(row["created_at"]),
     )
 
 
@@ -1376,8 +1520,9 @@ class D1FeedbackRepository:
                 " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id,"
                 " reporter_name, status, proposed_answer, admin_edited_answer,"
                 " proposal_prompt_message_id, edit_prompt_message_id, created_at,"
-                " proposed_at, resolved_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " proposed_at, resolved_at, reviewer_delivery_failed_at,"
+                " reviewer_escalated_at, reviewer_destination)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 feedback.id,
@@ -1398,6 +1543,13 @@ class D1FeedbackRepository:
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
+                _iso(feedback.reviewer_delivery_failed_at)
+                if feedback.reviewer_delivery_failed_at is not None
+                else None,
+                _iso(feedback.reviewer_escalated_at)
+                if feedback.reviewer_escalated_at is not None
+                else None,
+                feedback.reviewer_destination,
             )
             .run()
         )
@@ -1419,7 +1571,8 @@ class D1FeedbackRepository:
                 " reporter_chat_id = ?, reporter_name = ?, status = ?,"
                 " proposed_answer = ?, admin_edited_answer = ?,"
                 " proposal_prompt_message_id = ?, edit_prompt_message_id = ?,"
-                " proposed_at = ?, resolved_at = ? WHERE id = ?"
+                " proposed_at = ?, resolved_at = ?, reviewer_delivery_failed_at = ?,"
+                " reviewer_escalated_at = ?, reviewer_destination = ? WHERE id = ?"
             )
             .bind(
                 feedback.qa_id,
@@ -1437,6 +1590,13 @@ class D1FeedbackRepository:
                 _iso(feedback.resolved_at)
                 if feedback.resolved_at is not None
                 else None,
+                _iso(feedback.reviewer_delivery_failed_at)
+                if feedback.reviewer_delivery_failed_at is not None
+                else None,
+                _iso(feedback.reviewer_escalated_at)
+                if feedback.reviewer_escalated_at is not None
+                else None,
+                feedback.reviewer_destination,
                 feedback.id,
             )
             .run()
@@ -1458,6 +1618,19 @@ class D1FeedbackRepository:
                 " ORDER BY created_at"
             )
             .bind(_iso(start), _iso(end))
+            .run()
+        )
+        return [_feedback(row) for row in _rows(result)]
+
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM feedback WHERE status = ?"
+                " AND reviewer_delivery_failed_at IS NOT NULL"
+                " AND reviewer_escalated_at IS NULL"
+            )
+            .bind(FeedbackStatus.PENDING_REVIEW.value)
             .run()
         )
         return [_feedback(row) for row in _rows(result)]
@@ -1487,6 +1660,9 @@ def _feedback(row: dict[str, object]) -> Feedback:
         edit_prompt_message_id=_opt_str(row["edit_prompt_message_id"]),
         proposed_at=_opt_dt(row["proposed_at"]),
         resolved_at=_opt_dt(row["resolved_at"]),
+        reviewer_delivery_failed_at=_opt_dt(row.get("reviewer_delivery_failed_at")),
+        reviewer_escalated_at=_opt_dt(row.get("reviewer_escalated_at")),
+        reviewer_destination=_opt_str(row.get("reviewer_destination")),
     )
 
 
@@ -1661,6 +1837,146 @@ def _reviewer_event(row: dict[str, object]) -> ReviewerEvent:
         approval_scope=_opt_str(row["approval_scope"]),
         reported=bool(row["reported"]),
     )
+
+
+class D1DailyReportSource:
+    """D1 source for deterministic daily report counters."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def collect(self, start: datetime, end: datetime) -> DailyReportSnapshot:
+        """Collect one report window without calling an AI model."""
+        modes = _rows(
+            await self._db.prepare(
+                "SELECT answer_mode, COUNT(*) AS n FROM bot_answers"
+                " WHERE created_at >= ? AND created_at < ? GROUP BY answer_mode"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        counts = {str(row["answer_mode"]): _count(row) for row in modes}
+        feedback = _count(
+            _row(
+                await self._db.prepare(
+                    "SELECT COUNT(*) AS n FROM feedback"
+                    " WHERE created_at >= ? AND created_at < ?"
+                )
+                .bind(_iso(start), _iso(end))
+                .first()
+            )
+        )
+        listener = _rows(
+            await self._db.prepare(
+                "SELECT classification_status, index_status, COUNT(*) AS n"
+                " FROM messages WHERE created_at >= ? AND created_at < ?"
+                " GROUP BY classification_status, index_status"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        status_counts: dict[str, int] = {}
+        for row in listener:
+            status_counts[str(row["classification_status"])] = status_counts.get(
+                str(row["classification_status"]), 0
+            ) + _count(row)
+        correction_rows = _rows(
+            await self._db.prepare(
+                "SELECT status, COUNT(*) AS n FROM feedback"
+                " WHERE created_at >= ? AND created_at < ? GROUP BY status"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        corrections = {str(row["status"]): _count(row) for row in correction_rows}
+        audit_rows = _rows(
+            await self._db.prepare(
+                "SELECT reviewer_name, group_label, action, approval_scope"
+                " FROM reviewer_events WHERE created_at >= ? AND created_at < ?"
+                " ORDER BY created_at"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        audit = tuple(
+            f"{row.get('reviewer_name') or 'reviewer'}"
+            f" · {row.get('group_label') or 'global'}"
+            f" · {row.get('action') or 'resolved'}"
+            for row in audit_rows
+        )
+        approved_local = sum(
+            1
+            for row in audit_rows
+            if (
+                str(row.get("action")) == "approve_group"
+                or (
+                    str(row.get("action")) == "edited_approved"
+                    and str(row.get("approval_scope")) != "global"
+                )
+            )
+        )
+        approved_global = sum(
+            1
+            for row in audit_rows
+            if str(row.get("action")) == "approve_global"
+            or (
+                str(row.get("action")) == "edited_approved"
+                and str(row.get("approval_scope")) == "global"
+            )
+        )
+        divergence = _count(
+            _row(
+                await self._db.prepare(
+                    "SELECT COUNT(DISTINCT refreshed.qa_id) AS n"
+                    " FROM qa_versions refreshed"
+                    " JOIN qa_versions current"
+                    " ON current.id = refreshed.supersedes_version_id"
+                    " WHERE refreshed.origin = 'web_seed'"
+                    " AND current.origin = 'human_approved'"
+                    " AND refreshed.created_at >= ? AND refreshed.created_at < ?"
+                )
+                .bind(_iso(start), _iso(end))
+                .first()
+            )
+        )
+        return DailyReportSnapshot(
+            addressed_total=sum(counts.values()),
+            direct=counts.get("direct_qa", 0),
+            synthesis=counts.get("synthesis", 0),
+            abstention=counts.get("abstention", 0),
+            unavailable=counts.get("unavailable", 0),
+            flagged=feedback,
+            background_questions=status_counts.get("question", 0),
+            background_paired=_count(
+                _row(
+                    await self._db.prepare(
+                        "SELECT COUNT(*) AS n FROM messages"
+                        " WHERE context_question IS NOT NULL"
+                        " AND created_at >= ? AND created_at < ?"
+                    )
+                    .bind(_iso(start), _iso(end))
+                    .first()
+                )
+            ),
+            messages_stored=sum(status_counts.values()),
+            evidence_indexed=sum(
+                _count(row) for row in listener if str(row["index_status"]) == "indexed"
+            ),
+            non_evidence=sum(
+                _count(row)
+                for row in listener
+                if str(row["index_status"]) in {"not_eligible", "not_indexed"}
+            ),
+            deferred=status_counts.get("deferred_budget", 0),
+            failures=status_counts.get("failed", 0),
+            corrections_proposed=corrections.get("pending_review", 0),
+            approved_local=approved_local,
+            approved_global=approved_global,
+            rejected=corrections.get("rejected", 0),
+            audit_labels=audit,
+            seed_divergences=divergence,
+        )
 
 
 class D1DailyReportStateRepository:

@@ -8,11 +8,8 @@ from workers import Request as WorkerRequest
 from workers import WorkerEntrypoint, asgi
 
 from knowledge_bot.adapters.http.app import create_app
-from knowledge_bot.infrastructure.composition import (
-    AppContext,
-    WorkerEnv,
-    build_context,
-)
+from knowledge_bot.infrastructure.composition import WorkerEnv, build_context
+from knowledge_bot.infrastructure.context import AppContext
 
 _context: AppContext | None = None
 _scheduled_context: AppContext | None = None

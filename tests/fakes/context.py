@@ -13,6 +13,8 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -25,11 +27,13 @@ from knowledge_bot.application.reviewers import (
 )
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.pairing import PairingOutput
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
+    FakePairingModel,
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
@@ -38,6 +42,7 @@ from tests.fakes.ai import (
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import (
     FrozenClock,
+    InMemoryDailyReportSource,
     InMemoryDailyReportStateRepository,
     RecordingTransport,
 )
@@ -81,6 +86,8 @@ def build_test_context(
     spent_neurons: float = 0.0,
     allowed_user_ids: frozenset[str] = frozenset(),
     admin_report_mode: str = "always",
+    reviewer_escalation_timeout_seconds: int = 86_400,
+    pairing_output: PairingOutput | None = None,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
@@ -92,6 +99,8 @@ def build_test_context(
             the quota guard.
         allowed_user_ids: Extra users who may open a private chat.
         admin_report_mode: How the admin is informed of reviewer resolutions.
+        reviewer_escalation_timeout_seconds: Grace period before admin fallback.
+        pairing_output: Optional fixed pairing model output for listener tests.
         backend: Optional shared state for tests that need to inspect or reuse it.
 
     Returns:
@@ -123,6 +132,8 @@ def build_test_context(
         transport=transport,
         channel="telegram",
         clock=clock,
+        conversations=backend.conversations,
+        sources=backend.sources,
     )
     recap = RecapService(
         answers=answers,
@@ -155,6 +166,7 @@ def build_test_context(
         allowed_telegram_chat_ids=ALLOWED_CHAT_IDS,
         admin_telegram_user_id="1",
         internal_admin_key="internal",
+        reviewer_escalation_timeout_seconds=reviewer_escalation_timeout_seconds,
         background_listener_enabled=background_listener_enabled,
         recap_enabled=recap_enabled,
     )
@@ -171,6 +183,17 @@ def build_test_context(
         bot_id=BOT_ID,
         bot_username=BOT_USERNAME,
         allowed_user_ids=allowed_user_ids,
+    )
+    pairing = MessagePairingService(
+        messages=backend.messages,
+        conversations=backend.conversations,
+        candidates=backend.message_pair_candidates,
+        windows=backend.listener_pairing_windows,
+        embedder=embedder,
+        vectors=vectors,
+        manifest=projection_manifest,
+        model=FakePairingModel(pairing_output),
+        clock=clock,
     )
     context = AppContext(
         settings=settings,
@@ -224,17 +247,15 @@ def build_test_context(
             commits=correction_commits,
             clock=clock,
         ),
-        feedback_repo=feedback_repo,
-        delivery_receipts=backend.delivery_receipts,
-        telegram_interactions=backend.telegram_interactions,
+        interactions=InteractionService(backend.telegram_interactions),
         reviewers=ReviewerManager(reviewers=reviewer_repo, clock=clock),
         router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
         reviewer_report=reviewer_report,
         daily_report=DailyReportService(
-            recap=recap,
-            reviewer_report=reviewer_report,
+            source=InMemoryDailyReportSource(),
             state=InMemoryDailyReportStateRepository(),
             transport=transport,
+            budget=budget,
             clock=clock,
             admin_principal_id="1",
         ),
@@ -244,5 +265,6 @@ def build_test_context(
         ),
         budget=budget,
         transport=transport,
+        pairing=pairing,
     )
     return context, transport

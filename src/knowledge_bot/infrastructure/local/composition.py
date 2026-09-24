@@ -15,6 +15,8 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -34,9 +36,12 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ChannelBindingRepository,
     D1ConversationRepository,
     D1CorrectionCommitStore,
+    D1DailyReportSource,
     D1DailyReportStateRepository,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1ListenerPairingWindowRepository,
+    D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
@@ -51,10 +56,14 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
 from knowledge_bot.infrastructure.local.http import HttpxClient
-from knowledge_bot.infrastructure.local.ollama import OllamaEmbedder, OllamaGenerator
+from knowledge_bot.infrastructure.local.ollama import (
+    OllamaEmbedder,
+    OllamaGenerator,
+    OllamaPairingModel,
+)
 from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
 from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
@@ -149,6 +158,8 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
+    pair_candidates = D1MessagePairCandidateRepository(binding)
+    pair_windows = D1ListenerPairingWindowRepository(binding)
     commits = D1CorrectionCommitStore(binding)
     recap = RecapService(
         answers=answers,
@@ -221,6 +232,8 @@ async def build_context(
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
+            conversations=conversations,
+            sources=sources,
         ),
         recap=recap,
         reindex=ReindexService(
@@ -262,9 +275,7 @@ async def build_context(
             commits=commits,
             clock=clock,
         ),
-        feedback_repo=feedback,
-        delivery_receipts=D1DeliveryReceiptRepository(binding),
-        telegram_interactions=D1TelegramInteractionRepository(binding),
+        interactions=InteractionService(D1TelegramInteractionRepository(binding)),
         reviewers=ReviewerManager(reviewers=D1ReviewerRepository(binding), clock=clock),
         router=ReviewerRouter(
             reviewers=D1ReviewerRepository(binding),
@@ -272,10 +283,10 @@ async def build_context(
         ),
         reviewer_report=reviewer_report,
         daily_report=DailyReportService(
-            recap=recap,
-            reviewer_report=reviewer_report,
+            source=D1DailyReportSource(binding),
             state=D1DailyReportStateRepository(binding),
             transport=transport,
+            budget=budget,
             clock=clock,
             admin_principal_id=settings.admin_telegram_user_id,
         ),
@@ -285,5 +296,21 @@ async def build_context(
         ),
         budget=budget,
         transport=transport,
+        pairing=MessagePairingService(
+            messages=messages,
+            conversations=conversations,
+            candidates=pair_candidates,
+            windows=pair_windows,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=manifest,
+            model=OllamaPairingModel(
+                client, settings.ollama_base_url, settings.generation_model
+            ),
+            clock=clock,
+            window_minutes=settings.pairing_window_minutes,
+            quiet_minutes=settings.pairing_quiet_minutes,
+            overlap_minutes=settings.pairing_overlap_minutes,
+        ),
     )
     return context, database, client

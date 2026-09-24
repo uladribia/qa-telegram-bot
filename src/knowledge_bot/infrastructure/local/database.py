@@ -24,7 +24,7 @@ class SQLiteDatabase:
     @classmethod
     async def connect(cls, path: str | Path) -> "SQLiteDatabase":
         """Open a connection and enable required SQLite pragmas."""
-        connection = await aiosqlite.connect(str(path))
+        connection = await aiosqlite.connect(str(path), isolation_level=None)
         connection.row_factory = sqlite3.Row
         await connection.execute("PRAGMA foreign_keys = ON")
         return cls(connection)

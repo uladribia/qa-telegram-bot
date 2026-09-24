@@ -14,7 +14,9 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
+    MessagePairCandidate,
     QAEvidence,
     QAItem,
     QAVersion,
@@ -24,6 +26,7 @@ from knowledge_bot.domain.entities import (
     Space,
     TelegramInteraction,
 )
+from knowledge_bot.domain.enums import FeedbackStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
@@ -225,6 +228,20 @@ class InMemoryMessageRepository:
         )
         return matching[:limit]
 
+    async def list_recent(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages in a conversation."""
+        return sorted(
+            [
+                message
+                for message in self._items.values()
+                if message.conversation_id == conversation_id
+                and message.created_at >= start
+            ],
+            key=lambda message: message.created_at,
+        )[:limit]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:
@@ -238,6 +255,63 @@ class InMemoryMessageRepository:
             if message.context_question is not None:
                 paired += 1
         return (ingested, paired)
+
+
+class InMemoryListenerPairingWindowRepository:
+    """Dict-backed durable listener pairing windows."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, ListenerPairingWindow] = {}
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current pending window for a conversation."""
+        return next(
+            (
+                window
+                for window in self._items.values()
+                if window.conversation_id == conversation_id
+                and window.status == "pending"
+            ),
+            None,
+        )
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        self._items[window.id] = window
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
+        return [
+            window
+            for window in self._items.values()
+            if window.status == "pending" and window.last_message_at <= before
+        ]
+
+
+class InMemoryMessagePairCandidateRepository:
+    """Dict-backed listener pairing candidates."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, MessagePairCandidate] = {}
+
+    async def add(self, candidate: MessagePairCandidate) -> bool:
+        """Persist a candidate once."""
+        if candidate.id in self._items:
+            return False
+        self._items[candidate.id] = candidate
+        return True
+
+    async def list_for_conversation(
+        self, conversation_id: str
+    ) -> list[MessagePairCandidate]:
+        """Return candidates for one conversation."""
+        return [
+            candidate
+            for candidate in self._items.values()
+            if candidate.conversation_id == conversation_id
+        ]
 
 
 class InMemoryAttachmentRepository:
@@ -409,6 +483,16 @@ class InMemoryFeedbackRepository:
             feedback
             for feedback in self._items.values()
             if start <= feedback.created_at < end
+        ]
+
+    async def list_escalatable(self) -> list[Feedback]:
+        """Return pending reviews whose reviewer delivery has failed."""
+        return [
+            feedback
+            for feedback in self._items.values()
+            if feedback.status is FeedbackStatus.PENDING_REVIEW
+            and feedback.reviewer_delivery_failed_at is not None
+            and feedback.reviewer_escalated_at is None
         ]
 
 
