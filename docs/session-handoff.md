@@ -1,107 +1,80 @@
 # Session handoff
 
-_Last updated: 2026-09-24 on `refactor/v2-production-docs`._
+_Last updated: 2026-09-24 on `chore/eval-handoff`._
 
 ## Current state
 
-- Binding plan: [`instructions/qa-telegram-bot-refactor-v2-spec.md`](../instructions/qa-telegram-bot-refactor-v2-spec.md).
-- Historical plan: `instructions/[deprecated]_pla_prototip_bot_telegram_bhc_v3.md`; it is not authoritative.
-- Current branch: `refactor/v2-production-docs`.
-- `main` is at the last merged production boundary commit; this branch is pushed but not merged.
-- `TODO.md` contains an intentional uncommitted edit. Preserve it; do not stage, reset, or revert it.
+- Binding plan: [`instructions/qa-telegram-bot-one-pass-final-fix-plan.md`](../instructions/qa-telegram-bot-one-pass-final-fix-plan.md).
+- Current branch before merge: `chore/eval-handoff`.
+- `main` was at `f5224fe` before this evaluation pass.
+- The untracked plan file is preserved and must not be staged or discarded.
+- Local Docker services are running with the current checkout image.
 
-## Merged work
+## Work completed
 
-1. PR #1 — correctness, spaces, connector provenance, semantic Q&A identity, stable vectors, projection manifest.
-2. PR #2 — background evidence, bounded backlog, synthesis limits, reviewer authorization, atomic corrections.
-3. PR #3 — Pydantic HTTP contracts, generic `/v1` API, durable delivery/interactions, scheduled report path, Telegram adapter split.
-4. PR #4 — session handoff documentation.
-5. PR #5 — local SQLite + NumPy + Ollama runtime, migrations, local Docker/Make workflow.
-6. PR #6 — local environment aliases, readiness, bootstrap, and local E2E fixes.
+- Hardening branch merged into `main` and pushed.
+- Cloudflare Worker deployed at `https://bhc-qa-testbot.qa-bots.workers.dev`.
+- D1 migration `0020_final_hardening.sql` applied; no remote migrations remain.
+- `/healthz` and `/readyz` returned `200` after deployment.
+- Real Telegram manual acceptance remains pending.
+- Local Docker database was reset and reseeded with `data/seed/qa.json` and `data/seed/bot_self_qa.json` for a clean local evaluation baseline.
 
-## Implemented on the current branch
+## Evaluation datasets
 
-- Durable reviewer-delivery failure state and configurable admin escalation:
-  - `REVIEWER_ESCALATION_TIMEOUT_SECONDS`;
-  - timeout is shown in the notification;
-  - admin can edit and approve after escalation;
-  - test uses a zero-second timeout.
-- Temporal listener pairing:
-  - durable pending windows;
-  - quiet-period flush;
-  - configurable window/quiet/overlap settings;
-  - stable candidate ids and idempotent evidence indexing;
-  - local Ollama and Workers AI pairing adapters.
-- Pair candidates remain non-authoritative evidence; no curator promotion is implemented.
-- Deterministic daily report with addressed questions, background questions, ingestion, corrections, seed divergence, AI usage, and reviewer audit sections.
-- D1 report source now calculates seed-divergence counts from refreshed web versions that did not replace human-approved current versions.
-- Shared `AppContext` moved to `infrastructure/context.py`.
-- Cloudflare settings now pass raw values through Pydantic instead of manual `_int/_float/_flag` coercion.
+The following datasets are present and validated by `python -m evals.run offline`:
 
-## Functional tests
+- `evals/answers.yaml`: 76 factual answer and abstention cases.
+- `evals/classifier.yaml`: 222 intent-classifier cases.
+- `evals/abstention_synthetic.yaml`: 294 synthetic abstention hard negatives.
+- `evals/listener.yaml`: 60 realistic WhatsApp-style listener windows with expected questions, answers, and pairs.
+- `docs/manual-test-questions.md`: 57 manual Q&A questions, including source-anchor expectations and safety checks.
 
-Passing:
+Synthetic cases are evaluation/training material only. They are not production seed knowledge.
+
+## Latest local model baseline
+
+Models: `embeddinggemma` and `gemma3:270m`, local only. Throwaway rubric judge checked answer mode, required terms, forbidden claims, citations/evidence, classifier labels, question detection, and temporal pairs.
+
+| Area | Metric | Result |
+|---|---|---:|
+| Answers | Mean rubric score | 37.1/100 |
+| Answers | Pass rate ≥80 | 26.3% |
+| Answers | Mode accuracy | 31.6% |
+| Answers | Citation/evidence validity | 31.6% |
+| Answers | Required-term coverage | 27.6% |
+| Answers | Forbidden-claim clean rate | 100% |
+| Retrieval | Recall@1 | 15.2% |
+| Retrieval | Recall@3 | 27.3% |
+| Retrieval | Recall@5 | 39.4% |
+| Retrieval | MRR | 0.224 |
+| Classifier | Label hit rate | 52.3% |
+| Classifier | Strict single-label match | 51.8% |
+| Listener | Question recall | 51.7% |
+| Listener | Non-question false-positive rate | 28.8% |
+| Listener | Pair precision | 65.2% |
+| Listener | Pair recall | 90.6% |
+| Listener | Pair F1 | 75.8% |
+
+The main quality problem is retrieval/ranking. Bot self-knowledge competes with club Q&A in the same global index, producing incorrect rankings and excessive abstentions. The classifier also has weak knowledge-update and correction recall. The direct-answer threshold should not be lowered without measuring wrong-answer precision.
+
+Retrieval output now prefers `source_anchor` metadata, which fixes evaluation identity reporting but does not by itself solve ranking quality.
+
+## Validation
 
 ```text
-make all
-126 fast tests passed
-
-make test-integration
-124 integration tests passed
-
-uv run python -m evals.run offline
-6/6 suites passed
-
-make test-e2e-local
-2 passed
+make lint       ✅
+make test       ✅ 120 passed
+offline evals   ✅ 9/9 suites passed
+make test-e2e-local ✅ local Docker AI smoke passed earlier
 ```
-
-Important scenarios covered:
-
-- real local Ollama embedding, generation, and pairing response validation;
-- local seed → SQLite/NumPy retrieval → generic answer;
-- correction proposal flow;
-- two independent groups returning different corrected local answers;
-- unreachable reviewer → admin timeout escalation → admin edit → local approval;
-- mixed listener window accumulation and candidate indexing;
-- deterministic daily report sections.
-
-## Curator status
-
-The official Q&A curator role is deliberately deferred. The current design only
-stores and indexes `message_pair_candidates` as evidence. There is no curator
-notification, candidate approval CLI, or automatic promotion to canonical Q&A.
-Do not infer that the admin is permanently the curator.
-
-## Cloudflare deployment status
-
-The current `main` deployment was refreshed after explicit authorization:
-
-- Worker: `bhc-qa-testbot`;
-- URL: `https://bhc-qa-testbot.qa-bots.workers.dev`;
-- deployed version: `8159c158-d968-4541-91bf-ae9e430feb93`;
-- `/healthz`: passed;
-- D1 tables `message_pair_candidates` and `listener_pairing_windows`: verified;
-- Vectorize metadata indexes `kind`, `status`, and `scope_key`: verified;
-- full reindex and live AI eval were not run.
 
 ## Remaining work
 
-Only manual Telegram acceptance remains, because it requires the user's real
-bot/group credentials and interaction:
+1. Commit and merge this evaluation/documentation pass into `main`.
+2. Improve retrieval/ranking before changing answer thresholds.
+3. Improve question classification and reduce listener false positives.
+4. Reduce temporal pair over-generation without losing the current 90.6% pair recall.
+5. Run the manual two-group Telegram acceptance flow.
+6. Only then perform any explicitly authorized production reindex or Cloudflare evaluation.
 
-- follow `docs/telegram-e2e.md`;
-- verify mention/DM answering;
-- verify correction and local approval;
-- verify two-group local answer divergence;
-- verify reviewer timeout/admin escalation;
-- verify daily report delivery to the admin.
-
-No further code or documentation changes are planned unless that manual run
-uncovers a defect. Preserve the unstaged `TODO.md` edit.
-
-## Handoff rule
-
-Read `AGENTS.md` and the binding plan before continuing. Preserve the unstaged
-`TODO.md` edit. The local Docker services and pulled Ollama models may still be
-running; `make dev-down` preserves their volumes.
+Read `AGENTS.md` and the binding plan before continuing. Preserve the untracked plan file and do not discard local Docker volumes unless explicitly requested.

@@ -4,6 +4,12 @@
 
 A synthetic local Telegram failure indicates application or adapter logic. A synthetic test that passes locally but fails against a real Telegram API indicates connector configuration or API behavior. A local real-Telegram flow that works but Cloudflare fails indicates D1, Vectorize, Workers AI, or Worker adapter/runtime behavior.
 
+## Local evaluation baseline
+
+The latest local-only model pass is recorded in [`development.md`](development.md). Current baseline: answer rubric 37.1/100, retrieval Recall@5 39.4%, classifier label hit rate 52.3%, listener question recall 51.7%, and temporal pair F1 75.8%.
+
+The main operational signal is that retrieval/ranking is the limiting factor. The local index currently contains both club Q&A and bot self-knowledge, and synthetic evaluation shows many valid questions abstaining or retrieving an unrelated entry. Treat these numbers as a baseline for the next experiment; do not lower the direct-answer threshold merely to improve recall without checking wrong-answer precision.
+
 ## Quota
 
 Direct user questions are never refused by the estimate guard. Background classification and maintenance work are lower priority and check admission before each AI-consuming unit. Live evals, remote reindexing, and Cloudflare smoke require explicit authorization and an explicit `BOT_BASE_URL`.

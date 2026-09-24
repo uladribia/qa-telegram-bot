@@ -167,3 +167,435 @@
   labels: [chitchat]
 - text: "Ok!"
   labels: [chitchat]
+
+# Synthetic variations for classifier threshold sweeps and training.
+# Synthetic messages are not seed knowledge and should not be inserted into Q&A.
+- text: "A quina hora comença l entrenament de demà?"
+  labels: [question]
+  synthetic: true
+- text: "On es juga el proper partit?"
+  labels: [question]
+  synthetic: true
+- text: "Com puc inscriure el meu fill?"
+  labels: [question]
+  synthetic: true
+- text: "Quan s'ha de pagar la quota?"
+  labels: [question]
+  synthetic: true
+- text: "On trobo la guia de talles del BHC?"
+  labels: [question]
+  synthetic: true
+- text: "Quant costa el pack de roba?"
+  labels: [question]
+  synthetic: true
+- text: "Es pot pagar amb targeta?"
+  labels: [question]
+  synthetic: true
+- text: "On s'adjorna el vehicle?"
+  labels: [question]
+  synthetic: true
+- text: "Qui és lamhona entrenadora?"
+  labels: [question]
+  synthetic: true
+- text: "Quina secció té els jocs de febrer?"
+  labels: [question]
+  synthetic: true
+- text: "On es fan les revisions mèdiques?"
+  labels: [question]
+  synthetic: true
+- text: "Quan caduca el certificat?"
+  labels: [question]
+  synthetic: true
+- text: "Cal enviar l'informe mèdic al delegat?"
+  labels: [question]
+  synthetic: true
+- text: "Com funcionen les categories de l escola?"
+  labels: [question]
+  synthetic: true
+- text: "On són els equips del FCB?"
+  labels: [question]
+  synthetic: true
+- text: "Quina diferència hi ha entre BHC i FCB?"
+  labels: [question]
+  synthetic: true
+- text: "A quina hora surt l'autobús?"
+  labels: [question]
+  synthetic: true
+- text: "On es queda el bus de retorn?"
+  labels: [question]
+  synthetic: true
+- text: "Qui pot ajudar com a Ball-Kids?"
+  labels: [question]
+  synthetic: true
+- text: "Quan s'obre el casal d'estiu?"
+  labels: [question]
+  synthetic: true
+- text: "Els Minis competeixen?"
+  labels: [question]
+  synthetic: true
+- text: "Es pot entrenar una vegada per setmana?"
+  labels: [question]
+  synthetic: true
+- text: "A quina edat comencen els Veterans?"
+  labels: [question]
+  synthetic: true
+- text: "Com es demana una faldilla?"
+  labels: [question]
+  synthetic: true
+- text: "On compro la samarreta del club?"
+  labels: [question]
+  synthetic: true
+- text: "A quina hora és el partit de la final?"
+  labels: [question]
+  synthetic: true
+- text: "¿Dónde se!!!!! el calendario?"
+  labels: [question]
+  synthetic: true
+- text: "¿Cuándo se pide la equipación?"
+  labels: [question]
+  synthetic: true
+- text: "¿Dónde se hace la revisión médica?"
+  labels: [question]
+  synthetic: true
+- text: "¿Quién es el delegado de Benjamí?"
+  labels: [question]
+  synthetic: true
+- text: "¿Está permitido cambiar de equipo?"
+  labels: [question]
+  synthetic: true
+- text: "¿Qué precio tiene la samarreta?"
+  labels: [question]
+  synthetic: true
+- text: "¿Hay autobús los domingos?"
+  labels: [question]
+  synthetic: true
+- text: "¿Los Minis tienen liga?"
+  labels: [question]
+  synthetic: true
+- text: "¿Dónde se entrena el Benjamí?"
+  labels: [question]
+  synthetic: true
+- text: "¿Cómo se usa la app de la Federació?"
+  labels: [question]
+  synthetic: true
+- text: "¿Hay alguien para revisar la talla?"
+  labels: [question]
+  synthetic: true
+
+- text: "A partir de dimarts el camp serà tancat."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La llista de transport ja està publicada."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El partit d'aquesta setmana és a les set."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "L'entrenament del dijous serà al pavelló B."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "Les noves talles ja estan a l'entrenament."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La quota s'ha de pagar abans del dia 20."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La sessió de dijous inclou material nou."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El grup rebrà la llista d'assistència demà."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "L'equipament arriba abans del calendari de gener."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La没必要 estat al pavelló a primera hora."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "Mañana el entrenamiento pasa al martes."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La reunión se ha cambiado al jueves."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El partido se juega en el campo de arriba."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "Las tallas están disponibles en el entrenamiento."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La revocación médica será la próxima semana."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El club ha confirmat el nuevo horario."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La lista de reservas está en el grupo."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El autobús sale una hora después."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "Aquest dimecres hi hauria assemblea de pares."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La Reunión estará upstairs en el箭."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El Calendario tiene una nueva fecha."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La entrada de la sala cambia a las seis."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "He actualitzat el calendari del grup."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La comanda de roba encara no està tancada."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "Aquest cap de setmana no hi ha entrenament."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La proxima revisio mèdica serà al gener."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "El bus torna a les vuit."
+  labels: [knowledge_update]
+  synthetic: true
+- text: "La sala grande estarà tancada dissabte."
+  labels: [knowledge_update]
+  synthetic: true
+
+- text: "No, el partit final és diumenge, no dissabte."
+  labels: [correction]
+  synthetic: true
+- text: "Perdó, l'entrenament és dijous, no dimarts."
+  labels: [correction]
+  synthetic: true
+- text: "Això no és cert: el lloc és el Pau Negre."
+  labels: [correction]
+  synthetic: true
+- text: "Correcció: la talla correcta és la 12."
+  labels: [correction]
+  synthetic: true
+- text: "No home, el preu són vint euros."
+  labels: [correction]
+  synthetic: true
+- text: "Em vaig equivocar, el tren és a les cinc."
+  labels: [correction]
+  synthetic: true
+- text: "No, la-seccio no és Aleví."
+  labels: [correction]
+  synthetic: true
+- text: "Ho sento, el dorsal és el 7."
+  labels: [correction]
+  synthetic: true
+- text: "En realitat l'entrenament és dimecres."
+  labels: [correction]
+  synthetic: true
+- text: "No és el Can Salvi, és el Pau Negre."
+  labels: [correction]
+  synthetic: true
+- text: "Al final el partit no s'ha ajornat."
+  labels: [correction]
+  synthetic: true
+- text: "La quota no són 200 €, són 190 €."
+  labels: [correction]
+  synthetic: true
+- text: "No, l'autobús no torna el mateix dia."
+  labels: [correction]
+  synthetic: true
+- text: "Perdone, el revisor és la Marta."
+  labels: [correction]
+  synthetic: true
+- text: "No, el certificat encara no ha caducat."
+  labels: [correction]
+  synthetic: true
+- text: "Aquesta informació estava obsoleta: el preu és 38,50 €."
+  labels: [correction]
+  synthetic: true
+- text: "La resposta correcta és 3r d'ESO."
+  labels: [correction]
+  synthetic: true
+- text: "No, l'equip juga a casa."
+  labels: [correction]
+  synthetic: true
+- text: "Canviant-ho: el punt de trobada és l'entrada sud."
+  labels: [correction]
+  synthetic: true
+- text: "He equivocat: la faldilla la porta Thunder."
+  labels: [correction]
+  synthetic: true
+- text: "No, els pares no han de signar dues vegades."
+  labels: [correction]
+  synthetic: true
+- text: "La revisió és al dijous, no dimarts."
+  labels: [correction]
+  synthetic: true
+- text: "No, el document ja s'ha enviat."
+  labels: [correction]
+  synthetic: true
+- text: "Rectifico: el bus surt a les 18:30."
+  labels: [correction]
+  synthetic: true
+- text: "En realitat la talla de nena és la 8."
+  labels: [correction]
+  synthetic: true
+- text: "No, l'equip és Benjamí B."
+  labels: [correction]
+  synthetic: true
+- text: "Ho sento, el contacte correcte és el delegat."
+  labels: [correction]
+  synthetic: true
+- text: "Perdone, el camp és el de baix."
+  labels: [correction]
+  synthetic: true
+- text: "No, el partit és demà, no dissabte."
+  labels: [correction]
+  synthetic: true
+- text: "La dada correcta és 5è de primària."
+  labels: [correction]
+  synthetic: true
+- text: "Canvi: elCita serà a les 19 h."
+  labels: [correction]
+  synthetic: true
+- text: "No home, la quota no s'ha pagat."
+  labels: [correction]
+  synthetic: true
+- text: "Al final el dorsal és el 10."
+  labels: [correction]
+  synthetic: true
+- text: "No, el servei d'autobús és opcional."
+  labels: [correction]
+  synthetic: true
+- text: "Perdó, el grup és el Benjamí A."
+  labels: [correction]
+  synthetic: true
+
+- text: "Perfecte, moltes gràcies!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Genial, ens veiem!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Moltes gràcies, ja-ho sé."
+  labels: [chitchat]
+  synthetic: true
+- text: "Vale, gràcies!"
+  labels: [chitchat]
+  synthetic: true
+- text: "d'acord, cap problema"
+  labels: [chitchat]
+  synthetic: true
+- text: "👍 Gràcies!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Jajaja, quina broma!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Molt bé, som-hi!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Ens veiem al entrenament"
+  labels: [chitchat]
+  synthetic: true
+- text: "Bona sort!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Fins demà!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Que vagi molt bé"
+  labels: [chitchat]
+  synthetic: true
+- text: "Anims, que vagi bé!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Hoamental!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Bona idea, sí."
+  labels: [chitchat]
+  synthetic: true
+- text: "Cap problema."
+  labels: [chitchat]
+  synthetic: true
+- text: "Vale, doncs."
+  labels: [chitchat]
+  synthetic: true
+- text: "Genial, gràcies!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Perfecte, ara ho veig."
+  labels: [chitchat]
+  synthetic: true
+- text: "Molt bé, fem-ho així."
+  labels: [chitchat]
+  synthetic: true
+- text: "Gràcies per l'ajuda!"
+  labels: [chitchat]
+  synthetic: true
+- text: "No hi ha problema."
+  labels: [chitchat]
+  synthetic: true
+- text: "Quedem així."
+  labels: [chitchat]
+  synthetic: true
+- text: "Ens queda!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Vale, avançat."
+  labels: [chitchat]
+  synthetic: true
+- text: "A perfecte, millor!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Molt content!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Qué grande, gracias!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Perfecto, nos vemos."
+  labels: [chitchat]
+  synthetic: true
+- text: "Gracias!"
+  labels: [chitchat]
+  synthetic: true
+- text: "¡Genial!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Jajaja"
+  labels: [chitchat]
+  synthetic: true
+- text: "Qué buen rollo"
+  labels: [chitchat]
+  synthetic: true
+- text: "👍 Genial"
+  labels: [chitchat]
+  synthetic: true
+- text: "No pasa res."
+  labels: [chitchat]
+  synthetic: true
+- text: "Ens veiem."
+  labels: [chitchat]
+  synthetic: true
+- text: "Molt bé, gràcies!"
+  labels: [chitchat]
+  synthetic: true
+- text: "D'acord."
+  labels: [chitchat]
+  synthetic: true
+- text: "Gràcies, ho hem fet!"
+  labels: [chitchat]
+  synthetic: true
+- text: "Bona idea."
+  labels: [chitchat]
+  synthetic: true
+- text: "👍"
+  labels: [chitchat]
+  synthetic: true
+- text: "Això ja és una cosa."
+  labels: [chitchat]
+  synthetic: true
