@@ -67,6 +67,66 @@ npx wrangler d1 execute knowledge-bot --remote --yes \
 
 ---
 
+## Case study: the "silent bot" of 2026-09-23 (model latency, not code)
+
+The bot stopped replying while every structural check passed. Diagnosis from
+that day, kept here because the pattern will recur: any AI-side degradation
+longer than Telegram's webhook timeout makes the bot look dead with zero local
+evidence.
+
+### What was observed
+
+- `/healthz` returned 200, and the webhook answered a signed probe in 1.3s.
+  Delivery, secret auth, D1 and routing were all fine.
+- `getWebhookInfo` showed `last_error: "Read timeout expired"`: Telegram calls
+  the webhook, the Worker does not answer within ~60s, Telegram cancels and the
+  user sees nothing. Cloudflare request logs show `outcome: "canceled"` with
+  almost no CPU time — the Worker is parked awaiting the model, not burning CPU.
+- `/internal/eval/answer` (same pipeline without Telegram) took **31s to 236s**
+  per call and sometimes ended in `ModelUnavailableError` → `mode:
+  "unavailable"`. The very same prompt + evidence via the REST endpoint
+  (`/accounts/<id>/ai/run/...`) answered in ~20s.
+
+### Root cause
+
+The **AI binding call to `@cf/zai-org/glm-4.7-flash`** was degraded
+(erratic latency up to minutes, occasional failures). Everything around it was
+verified independently and healthy: the embedding model (including the
+classifier's 17-text batch), Vectorize queries, D1, and the same model over
+REST. The outage window was bounded by the model call: as soon as a generation
+finished inside ~45s the bot answered normally.
+
+### How to diagnose the same pattern
+
+1. `curl getWebhookInfo` — `Read timeout expired` with low `pending_update_count`
+   means updates arrive but the Worker is too slow to answer them.
+2. `POST /internal/eval/answer` with a generous timeout (`-m 300`). A fast
+   response rules the pipeline out; minutes or `mode: "unavailable"` point at
+   the model binding.
+3. Reproduce the generation call over REST with the same model and evidence.
+   REST fast + binding slow ⇒ degradation is binding/model-side, not a code
+   change. Check the Cloudflare status page for Workers AI incidents.
+4. `npx wrangler tail <worker> --format json` shows `outcome: "canceled"` with
+   tiny `cpuTime` — the request was waiting on I/O when the client left.
+
+### What was deliberately NOT treated as the cause
+
+The classifier was suspected first (it is the newest component). It is not in
+the answering path (`dry_run` → retrieve → decide never classifies), and its
+batched embed worked in 1.3s during the outage. The classifier has known
+quality weaknesses (module-global prototype cache, thresholds tuned on 4
+prototypes per label) but was innocent here.
+
+### Open mitigation (not yet done)
+
+A single slow generation currently holds the webhook for minutes before the
+binding itself errors. A per-call timeout at the adapter boundary (e.g.
+`asyncio.wait_for` in `WorkersAIGenerator._run`) would convert that into the
+planned fast degradation (*"Ara mateix no puc consultar la informació"*
+sent within the webhook window) instead of a silent cancellation by Telegram.
+
+---
+
 ## Reading the logs
 
 ```bash
@@ -110,6 +170,7 @@ binding work — a completely dead AI binding still returns 200.
 | Webhook returns 401 | `TELEGRAM_WEBHOOK_SECRET` and the registered secret disagree. |
 | A correction is ignored | The confirmer is not `ADMIN_TELEGRAM_USER_ID`. |
 | A stranger's DM gets no reply | Working as intended: only the admin and `ALLOWED_TELEGRAM_USER_IDS` may DM. |
+| Bot ignores everyone, but `/healthz`, the webhook and D1 are fine | AI binding latency above Telegram's webhook timeout — see the 2026-09-23 case study above. |
 | Citations show a phone number | The WhatsApp export had no saved contact name. |
 
 ---

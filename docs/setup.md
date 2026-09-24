@@ -103,6 +103,10 @@ npx wrangler secret put INTERNAL_ADMIN_KEY
 npx wrangler secret put ALLOWED_TELEGRAM_CHAT_IDS
 npx wrangler secret put ADMIN_TELEGRAM_USER_ID
 npx wrangler secret put ALLOWED_TELEGRAM_USER_IDS   # optional; comma-separated
+# Identity values that used to live in wrangler.jsonc vars; kept as secrets so
+# the public repo does not name the live bot:
+npx wrangler secret put TELEGRAM_BOT_ID
+npx wrangler secret put TELEGRAM_BOT_USERNAME
 ```
 
 Generate a webhook secret rather than inventing one:

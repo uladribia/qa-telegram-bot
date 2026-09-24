@@ -4,9 +4,10 @@ Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
 The binding product/implementation plan lives in
-[`instructions/pla_prototip_bot_telegram_bhc_v3.md`](instructions/pla_prototip_bot_telegram_bhc_v3.md).
-Read it before starting any work. If this file and the plan disagree, stop and ask;
-never silently pick one.
+[`instructions/qa-telegram-bot-refactor-v2-spec.md`](instructions/qa-telegram-bot-refactor-v2-spec.md).
+Read it before starting any work. The historical plan under `instructions/` is
+deprecated and must not be used as a second implementation contract. If this file
+and the binding plan disagree, stop and ask; never silently pick one.
 
 ---
 
@@ -29,8 +30,10 @@ execution is for the product code and its tests, not for editing the repository.
   and never lose the inbound event.
 - **Dependency rule.** `domain` and `application` never import transport,
   framework, or infrastructure code (see §3).
-- **D1 is the source of truth.** Any vector/search index is derived and must be
-  rebuildable from D1. Never store data that exists only in the index.
+- **SQL is the source of truth for each runtime.** Local development uses SQLite;
+  production uses Cloudflare D1. Any vector/search index is derived and must be
+  rebuildable from that runtime's SQL store. Never store semantic knowledge only
+  in the index.
 - **No PII, no raw message text in logs** (see §8).
 - **Tests are offline and deterministic.** No live network, API, or model calls
   in tests; fakes live in tests.
