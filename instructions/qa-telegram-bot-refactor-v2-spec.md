@@ -184,6 +184,8 @@ The core must not contain concepts such as:
 
 The core may use opaque `principal_id`, `space_id`, `channel`, and `external_*` identifiers supplied by adapters.
 
+The channel-specific adapter owns parsing external ids, Telegram-specific source identity, and Telegram binding lookup. The application-level space/binding service accepts only opaque channel and external identifiers and contains no Telegram imports, Telegram constants, chat-id parsing, or channel-specific branches. This keeps connector concerns out of group/space management.
+
 The external application boundary is REST + Pydantic contracts. All durable state is stored in the SQL database. No workflow depends on process memory surviving between requests.
 
 Process-local caches are allowed only as performance caches and must be disposable, e.g. cached classifier prototype embeddings.
@@ -2247,6 +2249,12 @@ Rules:
 Telegram remains the only runtime channel in v2, but must be replaceable.
 
 ## 15.1 Inbound responsibilities
+
+The Telegram adapter owns all Telegram-specific knowledge of external identities,
+source ids, chat bindings, and principal-to-chat routing. It passes opaque
+channel/external values and resolved `space_id`/`principal_id` values to the
+application. The application-level space/binding service MUST NOT import Telegram
+modules or contain Telegram-specific branches.
 
 Telegram adapter may:
 
