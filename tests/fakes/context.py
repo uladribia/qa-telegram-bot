@@ -123,6 +123,8 @@ def build_test_context(
         transport=transport,
         channel="telegram",
         clock=clock,
+        conversations=backend.conversations,
+        sources=backend.sources,
     )
     recap = RecapService(
         answers=answers,

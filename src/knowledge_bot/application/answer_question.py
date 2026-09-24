@@ -23,7 +23,12 @@ from knowledge_bot.contracts.api import (
     AskQuestionResponse,
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.domain.entities import BotAnswer, DeliveryReceipt
+from knowledge_bot.domain.entities import (
+    BotAnswer,
+    Conversation,
+    DeliveryReceipt,
+    Source,
+)
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
@@ -34,7 +39,9 @@ from knowledge_bot.ports.generator import (
 )
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
+    ConversationRepository,
     DeliveryReceiptRepository,
+    SourceRepository,
 )
 from knowledge_bot.ports.transport import MessageTransport
 
@@ -161,6 +168,8 @@ class AnswerService:
     clock: Clock
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
+    conversations: ConversationRepository | None = None
+    sources: SourceRepository | None = None
 
     async def decide(
         self, question: str, retrieved: RetrievedEvidence
@@ -278,8 +287,36 @@ class AnswerService:
             sources_json=json.dumps(preview.outcome.source_ids),
             request_id=request.request_id,
         )
+        await self._ensure_api_conversation(request.space_id)
         await self.answers.add(record)
         return _api_response(record, preview)
+
+    async def _ensure_api_conversation(self, space_id: str | None) -> None:
+        """Create the durable conversation used by generic API answers."""
+        if self.conversations is None or self.sources is None:
+            return
+        source_id = "source:api"
+        if await self.sources.get(source_id) is None:
+            await self.sources.add(
+                Source(
+                    id=source_id,
+                    source_type="api",
+                    authority=0,
+                    created_at=self.clock.now(),
+                )
+            )
+        conversation_id = f"api:{space_id or 'global'}"
+        if await self.conversations.get(conversation_id) is None:
+            await self.conversations.add(
+                Conversation(
+                    id=conversation_id,
+                    source_id=source_id,
+                    space_id=space_id,
+                    created_at=self.clock.now(),
+                    external_id=conversation_id,
+                    title="Generic API",
+                )
+            )
 
     async def dry_run_for_message(self, message: NormalizedMessage) -> AnswerPreview:
         """Resolve and decide a normalized message without persistence or delivery."""

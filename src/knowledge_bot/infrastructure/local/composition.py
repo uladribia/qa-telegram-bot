@@ -221,6 +221,8 @@ async def build_context(
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
+            conversations=conversations,
+            sources=sources,
         ),
         recap=recap,
         reindex=ReindexService(

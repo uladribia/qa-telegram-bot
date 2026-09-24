@@ -288,6 +288,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
+            conversations=listener_conversations,
+            sources=listener_sources,
         ),
         recap=recap,
         reindex=ReindexService(

@@ -53,14 +53,15 @@ destructive and requires `CONFIRM=1`:
 make dev-reset CONFIRM=1
 ```
 
-Run the explicit local model smoke test only after the local services are ready:
+Run the explicit local functional test only after the local services are ready:
 
 ```bash
 make test-e2e-local
 ```
 
-The ordinary `make test` and `make test-integration` tiers never call Ollama or
-Cloudflare. Local model defaults are validated against
+It exercises the real local Ollama embedding endpoint and the complete local
+seed → vector index → generic answer path. The ordinary `make test` and
+`make test-integration` tiers never call Ollama or Cloudflare. Local model defaults are validated against
 `LOCAL_ALLOWED_AI_MODELS`; Cloudflare settings are validated separately.
 
 ## 3. Local checkout for offline development

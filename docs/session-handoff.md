@@ -74,8 +74,8 @@ uv run python -m evals.run offline
 Expected at the handoff baseline:
 
 - lint/type checks: pass;
-- fast tests: 124 passed;
-- integration tests: 115 passed;
+- fast tests: 126 passed;
+- integration tests: 121 passed;
 - offline eval suites: 6/6 passed;
 - `make smoke`: passed (`/healthz` returned OK).
 
@@ -98,7 +98,10 @@ Implemented:
 - shared local composition, local Uvicorn entrypoint, `/healthz`, `/readyz`, and
   explicit local E2E test;
 - `Dockerfile.local`, direct Docker dev commands, `.env.local.example`, and local
-  documentation/self-Q&A updates.
+  documentation/self-Q&A updates;
+- real local functional flow: seed Q&A → Ollama embedding → SQLite/NumPy
+  retrieval → generic answer endpoint → request-id replay, plus real Ollama
+  embedding smoke coverage.
 
 The local graph currently reuses the existing purpose-specific SQL repository
 classes through a small SQLite statement binding while the oversized D1 module
@@ -114,6 +117,10 @@ Phase 8 `main`. It owns Phases 9–12:
 2. split remaining oversized route/infrastructure modules where behavior permits;
 3. synchronize all documentation and bot self-Q&A with final behavior;
 4. run the final offline/local/Worker validation matrix.
+
+The local functional test exposed and fixed two real defects: SQLite DML needed
+autocommit outside explicit transactions, and generic API answers needed a
+source-backed API conversation to satisfy the durable answer foreign key.
 
 Do not run Cloudflare migrations, deploys, live AI evals, or reindexing without
 explicit human authorization. Preserve the unstaged `TODO.md` edit.
