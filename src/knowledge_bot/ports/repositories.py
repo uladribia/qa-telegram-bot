@@ -149,7 +149,7 @@ class QAItemRepository(Protocol):
     async def get_by_canonical_key(
         self,
         canonical_key: str,
-        scope: Scope = GLOBAL_SCOPE,
+        scope_key: Scope = GLOBAL_SCOPE,
     ) -> QAItem | None:
         """Return a Q&A item by canonical key within a scope, if present."""
         ...

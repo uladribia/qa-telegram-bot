@@ -291,11 +291,14 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         await _require_evaluation_budget(context)
         payload = await request.json()
         body = payload if isinstance(payload, dict) else {}
-        report = await context.reindex.reindex(
-            qa_after=body.get("qa_after"),
-            msg_after=body.get("msg_after"),
-            limit=int(body["limit"]) if body.get("limit") is not None else None,
-        )
+        if not body:
+            report = await context.reindex.rebuild()
+        else:
+            report = await context.reindex.reindex(
+                qa_after=body.get("qa_after"),
+                msg_after=body.get("msg_after"),
+                limit=int(body["limit"]) if body.get("limit") is not None else None,
+            )
         return {
             "qa": report.qa,
             "messages": report.messages,
@@ -344,7 +347,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not isinstance(scope, str) or not scope.strip():
             scope = "global"
         renew = bool(payload.get("renew", False))
-        created, skipped, renewed, version_ids = await context.seed.seed_qa(
+        created, skipped, renewed, diverged, version_ids = await context.seed.seed_qa(
             qa_entries, scope, renew
         )
         indexed = 0
@@ -357,6 +360,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             "qa_skipped": skipped,
             "indexed": indexed,
             "qa_renewed": renewed,
+            "qa_diverged": diverged,
             "messages": message_count,
         }
 

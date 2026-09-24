@@ -142,7 +142,10 @@ class AnswerService:
             The decided answer.
         """
         strong_qa = [
-            item for item in retrieved.qa if item.similarity >= self.direct_qa_threshold
+            item
+            for item in retrieved.qa
+            if item.similarity >= self.direct_qa_threshold
+            and item.qa_version_id is not None
         ]
         if strong_qa:
             best = max(strong_qa, key=lambda item: item.similarity)
@@ -151,7 +154,7 @@ class AnswerService:
                 mode=AnswerMode.DIRECT_QA,
                 source_ids=[best.source_id],
                 text=_render(best.text, [best]),
-                qa_version_id=best.source_id,
+                qa_version_id=best.qa_version_id,
             )
         evidence = retrieved.all()
         if (
@@ -196,7 +199,7 @@ class AnswerService:
             The decided outcome plus the retrieved evidence behind it.
         """
         cleaned = clean_question(question)
-        retrieved = await self.retrieval.retrieve(cleaned)
+        retrieved = await self.retrieval.retrieve(cleaned, all_scopes=True)
         outcome = await self.decide(cleaned, retrieved)
         return AnswerPreview(outcome=outcome, evidence=retrieved.all())
 
@@ -228,9 +231,7 @@ class AnswerService:
         if not question:
             return None
         try:
-            retrieved = await self.retrieval.retrieve(
-                question, conversation_id=message.conversation_id
-            )
+            retrieved = await self.retrieval.retrieve(question, message.space_id)
             outcome = await self.decide(question, retrieved)
         except ModelUnavailableError:
             outcome = AnswerOutcome(

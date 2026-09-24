@@ -67,7 +67,7 @@ class MessageIngestor:
                     created_at=message.timestamp,
                     title=source.kind,
                     is_mutable=True,
-                    scope=source_scope,
+                    scope_key=source_scope,
                 )
             )
         if await self.conversations.get(message.conversation_id) is None:

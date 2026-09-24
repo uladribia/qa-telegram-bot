@@ -7,7 +7,6 @@ correction becomes a new, highest-authority Q&A version. History is never
 mutated destructively.
 """
 
-import hashlib
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -17,6 +16,7 @@ from knowledge_bot.domain.enums import (
     FeedbackStatus,
     QAStatus,
 )
+from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.policies import Authority
 from knowledge_bot.domain.scope import Scope, scope_for_space
 from knowledge_bot.ports.clock import Clock
@@ -76,18 +76,6 @@ _ACTIONS: tuple[tuple[str, str], ...] = (
     (EDIT_PREFIX, "edit"),
     (REJECT_PREFIX, "reject"),
 )
-
-
-def canonical_key_for(question: str) -> str:
-    """Return the canonical key for a question.
-
-    Args:
-        question: The question text.
-
-    Returns:
-        A short, stable key.
-    """
-    return hashlib.sha256(question.casefold().strip().encode("utf-8")).hexdigest()[:16]
 
 
 def callback_action(data: str | None) -> str | None:
@@ -218,6 +206,11 @@ class FeedbackService:
             )
             await self.feedback.save(feedback)
             return feedback
+        cited_version = (
+            await self.qa_versions.get(answer.qa_version_id)
+            if answer.qa_version_id is not None
+            else None
+        )
         feedback = Feedback(
             id=(
                 f"fb:{answer_id}:{int(self.clock.now().timestamp())}"
@@ -227,7 +220,7 @@ class FeedbackService:
             bot_answer_id=answer_id,
             status=FeedbackStatus.AWAITING_PROPOSAL,
             created_at=self.clock.now(),
-            qa_id=answer.qa_version_id,
+            qa_id=cited_version.qa_id if cited_version is not None else None,
             reporter_hash=reporter_hash,
             reporter_chat_id=reporter_chat_id,
             reporter_name=reporter_name,
@@ -468,11 +461,13 @@ class FeedbackService:
         Returns:
             The Q&A item id to attach the new version to.
         """
+        key = canonical_key_for(question) if question else feedback.id
         if feedback.qa_id is not None:
             cited = await self._cited_item(feedback.qa_id)
-            if cited is not None and cited.scope == scope:
-                return cited.id
-        key = canonical_key_for(question) if question else feedback.id
+            if cited is not None:
+                if cited.scope_key == scope:
+                    return cited.id
+                key = cited.canonical_key
         existing = await self.qa_items.get_by_canonical_key(key, scope)
         if existing is not None:
             return existing.id
@@ -483,24 +478,18 @@ class FeedbackService:
             status=QAStatus.ACTIVE,
             created_at=now,
             updated_at=now,
-            scope=scope,
+            scope_key=scope,
         )
         await self.qa_items.add(created)
         return created.id
 
     async def _cited_item(self, qa_ref: str) -> QAItem | None:
-        """Resolve a feedback's Q&A reference to an item, if possible.
+        """Resolve a feedback's Q&A item reference, if present.
 
         Args:
-            qa_ref: A Q&A item id or a Q&A version id.
+            qa_ref: A Q&A item id.
 
         Returns:
             The referenced item, or ``None``.
         """
-        item = await self.qa_items.get(qa_ref)
-        if item is not None:
-            return item
-        source = await self.qa_versions.get(qa_ref)
-        if source is None:
-            return None
-        return await self.qa_items.get(source.qa_id)
+        return await self.qa_items.get(qa_ref)

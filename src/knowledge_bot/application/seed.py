@@ -14,7 +14,7 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion, Source
 from knowledge_bot.domain.enums import QAStatus
-from knowledge_bot.domain.identity import source_instance_id
+from knowledge_bot.domain.identity import canonical_key_for, source_instance_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope, is_global
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
@@ -22,21 +22,6 @@ from knowledge_bot.ports.repositories import (
     QAVersionRepository,
     SourceRepository,
 )
-
-
-def _anchored(base: str | None, anchor: str | None) -> str | None:
-    """Return the exact anchored URL for a snapshot entry, if any.
-
-    Args:
-        base: The snapshot's base URL.
-        anchor: The entry's anchor.
-
-    Returns:
-        ``base#anchor`` when both are present, otherwise whichever exists.
-    """
-    if base and anchor:
-        return f"{base}#{anchor}"
-    return base or anchor
 
 
 def stable_id(value: str) -> str:
@@ -59,6 +44,7 @@ class SeedReport:
     qa_skipped: int
     qa_renewed: int
     messages: int
+    qa_diverged: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +83,7 @@ class SeedService:
         entries: list[SeedQA],
         scope: Scope = GLOBAL_SCOPE,
         renew: bool = False,
-    ) -> tuple[int, int, int, list[str]]:
+    ) -> tuple[int, int, int, int, list[str]]:
         """Persist a batch of seed Q&A entries.
 
         Without ``renew``, existing entries are skipped (idempotent import).
@@ -111,28 +97,32 @@ class SeedService:
             renew: Update changed entries instead of skipping them.
 
         Returns:
-            A tuple of (created, skipped, renewed, version_ids), where
-            ``version_ids`` are the current versions that need indexing: the
-            newly created and the renewed ones.
+            A tuple of (created, skipped, renewed, diverged, version_ids).
+            Diverged refreshes are stored in history without replacing a
+            human-approved current version.
         """
         created = 0
         skipped = 0
         renewed = 0
+        diverged = 0
         version_ids: list[str] = []
         now = self.clock.now()
         for entry in entries:
             await self._ensure_source(entry)
-            key = entry.source_anchor or stable_id(entry.question)
+            key = canonical_key_for(entry.question)
             existing = await self.qa_items.get_by_canonical_key(key, scope)
             if existing is not None:
                 if not renew:
                     skipped += 1
                     continue
-                if await self._renew_item(existing, entry, now):
+                outcome = await self._renew_item(existing, entry, now)
+                if outcome == "renewed":
                     item = await self.qa_items.get_by_canonical_key(key, scope)
                     assert item is not None and item.current_version_id
                     version_ids.append(item.current_version_id)
                     renewed += 1
+                elif outcome == "diverged":
+                    diverged += 1
                 else:
                     skipped += 1
                 continue
@@ -149,7 +139,7 @@ class SeedService:
                     status=status,
                     created_at=now,
                     updated_at=now,
-                    scope=scope,
+                    scope_key=scope,
                     current_version_id=version_id,
                 )
             )
@@ -163,14 +153,15 @@ class SeedService:
                     else entry.source_authority,
                     origin=entry.source_kind,
                     created_at=entry.retrieved_at,
-                    source_url=_anchored(entry.source_url, entry.source_anchor),
+                    source_url=entry.source_url,
+                    source_anchor=entry.source_anchor,
                 )
             )
             version_ids.append(version_id)
             created += 1
-        return created, skipped, renewed, version_ids
+        return created, skipped, renewed, diverged, version_ids
 
-    async def _renew_item(self, item: QAItem, entry: SeedQA, now: datetime) -> bool:
+    async def _renew_item(self, item: QAItem, entry: SeedQA, now: datetime) -> str:
         """Add a newer web version to an existing item when the answer changed.
 
         Args:
@@ -179,7 +170,7 @@ class SeedService:
             now: The renewal timestamp.
 
         Returns:
-            ``True`` when a new version was created.
+            ``renewed``, ``diverged``, or ``unchanged``.
         """
         current = (
             await self.qa_versions.get(item.current_version_id)
@@ -187,7 +178,7 @@ class SeedService:
             else None
         )
         if current is not None and current.answer == entry.answer:
-            return False
+            return "unchanged"
         in_review = entry.status == "in_review"
         version = QAVersion(
             id=f"qav:{item.id}:{int(now.timestamp())}",
@@ -198,14 +189,21 @@ class SeedService:
             else entry.source_authority,
             origin=entry.source_kind,
             created_at=now,
-            supersedes_version_id=item.current_version_id,
-            source_url=_anchored(entry.source_url, entry.source_anchor),
+            supersedes_version_id=(
+                None
+                if current is not None and current.origin == "human_approved"
+                else item.current_version_id
+            ),
+            source_url=entry.source_url,
+            source_anchor=entry.source_anchor,
         )
         await self.qa_versions.add(version)
+        if current is not None and current.origin == "human_approved":
+            return "diverged"
         await self.qa_items.save(
             replace(item, updated_at=now, current_version_id=version.id)
         )
-        return True
+        return "renewed"
 
     async def seed_messages(
         self,

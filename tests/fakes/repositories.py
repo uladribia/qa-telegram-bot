@@ -199,7 +199,7 @@ class InMemoryQAItemRepository:
         """Persist a new Q&A item."""
         if any(
             existing.canonical_key == item.canonical_key
-            and existing.scope == item.scope
+            and existing.scope_key == item.scope_key
             for existing in self._items.values()
         ):
             message = f"canonical key already exists: {item.canonical_key}"
@@ -213,11 +213,11 @@ class InMemoryQAItemRepository:
     async def get_by_canonical_key(
         self,
         canonical_key: str,
-        scope: str = "global",
+        scope_key: str = "global",
     ) -> QAItem | None:
         """Return a Q&A item by canonical key within a scope, if present."""
         for item in self._items.values():
-            if item.canonical_key == canonical_key and item.scope == scope:
+            if item.canonical_key == canonical_key and item.scope_key == scope_key:
                 return item
         return None
 

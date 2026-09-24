@@ -83,6 +83,38 @@ def test_callback_payloads_are_parsed() -> None:
     assert callback_target("feedback:approve-global:fb:ans:m1") == "fb:ans:m1"
 
 
+async def test_feedback_stores_the_cited_qa_item_id() -> None:
+    """A direct answer resolves its version to the semantic Q&A item."""
+    service, answers, items, versions, _ = await _service()
+    answer = await _seed_answer(answers)
+    await answers.add(replace(answer, qa_version_id="qav-web-1"))
+    await items.add(
+        QAItem(
+            id="qa-item",
+            canonical_key=canonical_key_for(answer.question),
+            canonical_question=answer.question,
+            status=QAStatus.ACTIVE,
+            created_at=NOW,
+            updated_at=NOW,
+            current_version_id="qav-web-1",
+        )
+    )
+    await versions.add(
+        QAVersion(
+            id="qav-web-1",
+            qa_id="qa-item",
+            answer=answer.answer,
+            authority=90,
+            origin="web_seed",
+            created_at=NOW,
+        )
+    )
+
+    started = await service.start(answer.id, None)
+
+    assert started is not None and started.qa_id == "qa-item"
+
+
 async def test_full_correction_flow_creates_a_new_authoritative_version() -> None:
     """Start -> propose -> approve supersedes the old version."""
     service, answers, items, versions, feedback = await _service()
@@ -118,7 +150,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
     assert item is not None
     assert item.current_version_id == version.id
     assert item.status is QAStatus.ACTIVE
-    assert item.scope == GROUP_SCOPE_KEY
+    assert item.scope_key == GROUP_SCOPE_KEY
     assert item.canonical_key == canonical_key_for("Com es demana l'equipament?")
 
     assert await versions.get(version.id) is not None
@@ -232,7 +264,7 @@ async def test_approving_as_group_and_global_builds_both_variants() -> None:
     assert group_version.answer == "Resposta del grup."
     group_item = await items.get(group_version.qa_id)
     assert group_item is not None
-    assert group_item.scope == GROUP_SCOPE_KEY
+    assert group_item.scope_key == GROUP_SCOPE_KEY
     # The global scope has no item yet: the group variant did not leak.
     assert (
         await items.get_by_canonical_key(
@@ -259,7 +291,7 @@ async def test_approving_as_group_and_global_builds_both_variants() -> None:
     assert global_version is not None
     global_item = await items.get(global_version.qa_id)
     assert global_item is not None
-    assert global_item.scope == GLOBAL_SCOPE
+    assert global_item.scope_key == GLOBAL_SCOPE
     assert global_item.id != group_item.id
     # The group variant keeps its own answer.
     group_after = await items.get(group_item.id)

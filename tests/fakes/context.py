@@ -31,6 +31,7 @@ from tests.fakes.ai import (
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
+    InMemorySearchProjectionRepository,
 )
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import FrozenClock, RecordingTransport
@@ -158,6 +159,8 @@ def build_test_context(
             source=FakeSearchIndexSource(),
             embedder=embedder,
             vectors=vectors,
+            manifest=InMemorySearchProjectionRepository(),
+            clock=clock,
         ),
         seed=SeedService(
             qa_items=backend.qa_items,

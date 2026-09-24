@@ -164,7 +164,7 @@ binding work — a completely dead AI binding still returns 200.
 | Every AI route returns 500 | AI is unreachable — usually the daily quota. Check usage above. |
 | Eval or reindex returns 429 | The quota guard. Working as intended; wait for 00:00 UTC. |
 | Answers say *"no puc consultar la informació"* | Same root cause: the model call failed. |
-| Retrieval returns nothing | Metadata indexes missing, or the base was never reindexed. |
+| Retrieval returns nothing | Metadata indexes `kind`, `status`, and `scope_key` are missing, or the base was never reindexed. |
 | A reindex just ran but results look stale | Vectorize eventual consistency — wait ~60s. |
 | A freshly approved correction still abstains | Same cause: the reindex runs on approval, but Vectorize needs up to ~a minute before the new vector is queryable. Re-ask after a short wait; see below. |
 | Webhook returns 401 | `TELEGRAM_WEBHOOK_SECRET` and the registered secret disagree. |
@@ -246,8 +246,10 @@ The gate exits non-zero when a suite fails, with a one-line reason per failure.
 
 ## Approved corrections are not answerable instantly
 
-When a correction is approved, the flow is: new version written to D1 → reindex
-upserts it into Vectorize → the next equivalent question can be answered.
+When a correction is approved, the flow is: new version written to D1 → the
+stable `qa:<qa_item_id>` vector is refreshed in Vectorize → the next equivalent
+question can be answered. The previous version id is never used as a second
+searchable vector.
 Vectorize is **eventually consistent**, so a vector can be written and processed
 and still not appear in query results for up to about a minute. In that window a
 re-ask of the corrected question abstains — the bot cannot see the new answer

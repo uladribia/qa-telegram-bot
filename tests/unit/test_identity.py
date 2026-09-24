@@ -3,7 +3,19 @@
 
 import pytest
 
-from knowledge_bot.domain.identity import principal_id, source_instance_id
+from knowledge_bot.domain.identity import (
+    canonical_key_for,
+    principal_id,
+    source_instance_id,
+)
+
+
+def test_canonical_key_normalizes_case_nfkc_and_whitespace_only() -> None:
+    """Punctuation and accents remain semantically distinct."""
+    assert canonical_key_for("  Quan   entrenen? ") == canonical_key_for(
+        "quan entrenen?"
+    )
+    assert canonical_key_for("Quan entrenen?") != canonical_key_for("Què entrenen?")
 
 
 def test_source_instance_id_is_deterministic_and_connector_owned() -> None:

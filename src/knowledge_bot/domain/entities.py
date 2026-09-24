@@ -48,7 +48,7 @@ class Source:
     title: str | None = None
     canonical_url: str | None = None
     is_mutable: bool = False
-    scope: str = GLOBAL_SCOPE
+    scope_key: str = GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +112,7 @@ class QAItem:
     status: QAStatus
     created_at: datetime
     updated_at: datetime
-    scope: str = GLOBAL_SCOPE
+    scope_key: str = GLOBAL_SCOPE
     current_version_id: str | None = None
 
 
@@ -136,6 +136,7 @@ class QAVersion:
     created_by: str | None = None
     supersedes_version_id: str | None = None
     source_url: str | None = None
+    source_anchor: str | None = None
     author: str | None = None
 
 

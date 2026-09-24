@@ -9,9 +9,11 @@
 >
 > **Estat de la implementació v2 (2026-09-24):** la correcció immediata de
 > provenance, idempotència, rellotge i errors de Telegram ja està implementada
-> a `refactor/v2-correctness`. La refactorització d'espais, bindings de canal i
-> fonts declarades pels connectors està en curs. Aquest document històric no
-> descriu cap d'aquests comportaments com a sistema actual.
+> a `refactor/v2-correctness`. Els espais, els bindings de canal i les fonts
+> declarades pels connectors ja estan separats de Telegram. La identitat
+> semàntica i la projecció estable de vectors ja estan implementades en el
+> mateix treball. Aquest document històric no descriu cap d'aquests
+> comportaments com a sistema actual.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;

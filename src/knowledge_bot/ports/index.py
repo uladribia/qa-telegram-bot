@@ -2,9 +2,11 @@
 """Ports for rebuilding the derived search index from D1."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.ports.vector_store import VectorRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,15 +17,17 @@ class IndexableQA:
     version carries the anchored URL, a human correction carries its author.
     """
 
+    qa_item_id: str
     version_id: str
     question: str
     answer: str
     authority: int
-    anchor: str | None = None
+    canonical_key: str
+    source_anchor: str | None = None
     url: str | None = None
     date: str | None = None
     author: str | None = None
-    scope: str = GLOBAL_SCOPE
+    scope_key: str = GLOBAL_SCOPE
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,12 +39,33 @@ class IndexableMessage:
     source_kind: str
     authority: int
     conversation_id: str
+    scope_key: str = GLOBAL_SCOPE
     author: str | None = None
     date: str | None = None
     question: str | None = None
 
 
 @runtime_checkable
+class SearchProjectionRepository(Protocol):
+    """Durable bookkeeping for vectors in the derived projection."""
+
+    async def list_vector_ids(self) -> list[str]:
+        """Return every vector id in the current projection."""
+        ...
+
+    async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
+        """Record successfully upserted vectors."""
+        ...
+
+    async def delete(self, vector_ids: list[str]) -> None:
+        """Remove deleted vectors from the manifest."""
+        ...
+
+    async def clear(self) -> None:
+        """Clear the manifest after the vector store has been cleared."""
+        ...
+
+
 class SearchIndexSource(Protocol):
     """Reads the indexable records from the source of truth."""
 

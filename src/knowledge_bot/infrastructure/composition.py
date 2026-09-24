@@ -42,6 +42,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ReviewerRepository,
     D1ReviewSource,
     D1SearchIndexSource,
+    D1SearchProjectionRepository,
     D1SourceRepository,
     D1SpaceRepository,
 )
@@ -242,6 +243,8 @@ def build_context(env: WorkerEnv) -> AppContext:
             source=D1SearchIndexSource(database),
             embedder=embedder,
             vectors=vectors,
+            manifest=D1SearchProjectionRepository(database),
+            clock=clock,
         ),
         seed=SeedService(
             qa_items=D1QAItemRepository(database),

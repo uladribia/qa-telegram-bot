@@ -15,6 +15,8 @@ from tests.fakes.repositories import InMemoryBotAnswerRepository
 from tests.fakes.support import FrozenClock, RecordingTransport
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
+SPACE_ID = "sp_" + "1" * 32
+SCOPE_KEY = "space:" + SPACE_ID
 
 
 def _message(text: str) -> NormalizedMessage:
@@ -24,6 +26,7 @@ def _message(text: str) -> NormalizedMessage:
             id="src:telegram:runtime", kind="telegram", authority=40
         ),
         conversation_id="-100",
+        space_id=SPACE_ID,
         sender_is_admin=False,
         timestamp=NOW,
         content_type=ContentType.TEXT,
@@ -64,12 +67,15 @@ async def _service(
 
 def _qa_record() -> VectorRecord:
     return VectorRecord(
-        id="qav:web-1",
+        id="qa:web-item",
         values=[1.0, 0.0],
         metadata={
-            "kind": "qa_version",
+            "kind": "qa",
+            "object_id": "web-item",
+            "version_id": "qav:web-1",
+            "canonical_key": "equipment",
             "status": "active",
-            "scope": "global",
+            "scope_key": "global",
             "text": "Els dimarts.",
             "authority": 90,
             "question": "Quan entrenen?",
@@ -79,11 +85,11 @@ def _qa_record() -> VectorRecord:
 
 def _message_record() -> VectorRecord:
     return VectorRecord(
-        id="m9",
+        id="msg:m9",
         values=[1.0, 0.0],
         metadata={
-            "kind": "message",
-            "scope": "-100",
+            "kind": "message_evidence",
+            "scope_key": SCOPE_KEY,
             "text": "els dimarts",
             "authority": 40,
         },
@@ -107,7 +113,7 @@ async def test_direct_qa_answer_is_sent_and_persisted() -> None:
     assert record.telegram_bot_message_id is not None
     stored = await answers.get("ans:m1")
     assert stored is not None
-    assert json.loads(stored.sources_json) == ["qav:web-1"]
+    assert json.loads(stored.sources_json) == ["qa:web-item"]
 
 
 async def test_synthesis_uses_generator_and_citations() -> None:
@@ -115,7 +121,9 @@ async def test_synthesis_uses_generator_and_citations() -> None:
     service, _, transport, generator = await _service(
         [_message_record()],
         GenerationOutput(
-            status="answered", answer="Sí, els dimarts.", source_ids=["m9"]
+            status="answered",
+            answer="Sí, els dimarts.",
+            source_ids=["msg:m9"],
         ),
     )
     record = await service.answer(_message("/ask quan entrenen?"))

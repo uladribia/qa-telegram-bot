@@ -483,18 +483,24 @@ def eval_seed_versioning() -> EvalReport:
             retrieved_at=NOW,
         )
         review = published.model_copy(
-            update={"source_anchor": "qa-y", "status": "in_review"}
+            update={
+                "source_anchor": "qa-y",
+                "question": "Quan?",
+                "status": "in_review",
+            }
         )
-        created, skipped, _, _ = await service.seed_qa([published, review])
+        created, skipped, _, _, _ = await service.seed_qa([published, review])
         report.check(
             created == 2 and skipped == 0, f"expected 2 created, got {created}"
         )
-        item = await items.get_by_canonical_key("qa-x")
+        item = await items.get_by_canonical_key(canonical_key_for(published.question))
         report.check(
             item is not None and item.current_version_id is not None,
             "published item has no current version",
         )
-        review_item = await items.get_by_canonical_key("qa-y")
+        review_item = await items.get_by_canonical_key(
+            canonical_key_for(review.question)
+        )
         report.check(
             review_item is not None and review_item.status.value == "under_review",
             "in-review entry is not under_review",

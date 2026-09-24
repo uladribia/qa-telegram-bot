@@ -30,6 +30,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1MessageRepository,
     D1RecapStateRepository,
     D1ReviewSource,
+    D1SearchProjectionRepository,
     D1SourceRepository,
     D1SpaceRepository,
 )
@@ -39,6 +40,7 @@ from knowledge_bot.ports.repositories import (
     MessageRepository,
     SourceRepository,
 )
+from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.d1 import FakeD1Database
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -140,6 +142,24 @@ async def test_conversation_round_trip() -> None:
     assert loaded is not None
     assert loaded.source_id == "telegram"
     assert loaded.space_id == space_id
+
+
+async def test_search_projection_manifest_round_trip() -> None:
+    """The SQL manifest follows successful vector projection changes."""
+    from knowledge_bot.ports.index import SearchProjectionRepository
+
+    database = FakeD1Database()
+    repository = D1SearchProjectionRepository(database)
+    assert isinstance(repository, SearchProjectionRepository)
+    record = VectorRecord(
+        id="qa:q1",
+        values=[1.0, 0.0],
+        metadata={"kind": "qa", "object_id": "q1"},
+    )
+    await repository.record([record], NOW)
+    assert await repository.list_vector_ids() == ["qa:q1"]
+    await repository.delete(["qa:q1"])
+    assert await repository.list_vector_ids() == []
 
 
 async def test_space_and_channel_binding_round_trip() -> None:
@@ -256,7 +276,7 @@ async def test_review_source_reads_current_versions_and_superseded_origin() -> N
     connection.execute(
         "INSERT INTO qa_items"
         " (id, canonical_key, canonical_question, status, current_version_id,"
-        " created_at, updated_at, scope) VALUES"
+        " created_at, updated_at, scope_key) VALUES"
         " ('q1','k1','Què?','active','v2','2026-01-01','2026-01-02','global')"
     )
     connection.execute(

@@ -2,6 +2,19 @@
 """Generic identity helpers for source instances and principals."""
 
 import hashlib
+import unicodedata
+
+
+def normalize_canonical_question(question: str) -> str:
+    """Normalize a question for semantic canonical identity."""
+    normalized = unicodedata.normalize("NFKC", question).casefold()
+    return " ".join(normalized.split())
+
+
+def canonical_key_for(question: str) -> str:
+    """Return the semantic canonical key for a question."""
+    normalized = normalize_canonical_question(question)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
 
 
 def source_instance_id(kind: str, *parts: str) -> str:

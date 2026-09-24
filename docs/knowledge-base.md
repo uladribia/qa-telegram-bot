@@ -67,8 +67,10 @@ to write rather than seeding nonsense (the floor is 30 entries).
 not needed for routine additions, and is a user-authorized operation reserved
 for substantial changes (see [operations.md](operations.md)).
 
-The parser stores the **exact anchored URL** for each entry, which is what
-citations show.
+The parser stores the base URL and exact source anchor on the Q&A version.
+The semantic canonical key is derived separately from the normalized question,
+so anchor changes never create a second semantic Q&A item. Citations render the
+exact anchored URL from the version provenance.
 
 ---
 
@@ -190,20 +192,23 @@ The admin is informed of every reviewer resolution (`ADMIN_REPORT_MODE`:
 
 When the underlying website changes, re-snapshot it and renew the base. Without
 `--renew` seeding skips everything it has seen before; with it, entries whose
-answer changed get a **new version** on the existing item and become current —
-the latest update prevails, and no old version is ever deleted.
+answer changed get a **new version** on the existing semantic item. No old version
+is ever deleted.
 
 ```bash
 uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json --renew
 ```
 
-Renewed entries are indexed incrementally by the seed itself (~4 neurons each);
-no full reindex is needed.
+A renewal that becomes current is indexed incrementally (~4 neurons each); no
+full reindex is needed. A diverged non-current refresh is not indexed until a
+human resolves it.
 
-A renewal that lands after an approved correction supersedes it (latest wins);
-the correction stays in the version history, and the divergence shows up in the
-human review report (`kb review`).
+A renewal that lands after an approved correction is stored in version history
+but does not replace the human-approved current answer. The seed response reports
+`qa_diverged`, and the daily report has a dedicated seed-divergence section. The
+correction remains authoritative until a human or an explicit revert changes the
+current pointer.
 
 ---
 
@@ -258,12 +263,15 @@ on it goes through the normal Telegram correction flow.
 make reindex                       # or: uv run kb reindex
 ```
 
-`make reindex` reads every active Q&A version and every message with text,
-re-embeds them, and upserts into Vectorize with the metadata retrieval filters on.
+`make reindex` deletes every vector recorded in the SQL projection manifest,
+clears the manifest, then reads current active Q&A items and eligible message
+evidence. Q&A uses one stable vector id per item (`qa:<qa_item_id>`), so a new
+version replaces the old projection instead of leaving a stale searchable
+version.
 
 **It is rarely the right tool.** Incremental paths cover routine changes: the
 seed indexes the Q&A it creates or renews (~4 neurons each), and an approved
-correction or a revert reindexes its single version automatically. A full
+correction or a revert refreshes the same stable Q&A item vector. A full
 rebuild is a user-authorized operation for substantial changes only — see the
 authorization ritual in [operations.md](operations.md).
 

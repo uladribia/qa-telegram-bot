@@ -83,7 +83,7 @@ Filtered retrieval needs **metadata indexes**, or queries return nothing:
 ```bash
 npx wrangler vectorize create-metadata-index knowledge-v1 --property-name kind --type string
 npx wrangler vectorize create-metadata-index knowledge-v1 --property-name status --type string
-npx wrangler vectorize create-metadata-index knowledge-v1 --property-name scope --type string
+npx wrangler vectorize create-metadata-index knowledge-v1 --property-name scope_key --type string
 ```
 
 `scope` separates global knowledge from per-group knowledge; without it, scoped
