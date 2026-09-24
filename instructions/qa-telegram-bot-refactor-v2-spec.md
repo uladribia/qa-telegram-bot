@@ -4267,7 +4267,7 @@ The refactor is complete only when all of these are true.
 
 - [x] D1 remains semantic source of truth.
 - [x] Vectorize remains derived.
-- [ ] Cloudflare metadata indexes verified on the production account.
+- [x] Cloudflare metadata indexes verified on the production account.
 - [x] Scheduled daily report uses the Python Worker scheduled handler.
 - [x] No paid fallback exists.
 - [x] Background AI has a lower-priority budget ceiling.
@@ -4283,7 +4283,7 @@ The refactor is complete only when all of these are true.
 - [x] SQLite integration tests pass.
 - [x] local AI E2E passes.
 - [ ] manual local Telegram E2E passes; no Telegram credentials are configured.
-- [ ] Authorized Cloudflare smoke passes; not run in this session.
+- [x] Authorized Cloudflare smoke passes; deployment and `/healthz` verified.
 
 ## 31.6 Documentation
 

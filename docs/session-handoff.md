@@ -73,17 +73,32 @@ stores and indexes `message_pair_candidates` as evidence. There is no curator
 notification, candidate approval CLI, or automatic promotion to canonical Q&A.
 Do not infer that the admin is permanently the curator.
 
+## Cloudflare deployment status
+
+The current `main` deployment was refreshed after explicit authorization:
+
+- Worker: `bhc-qa-testbot`;
+- URL: `https://bhc-qa-testbot.qa-bots.workers.dev`;
+- deployed version: `8159c158-d968-4541-91bf-ae9e430feb93`;
+- `/healthz`: passed;
+- D1 tables `message_pair_candidates` and `listener_pairing_windows`: verified;
+- Vectorize metadata indexes `kind`, `status`, and `scope_key`: verified;
+- full reindex and live AI eval were not run.
+
 ## Remaining work
 
-1. Finish Phase 10 structural cleanup:
-   - split the oversized D1 module by concern;
-   - make the Cloudflare composition location explicit;
-   - remove obsolete recap/reviewer wiring where safe;
-   - keep route context from exposing raw repositories.
-2. Update final documentation and self-Q&A against the actual code.
-3. Run final local, offline, Worker smoke, and authorized Cloudflare checks.
-4. Do not run Cloudflare migrations, deploys, live AI evals, or remote reindexing
-   without explicit human authorization.
+Only manual Telegram acceptance remains, because it requires the user's real
+bot/group credentials and interaction:
+
+- follow `docs/telegram-e2e.md`;
+- verify mention/DM answering;
+- verify correction and local approval;
+- verify two-group local answer divergence;
+- verify reviewer timeout/admin escalation;
+- verify daily report delivery to the admin.
+
+No further code or documentation changes are planned unless that manual run
+uncovers a defect. Preserve the unstaged `TODO.md` edit.
 
 ## Handoff rule
 
