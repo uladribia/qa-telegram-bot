@@ -2,7 +2,7 @@
 """Telegram webhook HTTP adapter."""
 
 from collections.abc import Awaitable, Callable
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
@@ -17,7 +17,7 @@ TelegramUpdateHandler = Callable[[AppContext, TelegramUpdate], Awaitable[str]]
 
 def register_telegram_routes(
     app: FastAPI,
-    resolve_context: Callable[[Request], AppContext],
+    resolve_context: Callable[[Request], AppContext | Awaitable[AppContext]],
     handle_update: TelegramUpdateHandler,
 ) -> None:
     """Register the authenticated Telegram webhook on the HTTP app."""
@@ -31,6 +31,10 @@ def register_telegram_routes(
     ) -> dict[str, str]:
         """Validate and normalize one Telegram update."""
         context = resolve_context(request)
+        if isinstance(context, Awaitable):
+            context = await cast(Awaitable[AppContext], context)
+        else:
+            context = cast(AppContext, context)
         if not is_valid_webhook_secret(
             secret, context.settings.telegram_webhook_secret
         ):

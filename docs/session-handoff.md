@@ -82,37 +82,40 @@ Expected at the handoff baseline:
 `make smoke` was last run after the generic API, durable state, daily report,
 Worker entrypoint, and Telegram adapter changes.
 
-## Next branch and scope
+## Current branch progress: Phase 8 local runtime
 
-Create from the updated `main`:
+The `refactor/v2-local-runtime` branch is now in progress from the updated
+`main`. Implemented in the current worktree:
 
-```bash
-git switch -c refactor/v2-local-runtime
-```
+- local dependency group with `numpy`, `aiosqlite`, `httpx`, and `uvicorn`;
+- validated `RuntimeMode`, local SQLite/Ollama settings, and model allowlists;
+- `migrations/local/0001_local_vectors.sql` and an idempotent SQLite migration
+  runner using `schema_migrations`;
+- `NumpySqliteVectorStore` with strict dimensions, normalized float32 storage,
+  equality filters, and cosine queries;
+- raw Ollama `/api/embed` and `/api/chat` adapters with validated output and
+  exactly one malformed-generation retry;
+- shared local composition, local Uvicorn entrypoint, `/healthz`, `/readyz`, and
+  explicit local E2E test;
+- `Dockerfile.local`, direct Docker dev commands, `.env.local.example`, and local
+  documentation/self-Q&A updates.
 
-Implement Phase 8 only first, keeping the branch green:
+The local graph currently reuses the existing purpose-specific SQL repository
+classes through a small SQLite statement binding while the oversized D1 module
+is split later in Phase 10. This is functional local persistence, not a second
+database or ORM. The next step is to finish and validate this branch, then merge
+it before starting `refactor/v2-production-docs`.
 
-1. Add the approved local dependencies (`numpy`, `aiosqlite`, `uvicorn`; use the
-   existing `httpx` development dependency for Ollama HTTP).
-2. Add `migrations/local/0001_local_vectors.sql` and a tiny local migration runner
-   using `schema_migrations`; do not add Alembic.
-3. Implement SQLite repositories and the `NumpySqliteVectorStore` with the
-   `local_vectors` schema and strict vector dimensions.
-4. Implement local Ollama embedder/generator through `/api/embed` and
-   `/api/chat`; validate Pydantic output and retry invalid generated JSON once.
-5. Add `RuntimeMode`, local settings/composition, and `local_entry.py`.
-6. Add the canonical Docker/Make targets and `.env.local.example` from the plan.
-7. Add local AI E2E tests using a real local Ollama only when explicitly running
-   `make test-e2e-local`; never make fast tests call Ollama or Cloudflare.
-8. Update `README.md`, local setup docs, usage/operations docs, and the bot
-   self-Q&A before merging this branch.
+## Next steps
+
+Finish and validate the current branch, preserving the unstaged `TODO.md` edit.
+Do not start Phase 9 until Phase 8 is merged.
 
 ## Known transitional gaps
 
 These are intentional follow-up work, not reasons to undo completed PRs:
 
-- The canonical local SQLite/NumPy/Ollama runtime does not exist yet.
-- `wrangler.jsonc` and the Cloudflare composition are still the only deployed
+- `wrangler.jsonc` and the Cloudflare composition are still the production
   runtime; the Worker scheduled handler exists but the full Phase 9 report
   sections are not complete.
 - The large HTTP app still contains legacy operational and Telegram helper

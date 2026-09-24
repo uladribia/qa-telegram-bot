@@ -2,8 +2,9 @@
 
 How to get from a clean checkout to a working bot, from zero.
 
-This is a **Cloudflare Python Worker** with D1 (source of truth), Vectorize
-(derived index) and Workers AI. It runs inside the free tier; there is no paid
+The canonical development runtime is **local SQLite + NumPy + Ollama**. Production
+uses a **Cloudflare Python Worker** with D1 (source of truth), Vectorize
+(derived index) and Workers AI. Both runtimes are zero-cost; there is no paid
 fallback anywhere in the code.
 
 ---
@@ -21,7 +22,60 @@ fallback anywhere in the code.
 
 ---
 
-## 2. Local checkout
+## 2. Start the canonical local runtime
+
+Requirements: Docker, curl, and `uv`. No Cloudflare account, D1 database,
+Vectorize index, Workers AI token, or Node/Wrangler installation is needed.
+
+```bash
+git clone https://github.com/uladribia/qa-telegram-bot.git
+cd qa-telegram-bot
+cp .env.local.example .env.local
+make dev-bootstrap
+```
+
+`dev-bootstrap` is idempotent. It creates the `knowledge-bot-dev` network and
+volumes, starts the pinned `ollama/ollama:0.11.10` container, pulls
+`embeddinggemma` and `gemma3:270m`, builds the local app image, applies shared
+and local SQLite migrations, and starts the app on port 8000.
+
+```bash
+curl -s http://localhost:8000/healthz  # {"status":"ok"}
+curl -s http://localhost:8000/readyz   # checks SQLite, local_vectors, Ollama, models
+make dev-logs
+```
+
+The local SQLite file lives in the `knowledge-bot-data` Docker volume. Stop
+containers without deleting data using `make dev-down`. `make dev-reset` is
+destructive and requires `CONFIRM=1`:
+
+```bash
+make dev-reset CONFIRM=1
+```
+
+Run the explicit local model smoke test only after the local services are ready:
+
+```bash
+make test-e2e-local
+```
+
+The ordinary `make test` and `make test-integration` tiers never call Ollama or
+Cloudflare. Local model defaults are validated against
+`LOCAL_ALLOWED_AI_MODELS`; Cloudflare settings are validated separately.
+
+## 3. Local checkout for offline development
+
+Use this path when developing without the Docker runtime:
+
+```bash
+uv sync
+cp .env.example .env
+make all
+```
+
+The source checkout, tests, and offline evals do not need any external service.
+
+## 4. Cloudflare checkout
 
 ```bash
 git clone https://github.com/uladribia/qa-telegram-bot.git
@@ -31,7 +85,7 @@ uv run --frozen pre-commit install --install-hooks   # optional, runs the gates 
 cp .env.example .env
 ```
 
-Fill in `.env` (see [configuration](#4-configuration)). `.env` is gitignored and
+Fill in `.env` (see [configuration](#5-configuration)). `.env` is gitignored and
 must never be committed.
 
 Check the code is healthy before touching anything remote:
@@ -42,8 +96,6 @@ make test-all     # every tier
 ```
 
 ---
-
-## 3. Cloudflare resources
 
 Create the resources once. The names below match the committed
 `wrangler.jsonc`; if you change them, change the file too.
@@ -91,7 +143,7 @@ queries return nothing.
 
 ---
 
-## 4. Configuration
+## 5. Configuration
 
 Non-secret values can live in `wrangler.jsonc` under `vars` (they ship with the
 deploy). **Secrets must be set on the Worker**, never committed:
@@ -136,7 +188,7 @@ startup; that is deliberate.
 
 ---
 
-## 5. Deploy
+## 6. Deploy
 
 ```bash
 uv run pywrangler sync      # vendor dependencies for the Worker runtime
@@ -152,7 +204,7 @@ curl -s https://<your-worker>.workers.dev/healthz
 
 ---
 
-## 6. Register the webhook
+## 7. Register the webhook
 
 Telegram must be told where to send updates. The secret must match
 `TELEGRAM_WEBHOOK_SECRET`, or every request is rejected with 401.
@@ -169,7 +221,7 @@ uv run kb delete-webhook
 
 ---
 
-## 7. First run
+## 8. First run
 
 1. Add the bot to your Telegram group.
 2. Find the group's chat id and add it to `ALLOWED_TELEGRAM_CHAT_IDS`. There is no
@@ -194,7 +246,7 @@ uv run kb delete-webhook
 
 ---
 
-## 8. Verifying a deploy
+## 9. Verifying a deploy
 
 ```bash
 make test-all     # code, offline

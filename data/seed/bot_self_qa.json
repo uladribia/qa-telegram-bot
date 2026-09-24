@@ -134,5 +134,21 @@
     "answer": "El grup ha d'estar autoritzat per l'admin i registrat amb un espai lògic. Si el grup només apareix a la llista d'autorització però no està registrat, el bot no hi respon. Pregunta a l'admin que confirmi el registre del grup abans de provar-lo.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/setup.md",
+    "section": "Runtime local",
+    "question": "Es pot fer funcionar sense Cloudflare?",
+    "answer": "Sí. El runtime local canónico usa SQLite, NumPy i Ollama dins de Docker. Cal executar 'cp .env.local.example .env.local' i 'make dev-bootstrap'; després el servei local exposa el port 8000 i no necessita cap compte ni credencial de Cloudflare. El runtime de producció continua sent el Worker amb D1, Vectorize i Workers AI.",
+    "status": "published",
+    "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/operations.md",
+    "section": "Runtime local",
+    "question": "On es desen els vectors en local?",
+    "answer": "Els vectors locals són una projecció derivada, no la font de veritat. Es desen a la taula local_vectors dins del volum Docker knowledge-bot-data i es poden reconstruir des de les dades SQL. Les migracions locals són idempotents i els models Ollama viuen en un volum separat.",
+    "status": "published",
+    "retrieved_at": "2026-09-24T00:00:00Z"
   }
 ]

@@ -4,6 +4,38 @@ Keeping the bot alive, cheap, and honest.
 
 ---
 
+## Local runtime operations
+
+The canonical local runtime uses SQLite, a local `local_vectors` NumPy
+projection, and one pinned Ollama container. It has no Cloudflare quota and does
+not call Workers AI.
+
+```bash
+make dev-bootstrap                 # first-time setup and model pull
+make dev-up                         # start/reuse local services
+make dev-logs                       # follow app logs
+curl -s http://localhost:8000/healthz
+curl -s http://localhost:8000/readyz
+make dev-down                       # stop containers, preserve volumes
+```
+
+`readyz` checks the SQLite connection, the `local_vectors` table, Ollama
+readiness, and the two configured model names without running inference.
+`make dev-migrate` is idempotent and records applied filenames in
+`schema_migrations`. SQLite data is stored in the `knowledge-bot-data` volume;
+Ollama models are stored separately in `knowledge-bot-ollama-data`.
+
+Destructive reset:
+
+```bash
+make dev-reset CONFIRM=1           # removes only the SQLite volume
+```
+
+`make test-e2e-local` is the only standard target that calls Ollama. Never run
+it as part of the ordinary fast or integration test tiers.
+
+---
+
 ## The AI quota guard
 
 The single most important thing to understand. Workers AI on the free plan allows
@@ -156,7 +188,9 @@ prompts. Log lengths, hashes, counts, similarities, model names and decisions.
 
 ```bash
 curl -s https://<worker>.workers.dev/healthz      # {"status":"ok"}
-make smoke                                        # Docker build + boot + /healthz
+make smoke                                        # Cloudflare Docker build + boot + /healthz
+curl -s http://localhost:8000/healthz             # local liveness
+curl -s http://localhost:8000/readyz              # local dependency readiness
 ```
 
 `/healthz` proves the Worker boots. It does **not** prove D1, Vectorize or the AI

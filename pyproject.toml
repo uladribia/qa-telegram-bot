@@ -29,6 +29,12 @@ dev = [
   "workers-py>=1.17.3",
   "workers-runtime-sdk>=1.9.0",
 ]
+local = [
+    "aiosqlite>=0.22.0",
+    "httpx>=0.28.1",
+    "numpy>=2.3.0",
+    "uvicorn>=0.40.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.0,<1.0"]
@@ -115,4 +121,5 @@ markers = [
   "architecture: import-boundary checks (fast)",
   "integration: in-process flows with in-memory fakes",
   "smoke: Worker/Docker runtime checks (slow, milestone boundaries)",
+  "e2e_local: explicit tests that call the local Ollama service",
 ]
