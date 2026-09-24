@@ -243,6 +243,11 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         """Report Worker liveness."""
         return {"status": "ok"}
 
+    @app.get("/readyz")
+    async def readyz() -> dict[str, str]:
+        """Report Worker readiness without consuming AI quota."""
+        return {"status": "ok"}
+
     register_telegram_routes(app, resolve_context, _handle_telegram_update)
 
     @app.post("/internal/eval/answer")
