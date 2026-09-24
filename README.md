@@ -23,6 +23,7 @@ fallback exists anywhere in the code.
 | [docs/operations.md](docs/operations.md) | Quota, logs, troubleshooting, routine maintenance |
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
 | [docs/session-handoff.md](docs/session-handoff.md) | Current v2 state and next-session starting point |
+| [docs/telegram-e2e.md](docs/telegram-e2e.md) | Manual Telegram acceptance flow |
 | [AGENTS.md](AGENTS.md) | How to write code here |
 | [instructions/](instructions/) | The binding implementation plan and current status |
 

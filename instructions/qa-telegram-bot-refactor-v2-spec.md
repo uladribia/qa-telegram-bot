@@ -4290,7 +4290,7 @@ The refactor is complete only when all of these are true.
 - [x] README points to the local-first workflow.
 - [x] Local setup is documented and exercised.
 - [x] Cloudflare setup is documented.
-- [ ] Telegram E2E guide exists; generic API/local E2E is currently documented instead.
+- [x] Telegram E2E guide exists in `docs/telegram-e2e.md`; execution still requires credentials.
 - [x] AGENTS forbids unapproved Cloudflare live work.
 - [x] Deprecated plan points to the binding v2 plan and has a current status notice.
 - [x] Bot self-Q&A reflects implemented v2 behavior.
