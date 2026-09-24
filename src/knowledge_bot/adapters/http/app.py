@@ -14,10 +14,10 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
     TELEGRAM_RUNTIME_SOURCE_ID,
-    is_valid_webhook_secret,
     normalize_callback,
     normalize_message,
 )
+from knowledge_bot.adapters.telegram.routes import register_telegram_routes
 from knowledge_bot.application.classifier import QUESTION, IntentScores
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
@@ -142,6 +142,27 @@ async def _deliver_review(
             )
 
 
+async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
+    """Normalize one Telegram update and dispatch its channel flow."""
+    callback = normalize_callback(update)
+    if callback is not None:
+        return await _handle_callback(
+            context,
+            callback.callback_id,
+            callback.data,
+            callback.sender_chat_id,
+            callback.sender_name,
+            callback.conversation_id,
+        )
+    message = normalize_message(update, context.identity)
+    if message is None:
+        return "ignored"
+    message = await _resolve_message_space(context, message)
+    if message is None:
+        return "ignored"
+    return await _handle_message(context, message)
+
+
 def create_app(resolve_context: ContextResolver) -> FastAPI:
     """Build the FastAPI application.
 
@@ -160,38 +181,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         """Report Worker liveness."""
         return {"status": "ok"}
 
-    @app.post("/telegram/webhook")
-    async def telegram_webhook(
-        request: Request,
-        secret: Annotated[
-            str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
-        ] = None,
-    ) -> dict[str, str]:
-        """Receive Telegram updates and route them to the right flow."""
-        context = resolve_context(request)
-        if not is_valid_webhook_secret(
-            secret, context.settings.telegram_webhook_secret
-        ):
-            raise HTTPException(status_code=401, detail="invalid secret")
-        update = TelegramUpdate.model_validate(await request.json())
-        callback = normalize_callback(update)
-        if callback is not None:
-            status = await _handle_callback(
-                context,
-                callback.callback_id,
-                callback.data,
-                callback.sender_chat_id,
-                callback.sender_name,
-                callback.conversation_id,
-            )
-            return {"status": status}
-        message = normalize_message(update, context.identity)
-        if message is None:
-            return {"status": "ignored"}
-        message = await _resolve_message_space(context, message)
-        if message is None:
-            return {"status": "ignored"}
-        return {"status": await _handle_message(context, message)}
+    register_telegram_routes(app, resolve_context, _handle_telegram_update)
 
     @app.post("/internal/eval/answer")
     async def internal_eval_answer(

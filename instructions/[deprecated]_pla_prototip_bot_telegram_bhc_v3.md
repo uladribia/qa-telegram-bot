@@ -21,8 +21,9 @@
 > models Pydantic dedicats abors d'arribar a l'aplicació. L'aplicació HTTP
 > principal viu al paquet `adapters/http`, els fluxos genèrics `/v1/*` no
 > depenen de Telegram, els lliuraments/interaccions són durables i el resum
-> diari usa el handler programat del Worker. El finishiment de la separació
-> física de rutes i dels transports genèrics continua en curs.
+> diari usa el handler programat del Worker. La generació, feedback, revisió,
+> lliurament i correlació d'interaccions tenen rutes i estat durables. La
+> separació física completa de rutes continua com a millora estructural.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

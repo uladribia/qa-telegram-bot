@@ -16,7 +16,7 @@ src/knowledge_bot/
 ├── ports/           Protocol interfaces (repositories, vector store, embedder,
 │                    generator, transport, clock, budget)
 ├── contracts/       Pydantic DTOs at external boundaries
-├── adapters/        http/ (FastAPI app and generic routes), inbound/ (importers, Telegram), outbound/ (Telegram)
+├── adapters/        http/ (FastAPI app and generic routes), telegram/ (webhook adapter), inbound/ (importers), outbound/ (Telegram)
 ├── infrastructure/  concrete externals (D1, Vectorize, Workers AI, settings, logs)
 ├── entry.py         Worker entrypoint
 └── cli.py           Typer CLI
