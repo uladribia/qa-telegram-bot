@@ -308,6 +308,7 @@ npx wrangler d1 execute knowledge-bot --remote --yes --json \
 
 ## What is deliberately absent
 
-No paid fallback, no alternative model provider, no queue, no auth layer, no web
-frontend, no media processing, no scheduled cron. If a fix seems to need one of
-these, stop and read the plan first.
+No paid fallback, no alternative model provider, no queue, no web frontend, and
+no media processing. The only scheduled job is the deterministic daily report;
+live evals and reindexing are never scheduled. If a fix seems to need another
+service or recurring paid work, stop and read the plan first.

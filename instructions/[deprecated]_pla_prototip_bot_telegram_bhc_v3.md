@@ -17,8 +17,13 @@
 > missatges ajornats tenen un processador explícit i limitat. Les autoritzacions
 > de revisió apliquen l'abast al servidor i els revisors locals no poden
 > aprovar globalment. La decisió de correcció commits atòmicament a SQL i
-> després refresca la projecció derivada. La resta de la refactorització
-> continua en curs.
+> després refresca la projecció derivada. Els cossos JSON operatius ja passen per
+> models Pydantic dedicats abors d'arribar a l'aplicació. L'aplicació HTTP
+> principal viu al paquet `adapters/http`, els fluxos genèrics `/v1/*` no
+> depenen de Telegram, els lliuraments/interaccions són durables i el resum
+> diari usa el handler programat del Worker. La generació, feedback, revisió,
+> lliurament i correlació d'interaccions tenen rutes i estat durables. La
+> separació física completa de rutes continua com a millora estructural.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 

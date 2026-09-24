@@ -13,6 +13,7 @@ from knowledge_bot.domain.entities import (
     BotAnswer,
     ChannelBinding,
     Conversation,
+    DeliveryReceipt,
     Feedback,
     Message,
     QAEvidence,
@@ -22,6 +23,7 @@ from knowledge_bot.domain.entities import (
     ReviewerEvent,
     Source,
     Space,
+    TelegramInteraction,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
 
@@ -203,8 +205,46 @@ class BotAnswerRepository(Protocol):
         """Return a bot answer by id, if present."""
         ...
 
+    async def get_by_request_id(self, request_id: str) -> BotAnswer | None:
+        """Return the answer previously created for an idempotency key."""
+        ...
+
     async def list_between(self, start: datetime, end: datetime) -> list[BotAnswer]:
         """Return the answers created in ``[start, end)``."""
+        ...
+
+
+@runtime_checkable
+class DeliveryReceiptRepository(Protocol):
+    """Persistence for idempotent channel delivery."""
+
+    async def get(
+        self, object_type: str, object_id: str, channel: str
+    ) -> DeliveryReceipt | None:
+        """Return a prior successful delivery, if present."""
+        ...
+
+    async def add(self, receipt: DeliveryReceipt) -> None:
+        """Persist one successful delivery."""
+        ...
+
+
+@runtime_checkable
+class TelegramInteractionRepository(Protocol):
+    """Persistence for connector reply interactions."""
+
+    async def get(self, external_message_id: str) -> TelegramInteraction | None:
+        """Return an interaction by prompt message id."""
+        ...
+
+    async def add(self, interaction: TelegramInteraction) -> None:
+        """Persist one prompt interaction."""
+        ...
+
+    async def consume(
+        self, external_message_id: str, consumed_at: datetime
+    ) -> TelegramInteraction | None:
+        """Atomically return and consume one unused interaction."""
         ...
 
 
@@ -285,6 +325,19 @@ class ReviewerEventRepository(Protocol):
 
     async def mark_reported(self, feedback_ids: list[str]) -> None:
         """Mark the events of these feedback ids as reported."""
+        ...
+
+
+@runtime_checkable
+class DailyReportStateRepository(Protocol):
+    """Persistence for the last successful scheduled daily report."""
+
+    async def get(self, key: str) -> datetime | None:
+        """Return the last successful send time for a report key."""
+        ...
+
+    async def set(self, key: str, sent_at: datetime) -> None:
+        """Record a successful report send."""
         ...
 
 

@@ -16,6 +16,7 @@ from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
     Conversation,
+    DeliveryReceipt,
     Feedback,
     Message,
     QAEvidence,
@@ -23,6 +24,7 @@ from knowledge_bot.domain.entities import (
     QAVersion,
     Source,
     Space,
+    TelegramInteraction,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
@@ -38,6 +40,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ChannelBindingRepository,
     D1ConversationRepository,
     D1CorrectionCommitStore,
+    D1DeliveryReceiptRepository,
     D1FeedbackRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -47,6 +50,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SearchProjectionRepository,
     D1SourceRepository,
     D1SpaceRepository,
+    D1TelegramInteractionRepository,
 )
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
@@ -157,6 +161,35 @@ async def test_conversation_round_trip() -> None:
     assert loaded is not None
     assert loaded.source_id == "telegram"
     assert loaded.space_id == space_id
+
+
+async def test_delivery_receipts_and_interactions_are_durable() -> None:
+    """Delivery and prompt correlation survive SQL repository reconstruction."""
+    database = FakeD1Database()
+    receipts = D1DeliveryReceiptRepository(database)
+    interactions = D1TelegramInteractionRepository(database)
+    receipt = DeliveryReceipt(
+        id="delivery-1",
+        object_type="answer",
+        object_id="ans-1",
+        channel="telegram",
+        external_conversation_id="-100",
+        external_message_id="10",
+        created_at=NOW,
+    )
+    await receipts.add(receipt)
+    assert await receipts.get("answer", "ans-1", "telegram") == receipt
+    interaction = TelegramInteraction(
+        external_message_id="20",
+        interaction_type="feedback_proposal",
+        object_id="fb-1",
+        principal_id="telegram:1",
+        created_at=NOW,
+    )
+    await interactions.add(interaction)
+    consumed = await interactions.consume("20", NOW)
+    assert consumed is not None and consumed.object_id == "fb-1"
+    assert await interactions.consume("20", NOW) is None
 
 
 async def test_correction_commit_rolls_back_every_sql_write() -> None:
@@ -358,6 +391,7 @@ async def test_bot_answers_window_query() -> None:
                 id=answer_id,
                 conversation_id="-100",
                 space_id=space_id,
+                request_id=f"request-{answer_id}",
                 question=f"q{index}",
                 answer="a",
                 answer_mode=AnswerMode.DIRECT_QA,
@@ -367,6 +401,8 @@ async def test_bot_answers_window_query() -> None:
     window = await answers.list_between(NOW, NOW + timedelta(minutes=90))
     assert [answer.id for answer in window] == ["a1", "a2"]
     assert all(answer.space_id == space_id for answer in window)
+    by_request = await answers.get_by_request_id("request-a1")
+    assert by_request is not None and by_request.id == "a1"
 
 
 async def test_recap_state_upsert() -> None:

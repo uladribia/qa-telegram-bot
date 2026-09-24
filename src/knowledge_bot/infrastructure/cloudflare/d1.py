@@ -15,6 +15,7 @@ from knowledge_bot.domain.entities import (
     BotAnswer,
     ChannelBinding,
     Conversation,
+    DeliveryReceipt,
     Feedback,
     Message,
     QAEvidence,
@@ -24,6 +25,7 @@ from knowledge_bot.domain.entities import (
     ReviewerEvent,
     Source,
     Space,
+    TelegramInteraction,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
@@ -163,6 +165,135 @@ def _sender_label(sender_name: object, sender_hash: object) -> str | None:
     if sender_hash:
         return f"\u00b7{str(sender_hash)[:6]}"
     return None
+
+
+class D1DeliveryReceiptRepository:
+    """D1 implementation of idempotent delivery receipts."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(
+        self, object_type: str, object_id: str, channel: str
+    ) -> DeliveryReceipt | None:
+        """Return a prior successful delivery."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM delivery_receipts"
+                " WHERE object_type = ? AND object_id = ? AND channel = ?"
+            )
+            .bind(object_type, object_id, channel)
+            .first()
+        )
+        return _delivery_receipt(row) if row is not None else None
+
+    async def add(self, receipt: DeliveryReceipt) -> None:
+        """Persist one successful delivery."""
+        await (
+            self._db.prepare(
+                "INSERT INTO delivery_receipts"
+                " (id, object_type, object_id, channel, external_conversation_id,"
+                " external_message_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                receipt.id,
+                receipt.object_type,
+                receipt.object_id,
+                receipt.channel,
+                receipt.external_conversation_id,
+                receipt.external_message_id,
+                _iso(receipt.created_at),
+            )
+            .run()
+        )
+
+
+class D1TelegramInteractionRepository:
+    """D1 implementation of durable Telegram interactions."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(self, external_message_id: str) -> TelegramInteraction | None:
+        """Return an interaction by prompt message id."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM telegram_interactions WHERE external_message_id = ?"
+            )
+            .bind(external_message_id)
+            .first()
+        )
+        return _telegram_interaction(row) if row is not None else None
+
+    async def add(self, interaction: TelegramInteraction) -> None:
+        """Persist one prompt interaction."""
+        await (
+            self._db.prepare(
+                "INSERT INTO telegram_interactions"
+                " (external_message_id, interaction_type, object_id, principal_id,"
+                " created_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?)"
+            )
+            .bind(
+                interaction.external_message_id,
+                interaction.interaction_type,
+                interaction.object_id,
+                interaction.principal_id,
+                _iso(interaction.created_at),
+                _iso(interaction.consumed_at)
+                if interaction.consumed_at is not None
+                else None,
+            )
+            .run()
+        )
+
+    async def consume(
+        self, external_message_id: str, consumed_at: datetime
+    ) -> TelegramInteraction | None:
+        """Atomically return and consume one unused interaction."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM telegram_interactions"
+                " WHERE external_message_id = ? AND consumed_at IS NULL"
+            )
+            .bind(external_message_id)
+            .first()
+        )
+        if row is None:
+            return None
+        await (
+            self._db.prepare(
+                "UPDATE telegram_interactions SET consumed_at = ?"
+                " WHERE external_message_id = ? AND consumed_at IS NULL"
+            )
+            .bind(_iso(consumed_at), external_message_id)
+            .run()
+        )
+        return _telegram_interaction(row)
+
+
+def _delivery_receipt(row: dict[str, object]) -> DeliveryReceipt:
+    return DeliveryReceipt(
+        id=str(row["id"]),
+        object_type=str(row["object_type"]),
+        object_id=str(row["object_id"]),
+        channel=str(row["channel"]),
+        external_conversation_id=str(row["external_conversation_id"]),
+        external_message_id=str(row["external_message_id"]),
+        created_at=_dt(row["created_at"]),
+    )
+
+
+def _telegram_interaction(row: dict[str, object]) -> TelegramInteraction:
+    return TelegramInteraction(
+        external_message_id=str(row["external_message_id"]),
+        interaction_type=str(row["interaction_type"]),
+        object_id=str(row["object_id"]),
+        principal_id=_opt_str(row["principal_id"]),
+        created_at=_dt(row["created_at"]),
+        consumed_at=_opt_dt(row["consumed_at"]),
+    )
 
 
 class D1SpaceRepository:
@@ -599,8 +730,8 @@ class D1BotAnswerRepository:
                 "INSERT INTO bot_answers"
                 " (id, conversation_id, space_id, user_message_id,"
                 " telegram_bot_message_id, question, answer, answer_mode, confidence,"
-                " qa_version_id, sources_json, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " qa_version_id, sources_json, created_at, request_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 answer.id,
@@ -615,6 +746,7 @@ class D1BotAnswerRepository:
                 answer.qa_version_id,
                 answer.sources_json,
                 _iso(answer.created_at),
+                answer.request_id,
             )
             .run()
         )
@@ -624,6 +756,15 @@ class D1BotAnswerRepository:
         row = _row(
             await self._db.prepare("SELECT * FROM bot_answers WHERE id = ?")
             .bind(answer_id)
+            .first()
+        )
+        return _bot_answer(row) if row is not None else None
+
+    async def get_by_request_id(self, request_id: str) -> BotAnswer | None:
+        """Return the answer previously created for an idempotency key."""
+        row = _row(
+            await self._db.prepare("SELECT * FROM bot_answers WHERE request_id = ?")
+            .bind(request_id)
             .first()
         )
         return _bot_answer(row) if row is not None else None
@@ -740,6 +881,7 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
         created_at=_dt(row["created_at"]),
         user_message_id=_opt_str(row["user_message_id"]),
         telegram_bot_message_id=_opt_str(row["telegram_bot_message_id"]),
+        request_id=_opt_str(row.get("request_id")),
         confidence=float(cast(float, row["confidence"]))
         if row["confidence"] is not None
         else None,
@@ -1519,6 +1661,36 @@ def _reviewer_event(row: dict[str, object]) -> ReviewerEvent:
         approval_scope=_opt_str(row["approval_scope"]),
         reported=bool(row["reported"]),
     )
+
+
+class D1DailyReportStateRepository:
+    """D1 implementation of daily report send state."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(self, key: str) -> datetime | None:
+        """Return the last successful report time."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT last_sent_at FROM daily_report_state WHERE key = ?"
+            )
+            .bind(key)
+            .first()
+        )
+        return _opt_dt(row["last_sent_at"]) if row is not None else None
+
+    async def set(self, key: str, sent_at: datetime) -> None:
+        """Record a successful report time."""
+        await (
+            self._db.prepare(
+                "INSERT INTO daily_report_state (key, last_sent_at) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET last_sent_at = excluded.last_sent_at"
+            )
+            .bind(key, _iso(sent_at))
+            .run()
+        )
 
 
 class D1ReportStateRepository:

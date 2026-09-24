@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.adapters.outbound.telegram import FEEDBACK_BUTTON
 from knowledge_bot.application.feedback import (
     PROPOSAL_ACK,
@@ -122,6 +122,24 @@ def test_proposal_goes_to_the_admin_dm_and_acks_the_reporter() -> None:
     admin_reviews = [text for chat, text, _ in transport.reviews if chat == "1"]
     assert any("Correcci\u00f3 proposada" in text for text in admin_reviews)
     assert transport.review_global_access["1"] is True
+
+
+def test_consumed_proposal_interaction_cannot_be_reused() -> None:
+    """A reply prompt is durable for one interaction only."""
+    context, _ = build_test_context()
+    asyncio.run(_seed_answer(context))
+    client = _client(context)
+    client.post(
+        "/telegram/webhook",
+        json=_callback("feedback:start:ans:-100:10"),
+        headers=SECRET_HEADER,
+    )
+    payload = _reply("Resposta nova.", reply_to=1)
+    first = client.post("/telegram/webhook", json=payload, headers=SECRET_HEADER)
+    second = client.post("/telegram/webhook", json=payload, headers=SECRET_HEADER)
+
+    assert first.json() == {"status": "proposed"}
+    assert second.json() == {"status": "ignored"}
 
 
 def test_approve_creates_a_version_and_thanks_the_reporter() -> None:

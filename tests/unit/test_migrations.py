@@ -25,6 +25,9 @@ EXPECTED_TABLES = {
     "reviewer_events",
     "report_state",
     "search_projection",
+    "delivery_receipts",
+    "telegram_interactions",
+    "daily_report_state",
 }
 
 

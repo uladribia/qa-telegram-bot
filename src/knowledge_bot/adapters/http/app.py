@@ -6,18 +6,18 @@ so the app resolves its context through a callable rather than at import time.
 """
 
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 
+from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
     TELEGRAM_RUNTIME_SOURCE_ID,
-    is_valid_webhook_secret,
     normalize_callback,
     normalize_message,
 )
+from knowledge_bot.adapters.telegram.routes import register_telegram_routes
 from knowledge_bot.application.classifier import QUESTION, IntentScores
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
@@ -36,10 +36,18 @@ from knowledge_bot.application.reviewers import (
     parse_reviewer_command,
     render_reviewer_list,
 )
+from knowledge_bot.contracts.api import (
+    BackgroundBacklogRequest,
+    DailyReportRequest,
+    EvalAnswerRequest,
+    RegisterGroupRequest,
+    ReindexRequest,
+    RevertRequest,
+    SeedRequest,
+)
 from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.contracts.telegram import TelegramUpdate
-from knowledge_bot.domain.entities import ReviewerEvent
+from knowledge_bot.domain.entities import ReviewerEvent, TelegramInteraction
 from knowledge_bot.domain.enums import (
     AiWorkClass,
     AnswerMode,
@@ -48,6 +56,7 @@ from knowledge_bot.domain.enums import (
     ReviewAction,
 )
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
@@ -60,6 +69,13 @@ REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
 
 # Longest parent question text stored on a matched pair reply.
 _MAX_LISTENER_QUESTION_CHARS = 500
+_EMPTY_EVAL_BODY = Body(default_factory=EvalAnswerRequest)
+_EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
+_EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
+_EMPTY_SEED_BODY = Body(default_factory=SeedRequest)
+_EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
+_EMPTY_GROUP_BODY = Body(default_factory=RegisterGroupRequest)
+_EMPTY_DAILY_REPORT_BODY = Body(default_factory=DailyReportRequest)
 
 
 def _reviewer_confirmed(scope: str, name: str) -> str:
@@ -126,6 +142,27 @@ async def _deliver_review(
             )
 
 
+async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
+    """Normalize one Telegram update and dispatch its channel flow."""
+    callback = normalize_callback(update)
+    if callback is not None:
+        return await _handle_callback(
+            context,
+            callback.callback_id,
+            callback.data,
+            callback.sender_chat_id,
+            callback.sender_name,
+            callback.conversation_id,
+        )
+    message = normalize_message(update, context.identity)
+    if message is None:
+        return "ignored"
+    message = await _resolve_message_space(context, message)
+    if message is None:
+        return "ignored"
+    return await _handle_message(context, message)
+
+
 def create_app(resolve_context: ContextResolver) -> FastAPI:
     """Build the FastAPI application.
 
@@ -137,48 +174,19 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     """
     configure_logging()
     app = FastAPI(title="knowledge-bot")
+    app.include_router(build_api_router(resolve_context))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         """Report Worker liveness."""
         return {"status": "ok"}
 
-    @app.post("/telegram/webhook")
-    async def telegram_webhook(
-        request: Request,
-        secret: Annotated[
-            str | None, Header(alias="X-Telegram-Bot-Api-Secret-Token")
-        ] = None,
-    ) -> dict[str, str]:
-        """Receive Telegram updates and route them to the right flow."""
-        context = resolve_context(request)
-        if not is_valid_webhook_secret(
-            secret, context.settings.telegram_webhook_secret
-        ):
-            raise HTTPException(status_code=401, detail="invalid secret")
-        update = TelegramUpdate.model_validate(await request.json())
-        callback = normalize_callback(update)
-        if callback is not None:
-            status = await _handle_callback(
-                context,
-                callback.callback_id,
-                callback.data,
-                callback.sender_chat_id,
-                callback.sender_name,
-                callback.conversation_id,
-            )
-            return {"status": status}
-        message = normalize_message(update, context.identity)
-        if message is None:
-            return {"status": "ignored"}
-        message = await _resolve_message_space(context, message)
-        if message is None:
-            return {"status": "ignored"}
-        return {"status": await _handle_message(context, message)}
+    register_telegram_routes(app, resolve_context, _handle_telegram_update)
 
     @app.post("/internal/eval/answer")
     async def internal_eval_answer(
         request: Request,
+        body: EvalAnswerRequest = _EMPTY_EVAL_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
@@ -190,9 +198,10 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        if not body.question:
+            raise HTTPException(status_code=422, detail="question required")
         await _require_evaluation_budget(context)
-        payload = await request.json()
-        question = str(payload.get("question", ""))
+        question = body.question
         try:
             preview = await context.answer.dry_run(question)
         except ModelUnavailableError:
@@ -239,6 +248,19 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         sent = await context.recap.maybe_send()
         return {"status": "sent" if sent else "skipped"}
 
+    @app.post("/internal/jobs/daily-report")
+    async def internal_daily_report(
+        request: Request,
+        body: DailyReportRequest = _EMPTY_DAILY_REPORT_BODY,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, str]:
+        """Run the same deterministic report job as the scheduled handler."""
+        context = resolve_context(request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        sent = await context.daily_report.run(force=body.force)
+        return {"status": "sent" if sent else "skipped"}
+
     @app.post("/internal/report")
     async def internal_report(
         request: Request,
@@ -254,6 +276,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/revert")
     async def internal_revert(
         request: Request,
+        body: RevertRequest = _EMPTY_REVERT_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Revert a Q&A item to the version its current one superseded.
@@ -263,11 +286,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        qa_item_id = (
-            str(payload.get("qa_item_id", "")) if isinstance(payload, dict) else ""
-        )
-        restored = await context.reverter.revert(qa_item_id)
+        if not body.qa_item_id:
+            raise HTTPException(status_code=422, detail="qa_item_id required")
+        restored = await context.reverter.revert(body.qa_item_id)
         if restored is None:
             raise HTTPException(status_code=404, detail="nothing to revert")
         await context.reindex.reindex_qa_version(restored.id)
@@ -276,6 +297,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/reindex")
     async def internal_reindex(
         request: Request,
+        body: ReindexRequest = _EMPTY_REINDEX_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, object]:
         """Rebuild part of the derived vector store from D1.
@@ -287,15 +309,13 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        payload = await request.json()
-        body = payload if isinstance(payload, dict) else {}
-        if not body:
+        if not body.model_fields_set:
             report = await context.reindex.rebuild()
         else:
             report = await context.reindex.reindex(
-                qa_after=body.get("qa_after"),
-                msg_after=body.get("msg_after"),
-                limit=int(body["limit"]) if body.get("limit") is not None else None,
+                qa_after=body.qa_after,
+                msg_after=body.msg_after,
+                limit=body.limit,
             )
         return {
             "qa": report.qa,
@@ -327,32 +347,21 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/seed")
     async def internal_seed(
         request: Request,
+        body: SeedRequest = _EMPTY_SEED_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Seed Q&A entries and imported messages into D1."""
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail="invalid payload")
-        qa_entries = [SeedQA.model_validate(item) for item in payload.get("qa") or []]
-        messages = [
-            NormalizedMessage.model_validate(item)
-            for item in payload.get("messages") or []
-        ]
-        scope = payload.get("scope")
-        if not isinstance(scope, str) or not scope.strip():
-            scope = "global"
-        renew = bool(payload.get("renew", False))
         created, skipped, renewed, diverged, version_ids = await context.seed.seed_qa(
-            qa_entries, scope, renew
+            body.qa, body.scope, body.renew
         )
         indexed = 0
         for version_id in version_ids:
             if await context.reindex.reindex_qa_version(version_id):
                 indexed += 1
-        message_count = await context.seed.seed_messages(messages, scope)
+        message_count = await context.seed.seed_messages(body.messages, body.scope)
         return {
             "qa": created,
             "qa_skipped": skipped,
@@ -365,6 +374,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     @app.post("/internal/background/process-backlog")
     async def internal_process_background_backlog(
         request: Request,
+        body: BackgroundBacklogRequest = _EMPTY_BACKLOG_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, int]:
         """Process a bounded batch of budget-deferred background messages."""
@@ -373,37 +383,27 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
             raise HTTPException(status_code=429, detail="maintenance budget exhausted")
-        payload = await request.json()
-        limit = int(payload.get("limit", 100)) if isinstance(payload, dict) else 100
-        processed = await context.background_indexer.process_backlog(
-            max(1, min(limit, 1000))
-        )
+        processed = await context.background_indexer.process_backlog(body.limit)
         return {"processed": processed}
 
     @app.post("/internal/groups")
     async def internal_groups(
         request: Request,
+        body: RegisterGroupRequest = _EMPTY_GROUP_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
     ) -> dict[str, str]:
         """Register a served Telegram group (idempotent)."""
         context = resolve_context(request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
-        payload = await request.json()
-        if not isinstance(payload, dict) or not str(payload.get("chat_id", "")).strip():
-            raise HTTPException(status_code=400, detail="chat_id required")
-        title = payload.get("title")
+        if not body.chat_id:
+            raise HTTPException(status_code=422, detail="chat_id required")
         space_id = await context.spaces.bind(
             channel="telegram",
-            external_conversation_id=str(payload["chat_id"]).strip(),
-            conversation_id=str(payload["chat_id"]).strip(),
-            space_id=str(payload["space_id"]).strip()
-            if isinstance(payload.get("space_id"), str)
-            and str(payload["space_id"]).strip()
-            else None,
-            title=str(title).strip()
-            if isinstance(title, str) and title.strip()
-            else None,
+            external_conversation_id=body.chat_id,
+            conversation_id=body.chat_id,
+            space_id=body.space_id,
+            title=body.title,
             source_id=TELEGRAM_RUNTIME_SOURCE_ID,
             source_kind="telegram",
             source_authority=40,
@@ -524,8 +524,6 @@ async def _handle_background_message(
     )
     if result.created:
         await context.background_indexer.process(message.id, classification.embedding)
-    await context.recap.maybe_send()
-    await context.reviewer_report.maybe_send()
     return "ingest_pair" if context_question is not None else "ingest"
 
 
@@ -588,8 +586,6 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     result = await context.ingestor.ingest(message)
     if action is IntakeAction.ANSWER and result.created:
         await context.answer.answer(message)
-    await context.recap.maybe_send()
-    await context.reviewer_report.maybe_send()
     return "answer" if action is IntakeAction.ANSWER else "ingest"
     return action.value
 
@@ -662,9 +658,8 @@ async def _is_known_correction_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None:
         return False
-    if await context.feedback_repo.find_by_proposal_prompt(reply_to) is not None:
-        return True
-    return await context.feedback_repo.find_by_edit_prompt(reply_to) is not None
+    interaction = await context.telegram_interactions.get(reply_to)
+    return interaction is not None and interaction.consumed_at is None
 
 
 async def _handle_feedback_reply(
@@ -674,8 +669,18 @@ async def _handle_feedback_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None or message.text is None:
         return None
-    feedback = await context.feedback_repo.find_by_edit_prompt(reply_to)
-    if feedback is not None:
+    interaction = await context.telegram_interactions.consume(
+        reply_to, context.clock.now()
+    )
+    if interaction is None:
+        return None
+    if (
+        interaction.principal_id is not None
+        and interaction.principal_id != message.principal_id
+    ):
+        return None
+    feedback = await context.feedback_repo.get(interaction.object_id)
+    if feedback is not None and interaction.interaction_type == "review_edit":
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
             message.sender_user_id,
@@ -696,8 +701,7 @@ async def _handle_feedback_reply(
                 review.origin_conversation_id,
             )
         return "reviewer_edited"
-    feedback = await context.feedback_repo.find_by_proposal_prompt(reply_to)
-    if feedback is None:
+    if feedback is None or interaction.interaction_type != "feedback_proposal":
         return None
     proposed = await context.feedback.propose(
         feedback.id, message.text, message.sender_name
@@ -744,12 +748,15 @@ async def _handle_callback(
     """
     action = callback_action(data)
     target = callback_target(data)
-    if action is None or target is None:
+    if action is None or target is None or reporter_chat_id is None:
         return "ignored"
     if action == "start":
         # Proposing a correction is open to any group user.
         feedback = await context.feedback.start(
-            target, None, reporter_chat_id, reporter_name
+            target,
+            principal_id("telegram", reporter_chat_id),
+            reporter_chat_id,
+            reporter_name,
         )
         if feedback is None:
             return "ignored"
@@ -762,8 +769,14 @@ async def _handle_callback(
             ),
         )
         if prompt_id is not None:
-            await context.feedback_repo.save(
-                replace(feedback, proposal_prompt_message_id=prompt_id)
+            await context.telegram_interactions.add(
+                TelegramInteraction(
+                    external_message_id=prompt_id,
+                    interaction_type="feedback_proposal",
+                    object_id=feedback.id,
+                    principal_id=principal_id("telegram", reporter_chat_id),
+                    created_at=context.clock.now(),
+                )
             )
             await context.transport.answer_callback(callback_id)
             return "feedback_started"
@@ -833,11 +846,15 @@ async def _handle_callback(
             reporter_chat_id or "", prompt
         )
         if prompt_id is not None:
-            feedback = await context.feedback_repo.get(target)
-            if feedback is not None:
-                await context.feedback_repo.save(
-                    replace(feedback, edit_prompt_message_id=prompt_id)
+            await context.telegram_interactions.add(
+                TelegramInteraction(
+                    external_message_id=prompt_id,
+                    interaction_type="review_edit",
+                    object_id=target,
+                    principal_id=principal_id("telegram", reporter_chat_id),
+                    created_at=context.clock.now(),
                 )
+            )
         await context.transport.answer_callback(callback_id)
         return "feedback_edit"
     if action == "reject":

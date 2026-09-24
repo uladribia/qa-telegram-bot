@@ -16,7 +16,10 @@ from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
-from tests.fakes.repositories import InMemoryBotAnswerRepository
+from tests.fakes.repositories import (
+    InMemoryBotAnswerRepository,
+    InMemoryDeliveryReceiptRepository,
+)
 from tests.fakes.support import FrozenClock, RecordingTransport
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -30,7 +33,9 @@ def _service(
         retrieval=RetrievalService(embedder=FakeEmbedder(), vectors=FakeVectorStore()),
         generator=generator,
         answers=InMemoryBotAnswerRepository(),
+        delivery_receipts=InMemoryDeliveryReceiptRepository(),
         transport=RecordingTransport(),
+        channel="test",
         clock=FrozenClock(NOW),
     )
     return service, generator
@@ -155,7 +160,9 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
         retrieval=RetrievalService(embedder=embedder, vectors=FakeVectorStore()),
         generator=service.generator,
         answers=service.answers,
+        delivery_receipts=service.delivery_receipts,
         transport=service.transport,
+        channel="test",
         clock=FrozenClock(NOW),
     )
     message = NormalizedMessage(

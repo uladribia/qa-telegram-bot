@@ -185,6 +185,31 @@ class ReviewerEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class DeliveryReceipt:
+    """One successful channel delivery of an application object."""
+
+    id: str
+    object_type: str
+    object_id: str
+    channel: str
+    external_conversation_id: str
+    external_message_id: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramInteraction:
+    """Durable correlation for a Telegram reply interaction."""
+
+    external_message_id: str
+    interaction_type: str
+    object_id: str
+    created_at: datetime
+    principal_id: str | None = None
+    consumed_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class QAEvidence:
     """A link between a Q&A version and a piece of evidence."""
 
@@ -206,6 +231,7 @@ class BotAnswer:
     space_id: str | None = None
     user_message_id: str | None = None
     telegram_bot_message_id: str | None = None
+    request_id: str | None = None
     confidence: float | None = None
     qa_version_id: str | None = None
     sources_json: str = "[]"

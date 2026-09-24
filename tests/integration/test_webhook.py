@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.domain.enums import IntentLabel

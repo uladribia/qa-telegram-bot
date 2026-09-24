@@ -8,6 +8,7 @@ from tests.fakes.repositories import (
     InMemoryBotAnswerRepository,
     InMemoryChannelBindingRepository,
     InMemoryConversationRepository,
+    InMemoryDeliveryReceiptRepository,
     InMemoryFeedbackRepository,
     InMemoryMessageRepository,
     InMemoryQAEvidenceRepository,
@@ -17,6 +18,7 @@ from tests.fakes.repositories import (
     InMemoryReviewerRepository,
     InMemorySourceRepository,
     InMemorySpaceRepository,
+    InMemoryTelegramInteractionRepository,
 )
 from tests.fakes.support import (
     InMemoryAiUsageRepository,
@@ -48,6 +50,12 @@ class InMemoryBackend:
     )
     feedback: InMemoryFeedbackRepository = field(
         default_factory=InMemoryFeedbackRepository
+    )
+    delivery_receipts: InMemoryDeliveryReceiptRepository = field(
+        default_factory=InMemoryDeliveryReceiptRepository
+    )
+    telegram_interactions: InMemoryTelegramInteractionRepository = field(
+        default_factory=InMemoryTelegramInteractionRepository
     )
     qa_items: InMemoryQAItemRepository = field(default_factory=InMemoryQAItemRepository)
     qa_versions: InMemoryQAVersionRepository = field(

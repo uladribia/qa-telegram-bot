@@ -126,6 +126,22 @@ class RecordingTransport:
         return
 
 
+class InMemoryDailyReportStateRepository:
+    """In-memory daily report send state."""
+
+    def __init__(self) -> None:
+        """Create empty state."""
+        self._last_sent: dict[str, datetime] = {}
+
+    async def get(self, key: str) -> datetime | None:
+        """Return the last successful report time."""
+        return self._last_sent.get(key)
+
+    async def set(self, key: str, sent_at: datetime) -> None:
+        """Record a successful report time."""
+        self._last_sent[key] = sent_at
+
+
 class InMemoryReportStateRepository:
     """In-memory implementation of ``ReportStateRepository``."""
 

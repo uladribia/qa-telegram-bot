@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from tests.fakes.context import build_test_context
 
 
@@ -48,7 +48,7 @@ def test_groups_endpoint_registers_a_group() -> None:
         client.post(
             "/internal/groups", headers=headers, json={"chat_id": ""}
         ).status_code
-        == 400
+        == 422
     )
     response = client.post(
         "/internal/groups",

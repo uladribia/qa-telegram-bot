@@ -17,8 +17,13 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
+from knowledge_bot.contracts.api import (
+    AnswerSource,
+    AskQuestionRequest,
+    AskQuestionResponse,
+)
 from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.domain.entities import BotAnswer
+from knowledge_bot.domain.entities import BotAnswer, DeliveryReceipt
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
@@ -27,7 +32,10 @@ from knowledge_bot.ports.generator import (
     GenerationRequest,
     Generator,
 )
-from knowledge_bot.ports.repositories import BotAnswerRepository
+from knowledge_bot.ports.repositories import (
+    BotAnswerRepository,
+    DeliveryReceiptRepository,
+)
 from knowledge_bot.ports.transport import MessageTransport
 
 ABSTENTION_TEXT = "No tinc prou informació fiable per respondre-ho."
@@ -99,6 +107,30 @@ def _render(answer: str, sources: list[Evidence]) -> str:
     return "\n".join(lines)
 
 
+def _api_response(record: BotAnswer, preview: "AnswerPreview") -> AskQuestionResponse:
+    """Convert an internal answer outcome to the channel-neutral API contract."""
+    cited_ids = set(preview.outcome.source_ids)
+    sources = [
+        AnswerSource(
+            source_id=item.source_id,
+            kind="qa" if item.qa_version_id is not None else "message",
+            label=item.label,
+            url=item.url,
+            author=item.author,
+            date=item.date,
+        )
+        for item in preview.evidence
+        if item.source_id in cited_ids
+    ]
+    return AskQuestionResponse(
+        answer_id=record.id,
+        mode=record.answer_mode,
+        answer=record.answer,
+        rendered_text=preview.outcome.text,
+        sources=sources,
+    )
+
+
 def _abstain() -> AnswerOutcome:
     return AnswerOutcome(
         answer=ABSTENTION_TEXT,
@@ -123,7 +155,9 @@ class AnswerService:
     retrieval: RetrievalService
     generator: Generator
     answers: BotAnswerRepository
+    delivery_receipts: DeliveryReceiptRepository
     transport: MessageTransport
+    channel: str
     clock: Clock
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
@@ -203,6 +237,59 @@ class AnswerService:
             text=_render(result.answer, cited),
         )
 
+    async def answer_request(self, request: AskQuestionRequest) -> AskQuestionResponse:
+        """Answer an idempotent channel-independent API request without delivery."""
+        existing = await self.answers.get_by_request_id(request.request_id)
+        if existing is not None:
+            if existing.question != request.question.strip():
+                message = "request_id was already used for another question"
+                raise ValueError(message)
+            return AskQuestionResponse(
+                answer_id=existing.id,
+                mode=existing.answer_mode,
+                answer=existing.answer,
+                rendered_text=existing.answer,
+                sources=[],
+            )
+        question = request.question.strip()
+        try:
+            retrieved = await self.retrieval.retrieve(question, request.space_id)
+            preview = AnswerPreview(
+                outcome=await self.decide(question, retrieved),
+                evidence=retrieved.all(),
+            )
+        except ModelUnavailableError:
+            outcome = AnswerOutcome(
+                answer=UNAVAILABLE_TEXT,
+                mode=AnswerMode.UNAVAILABLE,
+                source_ids=[],
+                text=UNAVAILABLE_TEXT,
+            )
+            preview = AnswerPreview(outcome=outcome, evidence=[])
+        record = BotAnswer(
+            id=f"ans:req:{request.request_id}",
+            conversation_id=f"api:{request.space_id or 'global'}",
+            space_id=request.space_id,
+            question=request.question.strip(),
+            answer=preview.outcome.answer,
+            answer_mode=preview.outcome.mode,
+            created_at=self.clock.now(),
+            qa_version_id=preview.outcome.qa_version_id,
+            sources_json=json.dumps(preview.outcome.source_ids),
+            request_id=request.request_id,
+        )
+        await self.answers.add(record)
+        return _api_response(record, preview)
+
+    async def dry_run_for_message(self, message: NormalizedMessage) -> AnswerPreview:
+        """Resolve and decide a normalized message without persistence or delivery."""
+        question = clean_question(message.text)
+        retrieved = await self.retrieval.retrieve(question, message.space_id)
+        return AnswerPreview(
+            outcome=await self.decide(question, retrieved),
+            evidence=retrieved.all(),
+        )
+
     async def dry_run(self, question: str) -> AnswerPreview:
         """Decide an answer without persisting or sending it (eval only).
 
@@ -229,6 +316,11 @@ class AnswerService:
         question = clean_question(message.text)
         if not question:
             return None
+        prior_delivery = await self.delivery_receipts.get(
+            "answer", f"ans:{message.id}", self.channel
+        )
+        if prior_delivery is not None:
+            return await self.answers.get(f"ans:{message.id}")
         try:
             retrieved = await self.retrieval.retrieve(question, message.space_id)
             outcome = await self.decide(question, retrieved)
@@ -269,4 +361,16 @@ class AnswerService:
                 sources_json=record.sources_json,
             )
         await self.answers.add(record)
+        if message_id is not None:
+            await self.delivery_receipts.add(
+                DeliveryReceipt(
+                    id=f"delivery:{record.id}:{self.channel}",
+                    object_type="answer",
+                    object_id=record.id,
+                    channel=self.channel,
+                    external_conversation_id=message.conversation_id,
+                    external_message_id=message_id,
+                    created_at=self.clock.now(),
+                )
+            )
         return record

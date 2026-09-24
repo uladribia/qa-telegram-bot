@@ -53,6 +53,7 @@ from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
+    InMemoryDeliveryReceiptRepository,
     InMemoryFeedbackRepository,
     InMemoryMessageRepository,
     InMemoryQAEvidenceRepository,
@@ -228,7 +229,9 @@ def eval_conflicts() -> EvalReport:
             ),
             generator=generator,
             answers=InMemoryBotAnswerRepository(),
+            delivery_receipts=InMemoryDeliveryReceiptRepository(),
             transport=RecordingTransport(),
+            channel="test",
             clock=FrozenClock(NOW),
         )
         question = str(case.get("question", ""))
