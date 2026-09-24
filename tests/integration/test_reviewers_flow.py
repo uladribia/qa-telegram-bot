@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.application.feedback import PROPOSAL_ACK, PROPOSAL_PROMPT
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus

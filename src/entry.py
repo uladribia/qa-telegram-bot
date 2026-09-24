@@ -6,7 +6,7 @@ from typing import cast
 from fastapi import Request
 from workers import asgi
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.infrastructure.composition import (
     AppContext,
     WorkerEnv,

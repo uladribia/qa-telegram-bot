@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.adapters.outbound.telegram import FEEDBACK_BUTTON
 from knowledge_bot.application.feedback import (
     PROPOSAL_ACK,

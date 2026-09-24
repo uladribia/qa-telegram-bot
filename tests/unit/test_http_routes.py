@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.inbound.fastapi_routes import create_app
+from knowledge_bot.adapters.http.app import create_app
 from tests.fakes.context import build_test_context
 
 

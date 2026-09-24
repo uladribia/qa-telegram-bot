@@ -18,8 +18,9 @@
 > de revisió apliquen l'abast al servidor i els revisors locals no poden
 > aprovar globalment. La decisió de correcció commits atòmicament a SQL i
 > després refresca la projecció derivada. Els cossos JSON operatius ja passen per
-> models Pydantic dedicats abans d'arribar a l'aplicació. La separació de
-> rutes, API genèrica i estat durable de llibertat continua en curs.
+> models Pydantic dedicats abans d'arribar a l'aplicació. L'aplicació HTTP
+> principal viu ara al paquet `adapters/http`. La separació de rutes, API
+> genèrica i estat durable continua en curs.
 > Aquest document històric no descriu cap d'aquests comportaments com a
 > sistema actual.
 
