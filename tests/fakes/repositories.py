@@ -14,6 +14,7 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
     MessagePairCandidate,
     QAEvidence,
@@ -254,6 +255,38 @@ class InMemoryMessageRepository:
             if message.context_question is not None:
                 paired += 1
         return (ingested, paired)
+
+
+class InMemoryListenerPairingWindowRepository:
+    """Dict-backed durable listener pairing windows."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[str, ListenerPairingWindow] = {}
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current pending window for a conversation."""
+        return next(
+            (
+                window
+                for window in self._items.values()
+                if window.conversation_id == conversation_id
+                and window.status == "pending"
+            ),
+            None,
+        )
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        self._items[window.id] = window
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
+        return [
+            window
+            for window in self._items.values()
+            if window.status == "pending" and window.last_message_at <= before
+        ]
 
 
 class InMemoryMessagePairCandidateRepository:

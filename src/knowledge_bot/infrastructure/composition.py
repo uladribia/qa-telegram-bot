@@ -38,6 +38,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1Database,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1ListenerPairingWindowRepository,
     D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -217,6 +218,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
     pair_candidates = D1MessagePairCandidateRepository(database)
+    pair_windows = D1ListenerPairingWindowRepository(database)
     correction_commits = D1CorrectionCommitStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
@@ -366,6 +368,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             messages=listener_messages,
             conversations=listener_conversations,
             candidates=pair_candidates,
+            windows=pair_windows,
             embedder=embedder,
             vectors=vectors,
             manifest=projection_manifest,

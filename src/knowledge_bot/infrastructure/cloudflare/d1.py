@@ -17,6 +17,7 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
     MessagePairCandidate,
     QAEvidence,
@@ -687,6 +688,62 @@ class D1MessageRepository:
         return (_count(ingested), _count(paired))
 
 
+class D1ListenerPairingWindowRepository:
+    """D1 implementation of durable listener pairing windows."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current window for a conversation."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM listener_pairing_windows"
+                " WHERE conversation_id = ? AND status = 'pending'"
+                " ORDER BY started_at DESC LIMIT 1"
+            )
+            .bind(conversation_id)
+            .first()
+        )
+        return _pairing_window(row) if row is not None else None
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        await (
+            self._db.prepare(
+                "INSERT INTO listener_pairing_windows"
+                " (id, conversation_id, started_at, last_message_at,"
+                " processed_at, status) VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET"
+                " last_message_at=excluded.last_message_at,"
+                " processed_at=excluded.processed_at, status=excluded.status"
+            )
+            .bind(
+                window.id,
+                window.conversation_id,
+                _iso(window.started_at),
+                _iso(window.last_message_at),
+                _iso(window.processed_at) if window.processed_at is not None else None,
+                window.status,
+            )
+            .run()
+        )
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM listener_pairing_windows"
+                " WHERE status = 'pending' AND last_message_at <= ?"
+                " ORDER BY last_message_at"
+            )
+            .bind(_iso(before))
+            .run()
+        )
+        return [_pairing_window(row) for row in _rows(result)]
+
+
 class D1MessagePairCandidateRepository:
     """D1 implementation of non-authoritative listener pair candidates."""
 
@@ -913,6 +970,17 @@ def _message(row: dict[str, object]) -> Message:
             str(row.get("index_status") or IndexStatus.NOT_INDEXED.value)
         ),
         indexed_at=_opt_dt(row.get("indexed_at")),
+    )
+
+
+def _pairing_window(row: dict[str, object]) -> ListenerPairingWindow:
+    return ListenerPairingWindow(
+        id=str(row["id"]),
+        conversation_id=str(row["conversation_id"]),
+        started_at=_dt(row["started_at"]),
+        last_message_at=_dt(row["last_message_at"]),
+        processed_at=_opt_dt(row.get("processed_at")),
+        status=str(row["status"]),
     )
 
 

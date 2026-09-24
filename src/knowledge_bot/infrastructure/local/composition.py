@@ -38,6 +38,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1DailyReportStateRepository,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1ListenerPairingWindowRepository,
     D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -156,6 +157,7 @@ async def build_context(
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
     pair_candidates = D1MessagePairCandidateRepository(binding)
+    pair_windows = D1ListenerPairingWindowRepository(binding)
     commits = D1CorrectionCommitStore(binding)
     recap = RecapService(
         answers=answers,
@@ -298,6 +300,7 @@ async def build_context(
             messages=messages,
             conversations=conversations,
             candidates=pair_candidates,
+            windows=pair_windows,
             embedder=embedder,
             vectors=vectors,
             manifest=manifest,

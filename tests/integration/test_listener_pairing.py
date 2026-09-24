@@ -2,7 +2,7 @@
 """Integration coverage for mixed-listener question-answer pairing."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -44,7 +44,9 @@ def test_mixed_window_extracts_and_indexes_a_candidate_pair() -> None:
     async def run() -> None:
         await context.ingestor.ingest(_message("message-question", "Quan entrenem?"))
         await context.ingestor.ingest(_message("message-answer", "A les sis."))
-        assert await context.pairing.process_message("message-answer") == 1
+        assert await context.pairing.on_message("message-question") == 0
+        assert await context.pairing.on_message("message-answer") == 0
+        assert await context.pairing.flush_due(NOW + timedelta(minutes=3)) == 1
         matches = await context.answer.retrieval.vectors.query(
             [1.0, 0.0],
             top_k=5,

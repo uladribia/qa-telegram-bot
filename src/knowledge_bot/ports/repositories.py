@@ -15,6 +15,7 @@ from knowledge_bot.domain.entities import (
     Conversation,
     DeliveryReceipt,
     Feedback,
+    ListenerPairingWindow,
     Message,
     MessagePairCandidate,
     QAEvidence,
@@ -137,6 +138,23 @@ class MessageRepository(Protocol):
         self, conversation_id: str, start: datetime, limit: int
     ) -> list[Message]:
         """Return recent messages in a conversation ordered by creation time."""
+        ...
+
+
+@runtime_checkable
+class ListenerPairingWindowRepository(Protocol):
+    """Persistence for event-driven listener pairing windows."""
+
+    async def get(self, conversation_id: str) -> ListenerPairingWindow | None:
+        """Return the current window for a conversation."""
+        ...
+
+    async def save(self, window: ListenerPairingWindow) -> None:
+        """Create or update a conversation window."""
+        ...
+
+    async def list_due(self, before: datetime) -> list[ListenerPairingWindow]:
+        """Return pending windows whose quiet period has elapsed."""
         ...
 
 

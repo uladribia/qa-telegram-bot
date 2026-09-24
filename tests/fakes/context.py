@@ -186,6 +186,7 @@ def build_test_context(
         messages=backend.messages,
         conversations=backend.conversations,
         candidates=backend.message_pair_candidates,
+        windows=backend.listener_pairing_windows,
         embedder=embedder,
         vectors=vectors,
         manifest=projection_manifest,

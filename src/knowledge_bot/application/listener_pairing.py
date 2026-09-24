@@ -2,10 +2,14 @@
 """Batched temporal question-answer pairing for listener messages."""
 
 import hashlib
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 
-from knowledge_bot.domain.entities import Message, MessagePairCandidate
+from knowledge_bot.domain.entities import (
+    ListenerPairingWindow,
+    Message,
+    MessagePairCandidate,
+)
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.embedder import Embedder
@@ -13,6 +17,7 @@ from knowledge_bot.ports.index import SearchProjectionRepository
 from knowledge_bot.ports.pairing import PairingModel, PairMessage
 from knowledge_bot.ports.repositories import (
     ConversationRepository,
+    ListenerPairingWindowRepository,
     MessagePairCandidateRepository,
     MessageRepository,
 )
@@ -26,21 +31,68 @@ class MessagePairingService:
     messages: MessageRepository
     conversations: ConversationRepository
     candidates: MessagePairCandidateRepository
+    windows: ListenerPairingWindowRepository
     embedder: Embedder
     vectors: VectorStore
     manifest: SearchProjectionRepository
     model: PairingModel
     clock: Clock
     window_minutes: int = 10
+    quiet_minutes: int = 2
+    overlap_minutes: int = 3
     max_messages: int = 20
     min_confidence: float = 0.60
+
+    async def on_message(self, message_id: str) -> int:
+        """Accumulate a message and flush only windows past their quiet period."""
+        message = await self.messages.get(message_id)
+        if message is None or not message.text:
+            return 0
+        now = self.clock.now()
+        window = await self.windows.get(message.conversation_id)
+        if window is None:
+            window = ListenerPairingWindow(
+                id=f"window:{message.conversation_id}",
+                conversation_id=message.conversation_id,
+                started_at=now,
+                last_message_at=now,
+            )
+        else:
+            window = replace(window, last_message_at=now)
+        await self.windows.save(window)
+        return await self.flush_due(now)
+
+    async def flush_due(self, now: datetime | None = None) -> int:
+        """Flush every conversation window whose quiet period has elapsed."""
+        current = now or self.clock.now()
+        accepted = 0
+        for window in await self.windows.list_due(
+            current - timedelta(minutes=self.quiet_minutes)
+        ):
+            message = await self.messages.get(window.conversation_id + ":latest")
+            if message is None:
+                recent = await self.messages.list_recent(
+                    window.conversation_id,
+                    window.started_at - timedelta(minutes=self.overlap_minutes),
+                    self.max_messages,
+                )
+                if recent:
+                    message = recent[-1]
+            if message is not None:
+                accepted += await self.process_message(message.id)
+            await self.windows.save(
+                replace(window, processed_at=current, status="processed")
+            )
+        return accepted
 
     async def process_message(self, message_id: str) -> int:
         """Process the recent window after one listener message is stored."""
         message = await self.messages.get(message_id)
         if message is None or not message.text:
             return 0
-        start = message.created_at - timedelta(minutes=self.window_minutes)
+        start = message.created_at - timedelta(
+            minutes=self.window_minutes + self.overlap_minutes
+        )
         recent = await self.messages.list_recent(
             message.conversation_id, start, self.max_messages
         )
