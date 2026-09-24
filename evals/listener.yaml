@@ -1,0 +1,721 @@
+# SPDX-License-Identifier: MIT
+# Listener question-identification and temporal-pairing eval set.
+# Cases are based on the structure and realistic wording of data/seed/whatsapp.jsonl.
+# Synthetic cases are not seed knowledge and must not be inserted into production data.
+#
+# Message labels:
+#   question       - a message that asks for information
+#   answer_like    - a message that can answer a nearby question
+#   chitchat       - social/noise message
+#   knowledge_update - factual update that is not a question
+#   correction     - correction of an earlier claim
+# A pair is valid only when its two ids appear in expected_pairs.
+
+- id: seed_equipment_question_answer
+  source: whatsapp
+  conversation_id: synthetic-equipment
+  messages:
+    - id: q-equipment
+      source_message_id: 9fa4d562590a1098
+      text: "Bon dia, tema equipació hem de comprar-la a algun lloc? O tan petits no porten?"
+      expected_label: question
+    - id: a-equipment
+      source_message_id: 4269f303a2a0ebae
+      text: "hola Marta, els minis tindran equipació. Suposo que durant aquest més rebrem instruccions"
+      expected_label: answer_like
+  expected_question_ids: [q-equipment]
+  expected_answer_ids: [a-equipment]
+  expected_pairs:
+    - [q-equipment, a-equipment]
+  synthetic: false
+
+- id: seed_equipment_unconfirmed_answer
+  source: whatsapp
+  conversation_id: synthetic-equipment-unconfirmed
+  messages:
+    - id: q-equipment-unconfirmed
+      source_message_id: e8592f4e86ada152
+      text: "I com / on es compra la roba?"
+      expected_label: question
+    - id: a-equipment-unconfirmed
+      source_message_id: f83797d5fee58da6
+      text: "https://bhc-fcb.netlify.app/#qa-equipament-com-demanar"
+      expected_label: answer_like
+    - id: n-equipment-unconfirmed
+      source_message_id: c222599f34935b2c
+      text: "encara no tenim els detalls"
+      expected_label: answer_like
+  expected_question_ids: [q-equipment-unconfirmed]
+  expected_answer_ids: [a-equipment-unconfirmed, n-equipment-unconfirmed]
+  expected_pairs:
+    - [q-equipment-unconfirmed, a-equipment-unconfirmed]
+    - [q-equipment-unconfirmed, n-equipment-unconfirmed]
+  synthetic: false
+
+- id: seed_anamnesis_question_answer
+  source: whatsapp
+  conversation_id: synthetic-anamnesis
+  messages:
+    - id: q-anamnesis
+      source_message_id: d7c27dacd5cc99de
+      text: "HI ha alternativa a imprimir l'anamnesi? Un email on enviar-ho, per exemple al club?"
+      expected_label: question
+    - id: a-anamnesis
+      source_message_id: 6c578961dc5860bb
+      text: "s'ha de portar a la revisió. Per tant entenc que en principi s'ha d'imprimir, però ho puc preguntar"
+      expected_label: answer_like
+    - id: a-anamnesis-2
+      source_message_id: 8b2f585b25096d8f
+      text: "això entenc que és per l'empresa que fa la revisió i no sé si el club voldrà gestionar tot això"
+      expected_label: answer_like
+  expected_question_ids: [q-anamnesis]
+  expected_answer_ids: [a-anamnesis, a-anamnesis-2]
+  expected_pairs:
+    - [q-anamnesis, a-anamnesis]
+    - [q-anamnesis, a-anamnesis-2]
+  synthetic: false
+
+- id: seed_duration_question_answer
+  source: whatsapp
+  conversation_id: synthetic-duration
+  messages:
+    - id: q-duration
+      source_message_id: 67cb5c9bafafeff4
+      text: "Hola! Sabeu quant dura? La van fer l'any passat"
+      expected_label: question
+    - id: a-duration
+      source_message_id: f0d192f8135dec84
+      text: "2 anys"
+      expected_label: answer_like
+    - id: a-duration-followup
+      source_message_id: 060f15dd308baf4d
+      text: "No us cal doncs"
+      expected_label: answer_like
+  expected_question_ids: [q-duration]
+  expected_answer_ids: [a-duration, a-duration-followup]
+  expected_pairs:
+    - [q-duration, a-duration]
+    - [q-duration, a-duration-followup]
+  synthetic: false
+
+- id: seed_dorsal_question_answer
+  source: whatsapp
+  conversation_id: synthetic-dorsal
+  messages:
+    - id: q-dorsal
+      source_message_id: 6916d06ec20e3650
+      text: "Hola! Hem anat a mirar el tema de l'equipació i ens han dit que hem de comentar el tema del número de la samarreta per aquí. A nosaltres ens agradaria posar el 7 però nse si està disponible. Gràcies!"
+      expected_label: question
+    - id: a-dorsal
+      source_message_id: 65d49854a724ff90
+      text: "Criteri aplicat habitualment: en cas de dos o més jugadors vulguin el mateix dorsal, prioritat al jugador de l'any passat; si hi ha empat, sorteig."
+      expected_label: answer_like
+    - id: a-dorsal-followup
+      source_message_id: 29cae9747033b3fb
+      text: "Ja us diré com fem per recollir els dorsals. Millor no ho fem per whatsapp"
+      expected_label: answer_like
+  expected_question_ids: [q-dorsal]
+  expected_answer_ids: [a-dorsal, a-dorsal-followup]
+  expected_pairs:
+    - [q-dorsal, a-dorsal]
+    - [q-dorsal, a-dorsal-followup]
+  synthetic: false
+
+- id: seed_name_question_answer
+  source: whatsapp
+  conversation_id: synthetic-name
+  messages:
+    - id: q-name
+      source_message_id: aedbbee6c4803e4a
+      text: "I el nom el triem nosaltres? Per exemple si hi hagues dos Lucas en el meu cas?"
+      expected_label: question
+    - id: a-name
+      source_message_id: a5462ebf71c02155
+      text: "Entenc que no, però dilluns aclarim amb la Xime"
+      expected_label: answer_like
+  expected_question_ids: [q-name]
+  expected_answer_ids: [a-name]
+  expected_pairs:
+    - [q-name, a-name]
+  synthetic: false
+
+- id: seed_two_names_question_answer
+  source: whatsapp
+  conversation_id: synthetic-two-names
+  messages:
+    - id: q-two-names
+      source_message_id: 399d542103e43a2e
+      text: "Si hi ha dos noms a números diferents no hauria de passar res, no?"
+      expected_label: question
+    - id: a-two-names
+      source_message_id: a5462ebf71c02155
+      text: "Entenc que no, però dilluns aclarim amb la Xime"
+      expected_label: answer_like
+  expected_question_ids: [q-two-names]
+  expected_answer_ids: [a-two-names]
+  expected_pairs:
+    - [q-two-names, a-two-names]
+  synthetic: false
+
+- id: seed_equipment_order_question_update
+  source: whatsapp
+  conversation_id: synthetic-order-update
+  messages:
+    - id: q-order
+      source_message_id: 52fb270663262629
+      text: "Però llavors, demanem l'equipació si ja sabem les talles? La noia ens ha dit que s'havia d'estampar el nom i el num."
+      expected_label: question
+    - id: a-order
+      source_message_id: 55c0a1c1208a0132
+      text: "em penso com fer per demanar la comanda"
+      expected_label: answer_like
+    - id: a-order-2
+      source_message_id: f935f12f29c9df7a
+      text: "i us ho dic"
+      expected_label: answer_like
+  expected_question_ids: [q-order]
+  expected_answer_ids: [a-order, a-order-2]
+  expected_pairs:
+    - [q-order, a-order]
+    - [q-order, a-order-2]
+  synthetic: false
+
+- id: seed_question_with_chitchat
+  source: whatsapp
+  conversation_id: synthetic-chitchat
+  messages:
+    - id: q-chitchat
+      source_message_id: 67cb5c9bafafeff4
+      text: "Hola! Sabeu quant dura la revisió?"
+      expected_label: question
+    - id: c-chitchat
+      source_message_id: d9f44b2fe00e2713
+      text: "Merciii"
+      expected_label: chitchat
+    - id: a-chitchat
+      source_message_id: f0d192f8135dec84
+      text: "2 anys"
+      expected_label: answer_like
+  expected_question_ids: [q-chitchat]
+  expected_answer_ids: [a-chitchat]
+  expected_pairs:
+    - [q-chitchat, a-chitchat]
+  synthetic: false
+
+- id: seed_question_not_answered
+  source: whatsapp
+  conversation_id: synthetic-unanswered
+  messages:
+    - id: q-unanswered
+      source_message_id: 9a4a
+      text: "On puc trobar la taula de talles del BHC?"
+      expected_label: question
+    - id: c-unanswered
+      source_message_id: 9a4b
+      text: "Perfecte, moltes gràcies"
+      expected_label: chitchat
+  expected_question_ids: [q-unanswered]
+  expected_answer_ids: []
+  expected_pairs: []
+  synthetic: false
+
+- id: synthetic_question_answer_01
+  source: whatsapp
+  conversation_id: synthetic-01
+  messages:
+    - {id: q01, text: "A quina hora és l'entrenament dels Minis?", expected_label: question}
+    - {id: a01, text: "Demà serà a les 18 h al Pau Negre.", expected_label: answer_like}
+  expected_question_ids: [q01]
+  expected_answer_ids: [a01]
+  expected_pairs: [[q01, a01]]
+  synthetic: true
+- id: synthetic_question_answer_02
+  source: whatsapp
+  conversation_id: synthetic-02
+  messages:
+    - {id: q02, text: "On es fa la revisió mèdica?", expected_label: question}
+    - {id: a02, text: "Al Pau Negre, durant les franges indicades.", expected_label: answer_like}
+  expected_question_ids: [q02]
+  expected_answer_ids: [a02]
+  expected_pairs: [[q02, a02]]
+  synthetic: true
+- id: synthetic_question_answer_03
+  source: whatsapp
+  conversation_id: synthetic-03
+  messages:
+    - {id: q03, text: "Com demano la roba?", expected_label: question}
+    - {id: a03, text: "Primer proves la talla i després el delegat envia la llista.", expected_label: answer_like}
+  expected_question_ids: [q03]
+  expected_answer_ids: [a03]
+  expected_pairs: [[q03, a03]]
+  synthetic: true
+- id: synthetic_question_answer_04
+  source: whatsapp
+  conversation_id: synthetic-04
+  messages:
+    - {id: q04, text: "Quin preu té el pack?", expected_label: question}
+    - {id: a04, text: "El pack adult és de 125 € i el junior de 86,50 €.", expected_label: answer_like}
+  expected_question_ids: [q04]
+  expected_answer_ids: [a04]
+  expected_pairs: [[q04, a04]]
+  synthetic: true
+- id: synthetic_question_answer_05
+  source: whatsapp
+  conversation_id: synthetic-05
+  messages:
+    - {id: q05, text: "S'ha de pagar la llicència federativa?", expected_label: question}
+    - {id: a05, text: "Sí, és obligatòria per a tots els jugadors.", expected_label: answer_like}
+  expected_question_ids: [q05]
+  expected_answer_ids: [a05]
+  expected_pairs: [[q05, a05]]
+  synthetic: true
+- id: synthetic_question_answer_06
+  source: whatsapp
+  conversation_id: synthetic-06
+  messages:
+    - {id: q06, text: "On entrena el Benjamí?", expected_label: question}
+    - {id: a06, text: "Al Complex Esportiu Municipal Pau Negre.", expected_label: answer_like}
+  expected_question_ids: [q06]
+  expected_answer_ids: [a06]
+  expected_pairs: [[q06, a06]]
+  synthetic: true
+- id: synthetic_question_answer_07
+  source: whatsapp
+  conversation_id: synthetic-07
+  messages:
+    - {id: q07, text: "Plou i es cancel·la?", expected_label: question}
+    - {id: a07, text: "Normalment no es cancel·la; si hi ha avisos, el club ho comunicarà.", expected_label: answer_like}
+  expected_question_ids: [q07]
+  expected_answer_ids: [a07]
+  expected_pairs: [[q07, a07]]
+  synthetic: true
+- id: synthetic_question_answer_08
+  source: whatsapp
+  conversation_id: synthetic-08
+  messages:
+    - {id: q08, text: "Com puc veure la caducitat del certificat?", expected_label: question}
+    - {id: a08, text: "A l'app de la Federació, a Esportista i El meu compte.", expected_label: answer_like}
+  expected_question_ids: [q08]
+  expected_answer_ids: [a08]
+  expected_pairs: [[q08, a08]]
+  synthetic: true
+- id: synthetic_question_answer_09
+  source: whatsapp
+  conversation_id: synthetic-09
+  messages:
+    - {id: q09, text: "Els pares han d'acompanyar el nen?", expected_label: question}
+    - {id: a09, text: "Sí, per als jugadors petits cal anar amb un adult.", expected_label: answer_like}
+  expected_question_ids: [q09]
+  expected_answer_ids: [a09]
+  expected_pairs: [[q09, a09]]
+  synthetic: true
+- id: synthetic_question_answer_10
+  source: whatsapp
+  conversation_id: synthetic-10
+  messages:
+    - {id: q10, text: "Quant dura el certificat mèdic?", expected_label: question}
+    - {id: a10, text: "La informació del club indica que val dues temporades.", expected_label: answer_like}
+  expected_question_ids: [q10]
+  expected_answer_ids: [a10]
+  expected_pairs: [[q10, a10]]
+  synthetic: true
+- id: synthetic_question_answer_11
+  source: whatsapp
+  conversation_id: synthetic-11
+  messages:
+    - {id: q11, text: "Es pot pagar amb targeta?", expected_label: question}
+    - {id: a11, text: "Ho ha de confirmar el club; no hi ha prou informació.", expected_label: answer_like}
+  expected_question_ids: [q11]
+  expected_answer_ids: [a11]
+  expected_pairs: [[q11, a11]]
+  synthetic: true
+- id: synthetic_question_answer_12
+  source: whatsapp
+  conversation_id: synthetic-12
+  messages:
+    - {id: q12, text: "Qui és el delegat de la meva secció?", expected_label: question}
+    - {id: a12, text: "El club l'ha d'assignar i el grup ho confirmarà.", expected_label: answer_like}
+  expected_question_ids: [q12]
+  expected_answer_ids: [a12]
+  expected_pairs: [[q12, a12]]
+  synthetic: true
+- id: synthetic_question_answer_13
+  source: whatsapp
+  conversation_id: synthetic-13
+  messages:
+    - {id: q13, text: "A quina edat toca la revisió?", expected_label: question}
+    - {id: a13, text: "El certificat ha d'estar vigent abans de la competició.", expected_label: answer_like}
+  expected_question_ids: [q13]
+  expected_answer_ids: [a13]
+  expected_pairs: [[q13, a13]]
+  synthetic: true
+- id: synthetic_question_answer_14
+  source: whatsapp
+  conversation_id: synthetic-14
+  messages:
+    - {id: q14, text: "On és la seu del club?", expected_label: question}
+    - {id: a14, text: "AlComplex Esportiu Municipal Pau Negre.", expected_label: answer_like}
+  expected_question_ids: [q14]
+  expected_answer_ids: [a14]
+  expected_pairs: [[q14, a14]]
+  synthetic: true
+- id: synthetic_question_answer_15
+  source: whatsapp
+  conversation_id: synthetic-15
+  messages:
+    - {id: q15, text: "El bus torna?", expected_label: question}
+    - {id: a15, text: "La circular de la temporada indicarà si és només d'anada.", expected_label: answer_like}
+  expected_question_ids: [q15]
+  expected_answer_ids: [a15]
+  expected_pairs: [[q15, a15]]
+  synthetic: true
+- id: synthetic_question_answer_16
+  source: whatsapp
+  conversation_id: synthetic-16
+  messages:
+    - {id: q16, text: "Com es tria el dorsal?", expected_label: question}
+    - {id: a16, text: "Si hi ha ties, es prioritza el dorsal de l'any anterior i després hi ha sorteig.", expected_label: answer_like}
+  expected_question_ids: [q16]
+  expected_answer_ids: [a16]
+  expected_pairs: [[q16, a16]]
+  synthetic: true
+- id: synthetic_question_answer_17
+  source: whatsapp
+  conversation_id: synthetic-17
+  messages:
+    - {id: q17, text: "Els Minis competeixen?", expected_label: question}
+    - {id: a17, text: "No tenen competició pròpia; puntualment poden completar un Prebenjamí.", expected_label: answer_like}
+  expected_question_ids: [q17]
+  expected_answer_ids: [a17]
+  expected_pairs: [[q17, a17]]
+  synthetic: true
+- id: synthetic_question_answer_18
+  source: whatsapp
+  conversation_id: synthetic-18
+  messages:
+    - {id: q18, text: "On es pot veure el calendari?", expected_label: question}
+    - {id: a18, text: "El calendari exacte s'ha d'anunciar al grup de la secció.", expected_label: answer_like}
+  expected_question_ids: [q18]
+  expected_answer_ids: [a18]
+  expected_pairs: [[q18, a18]]
+  synthetic: true
+- id: synthetic_question_answer_19
+  source: whatsapp
+  conversation_id: synthetic-19
+  messages:
+    - {id: q19, text: "Com sol·licito el canvi de-secció?", expected_label: question}
+    - {id: a19, text: "Cal preguntar-ho al responsable de secció.", expected_label: answer_like}
+  expected_question_ids: [q19]
+  expected_answer_ids: [a19]
+  expected_pairs: [[q19, a19]]
+  synthetic: true
+- id: synthetic_question_answer_20
+  source: whatsapp
+  conversation_id: synthetic-20
+  messages:
+    - {id: q20, text: "Què cal portar a la revisió?", expected_label: question}
+    - {id: a20, text: "L'anamnesi omplert i imprès, i els diners indicats.", expected_label: answer_like}
+  expected_question_ids: [q20]
+  expected_answer_ids: [a20]
+  expected_pairs: [[q20, a20]]
+  synthetic: true
+- id: synthetic_question_answer_21
+  source: whatsapp
+  conversation_id: synthetic-21
+  messages:
+    - {id: q21, text: "On trobo la mida de la samarreta?", expected_label: question}
+    - {id: a21, text: "La guia de talles de Thunder del BHC.", expected_label: answer_like}
+  expected_question_ids: [q21]
+  expected_answer_ids: [a21]
+  expected_pairs: [[q21, a21]]
+  synthetic: true
+- id: synthetic_question_answer_22
+  source: whatsapp
+  conversation_id: synthetic-22
+  messages:
+    - {id: q22, text: "L'entrenament és a divendres?", expected_label: question}
+    - {id: a22, text: "Aquest dijous, a les 18 h.", expected_label: answer_like}
+  expected_question_ids: [q22]
+  expected_answer_ids: [a22]
+  expected_pairs: [[q22, a22]]
+  synthetic: true
+- id: synthetic_question_answer_23
+  source: whatsapp
+  conversation_id: synthetic-23
+  messages:
+    - {id: q23, text: "Es pot tornar la roba?", expected_label: question}
+    - {id: a23, text: "Ho ha de confirmar el delegat.", expected_label: answer_like}
+  expected_question_ids: [q23]
+  expected_answer_ids: [a23]
+  expected_pairs: [[q23, a23]]
+  synthetic: true
+- id: synthetic_question_answer_24
+  source: whatsapp
+  conversation_id: synthetic-24
+  messages:
+    - {id: q24, text: "Com funciona l'autobús?", expected_label: question}
+    - {id: a24, text: "És opcional i depèn de la ruta de la temporada.", expected_label: answer_like}
+  expected_question_ids: [q24]
+  expected_answer_ids: [a24]
+  expected_pairs: [[q24, a24]]
+  synthetic: true
+- id: synthetic_question_answer_25
+  source: whatsapp
+  conversation_id: synthetic-25
+  messages:
+    - {id: q25, text: "On són les revisionals?", expected_label: question}
+    - {id: a25, text: "Les dates les anuncia el club.", expected_label: answer_like}
+  expected_question_ids: [q25]
+  expected_answer_ids: [a25]
+  expected_pairs: [[q25, a25]]
+  synthetic: true
+- id: synthetic_question_answer_26
+  source: whatsapp
+  conversation_id: synthetic-26
+  messages:
+    - {id: q26, text: "Els pares tenen signar?", expected_label: question}
+    - {id: a26, text: "Sí, en el procés dels menors.", expected_label: answer_like}
+  expected_question_ids: [q26]
+  expected_answer_ids: [a26]
+  expected_pairs: [[q26, a26]]
+  synthetic: true
+- id: synthetic_question_answer_27
+  source: whatsapp
+  conversation_id: synthetic-27
+  messages:
+    - {id: q27, text: "Què és un Ball-Kid?", expected_label: question}
+    - {id: a27, text: "És una persona petita que ajuda en els partits.", expected_label: answer_like}
+  expected_question_ids: [q27]
+  expected_answer_ids: [a27]
+  expected_pairs: [[q27, a27]]
+  synthetic: true
+- id: synthetic_question_answer_28
+  source: whatsapp
+  conversation_id: synthetic-28
+  messages:
+    - {id: q28, text: "Hi ha casal d'estiu?", expected_label: question}
+    - {id: a28, text: "Sí, el BHC n'organitza un cada estiu.", expected_label: answer_like}
+  expected_question_ids: [q28]
+  expected_answer_ids: [a28]
+  expected_pairs: [[q28, a28]]
+  synthetic: true
+- id: synthetic_question_answer_29
+  source: whatsapp
+  conversation_id: synthetic-29
+  messages:
+    - {id: q29, text: "Quins són els valors del club?", expected_label: question}
+    - {id: a29, text: "Humilitat, Esforç, Ambició, Respecte i Treball en equip.", expected_label: answer_like}
+  expected_question_ids: [q29]
+  expected_answer_ids: [a29]
+  expected_pairs: [[q29, a29]]
+  synthetic: true
+- id: synthetic_question_answer_30
+  source: whatsapp
+  conversation_id: synthetic-30
+  messages:
+    - {id: q30, text: "A quina categoria va un alumne de 4t de primària?", expected_label: question}
+    - {id: a30, text: "A Benjamí.", expected_label: answer_like}
+  expected_question_ids: [q30]
+  expected_answer_ids: [a30]
+  expected_pairs: [[q30, a30]]
+  synthetic: true
+- id: synthetic_question_answer_31
+  source: whatsapp
+  conversation_id: synthetic-31
+  messages:
+    - {id: q31, text: "El BHC téMinis?", expected_label: question}
+    - {id: a31, text: "Sí, els Minis són una categoria del BHC.", expected_label: answer_like}
+  expected_question_ids: [q31]
+  expected_answer_ids: [a31]
+  expected_pairs: [[q31, a31]]
+  synthetic: true
+- id: synthetic_question_answer_32
+  source: whatsapp
+  conversation_id: synthetic-32
+  messages:
+    - {id: q32, text: "On es juga si l'equip és local?", expected_label: question}
+    - {id: a32, text: "Al Pau Negre.", expected_label: answer_like}
+  expected_question_ids: [q32]
+  expected_answer_ids: [a32]
+  expected_pairs: [[q32, a32]]
+  synthetic: true
+- id: synthetic_question_answer_33
+  source: whatsapp
+  conversation_id: synthetic-33
+  messages:
+    - {id: q33, text: "Si hi ha concert hi ha restricció?", expected_label: question}
+    - {id: a33, text: "Cal Depends de si hi ha restricció oficial; sense restricció només hi ha més gent.", expected_label: answer_like}
+  expected_question_ids: [q33]
+  expected_answer_ids: [a33]
+  expected_pairs: [[q33, a33]]
+  synthetic: true
+- id: synthetic_question_answer_34
+  source: whatsapp
+  conversation_id: synthetic-34
+  messages:
+    - {id: q34, text: "Què faig si plou?", expected_label: question}
+    - {id: a34, text: "Normalment s'entrena igualment; porta impermeable i roba de recanvi.", expected_label: answer_like}
+  expected_question_ids: [q34]
+  expected_answer_ids: [a34]
+  expected_pairs: [[q34, a34]]
+  synthetic: true
+- id: synthetic_question_answer_35
+  source: whatsapp
+  conversation_id: synthetic-35
+  messages:
+    - {id: q35, text: "Com sap el delegat les talles?", expected_label: question}
+    - {id: a35, text: "Les famílies proven la talla i el delegat envia la llista.", expected_label: answer_like}
+  expected_question_ids: [q35]
+  expected_answer_ids: [a35]
+  expected_pairs: [[q35, a35]]
+  synthetic: true
+- id: synthetic_question_answer_36
+  source: whatsapp
+  conversation_id: synthetic-36
+  messages:
+    - {id: q36, text: "On trobo l'oficina?", expected_label: question}
+    - {id: a36, text: "A la zona d'oficines del Pau Negre.", expected_label: answer_like}
+  expected_question_ids: [q36]
+  expected_answer_ids: [a36]
+  expected_pairs: [[q36, a36]]
+  synthetic: true
+- id: synthetic_question_answer_37
+  source: whatsapp
+  conversation_id: synthetic-37
+  messages:
+    - {id: q37, text: "Hi ha horari d'atenció?", expected_label: question}
+    - {id: a37, text: "Dimarts i dijous de 18 a 21 h.", expected_label: answer_like}
+  expected_question_ids: [q37]
+  expected_answer_ids: [a37]
+  expected_pairs: [[q37, a37]]
+  synthetic: true
+- id: synthetic_question_answer_38
+  source: whatsapp
+  conversation_id: synthetic-38
+  messages:
+    - {id: q38, text: "Per què paguen fitxa els Minis?", expected_label: question}
+    - {id: a38, text: "Perquè és obligatòria i inclou cobertura mèdica.", expected_label: answer_like}
+  expected_question_ids: [q38]
+  expected_answer_ids: [a38]
+  expected_pairs: [[q38, a38]]
+  synthetic: true
+- id: synthetic_question_answer_39
+  source: whatsapp
+  conversation_id: synthetic-39
+  messages:
+    - {id: q39, text: "On es compra l'equipament del FCB?", expected_label: question}
+    - {id: a39, text: "La guia oficial de talles és a la Store del FCB.", expected_label: answer_like}
+  expected_question_ids: [q39]
+  expected_answer_ids: [a39]
+  expected_pairs: [[q39, a39]]
+  synthetic: true
+- id: synthetic_question_answer_40
+  source: whatsapp
+  conversation_id: synthetic-40
+  messages:
+    - {id: q40, text: "On es compra l'equipament del BHC?", expected_label: question}
+    - {id: a40, text: "La comanda s'envia per correu segons les instruccions del club.", expected_label: answer_like}
+  expected_question_ids: [q40]
+  expected_answer_ids: [a40]
+  expected_pairs: [[q40, a40]]
+  synthetic: true
+- id: synthetic_question_answer_41
+  source: whatsapp
+  conversation_id: synthetic-41
+  messages:
+    - {id: q41, text: "Quina secció és només BHC?", expected_label: question}
+    - {id: a41, text: "Minis, Prebenjamí, Mamis, Papis i Hockey Sala, entre d'altres.", expected_label: answer_like}
+  expected_question_ids: [q41]
+  expected_answer_ids: [a41]
+  expected_pairs: [[q41, a41]]
+  synthetic: true
+- id: synthetic_question_answer_42
+  source: whatsapp
+  conversation_id: synthetic-42
+  messages:
+    - {id: q42, text: "Tots els equips són del mateix club?", expected_label: question}
+    - {id: a42, text: "No, hi ha categories BHC i categories FCB sota la mateixa secció.", expected_label: answer_like}
+  expected_question_ids: [q42]
+  expected_answer_ids: [a42]
+  expected_pairs: [[q42, a42]]
+  synthetic: true
+- id: synthetic_question_answer_43
+  source: whatsapp
+  conversation_id: synthetic-43
+  messages:
+    - {id: q43, text: "Quina mida necessito?", expected_label: question}
+    - {id: a43, text: "Consulta la taula de mides; no puc escollir una talla sense les teves mides.", expected_label: answer_like}
+  expected_question_ids: [q43]
+  expected_answer_ids: [a43]
+  expected_pairs: [[q43, a43]]
+  synthetic: true
+- id: synthetic_question_answer_44
+  source: whatsapp
+  conversation_id: synthetic-44
+  messages:
+    - {id: q44, text: "El delegat és qui mana?", expected_label: question}
+    - {id: a44, text: "El delegat coordina la secció, però les decisions generals són del club.", expected_label: answer_like}
+  expected_question_ids: [q44]
+  expected_answer_ids: [a44]
+  expected_pairs: [[q44, a44]]
+  synthetic: true
+- id: synthetic_question_answer_45
+  source: whatsapp
+  conversation_id: synthetic-45
+  messages:
+    - {id: q45, text: "Què passa si no puc venir?", expected_label: question}
+    - {id: a45, text: "Avisa el delegat; les condicions concretes les ha de confirmar el club.", expected_label: answer_like}
+  expected_question_ids: [q45]
+  expected_answer_ids: [a45]
+  expected_pairs: [[q45, a45]]
+  synthetic: true
+- id: synthetic_question_answer_46
+  source: whatsapp
+  conversation_id: synthetic-46
+  messages:
+    - {id: q46, text: "Hi ha material per provar?", expected_label: question}
+    - {id: a46, text: "El club ha d'organitzar la prova; no hi ha resposta fixa al WhatsApp.", expected_label: answer_like}
+  expected_question_ids: [q46]
+  expected_answer_ids: [a46]
+  expected_pairs: [[q46, a46]]
+  synthetic: true
+- id: synthetic_question_answer_47
+  source: whatsapp
+  conversation_id: synthetic-47
+  messages:
+    - {id: q47, text: "Quin dia és la revisió?", expected_label: question}
+    - {id: a47, text: "Consulta el calendari que enviarà el delegat.", expected_label: answer_like}
+  expected_question_ids: [q47]
+  expected_answer_ids: [a47]
+  expected_pairs: [[q47, a47]]
+  synthetic: true
+- id: synthetic_question_answer_48
+  source: whatsapp
+  conversation_id: synthetic-48
+  messages:
+    - {id: q48, text: "On trobo la resposta?", expected_label: question}
+    - {id: a48, text: "La pàgina web del club resumeix les preguntes habituals.", expected_label: answer_like}
+  expected_question_ids: [q48]
+  expected_answer_ids: [a48]
+  expected_pairs: [[q48, a48]]
+  synthetic: true
+- id: synthetic_question_answer_49
+  source: whatsapp
+  conversation_id: synthetic-49
+  messages:
+    - {id: q49, text: "Què és el Casino?", expected_label: question}
+    - {id: a49, text: "És una denominació equivalent a cadet.", expected_label: answer_like}
+  expected_question_ids: [q49]
+  expected_answer_ids: [a49]
+  expected_pairs: [[q49, a49]]
+  synthetic: true
+- id: synthetic_question_answer_50
+  source: whatsapp
+  conversation_id: synthetic-50
+  messages:
+    - {id: q50, text: "On trobo l'equipament de la secció?", expected_label: question}
+    - {id: a50, text: "Cada secció rebrà les indicacions del seu delegat.", expected_label: answer_like}
+  expected_question_ids: [q50]
+  expected_answer_ids: [a50]
+  expected_pairs: [[q50, a50]]
+  synthetic: true

@@ -110,7 +110,8 @@ def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
         question=question if isinstance(question, str) else None,
         qa_item_id=_opt_text(metadata.get("object_id")),
         qa_version_id=_opt_text(metadata.get("version_id")),
-        anchor=_opt_text(metadata.get("canonical_key")),
+        anchor=_opt_text(metadata.get("source_anchor"))
+        or _opt_text(metadata.get("canonical_key")),
         url=_opt_text(metadata.get("url")),
         date=_opt_text(metadata.get("date")),
         author=_opt_text(metadata.get("author")),

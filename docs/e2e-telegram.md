@@ -2,6 +2,8 @@
 
 Real Telegram acceptance remains a manual external gate. It is not run by offline CI or by the implementation pass.
 
+Use the complete question checklist in [`manual-test-questions.md`](manual-test-questions.md). It covers every active and `in_review` entry in the club Q&A seed, bot self-knowledge, retrieval paraphrases, and negative cases.
+
 Use a test bot and two test groups. The canonical local webhook route is `/telegram/webhook`.
 
 ## Local manual flow

@@ -136,13 +136,106 @@ def eval_trigger() -> EvalReport:
 def eval_abstention_set() -> EvalReport:
     """Every abstention case is well formed and non-empty."""
     report = EvalReport(name="abstention/set")
-    cases = load_cases("abstention.yaml")
-    report.check(len(cases) >= 15, f"expected >= 15 abstention cases, got {len(cases)}")
+    cases = [
+        *load_cases("abstention.yaml"),
+        *load_cases("abstention_synthetic.yaml"),
+    ]
+    report.check(
+        len(cases) >= 250,
+        f"expected >= 250 abstention cases, got {len(cases)}",
+    )
     for case in cases:
         question = case.get("question")
         report.check(
-            isinstance(question, str) and bool(question),
+            isinstance(question, str),
             f"malformed abstention case: {case}",
+        )
+        if case.get("synthetic") is True:
+            report.check(
+                case.get("expected") == "abstain",
+                f"synthetic case must be labelled abstain: {case}",
+            )
+            report.check(
+                isinstance(case.get("reason"), str) and bool(case.get("reason")),
+                f"synthetic abstention case lacks a reason: {case}",
+            )
+    return report
+
+
+def eval_classifier_dataset() -> EvalReport:
+    """Validate the expanded intent-classifier dataset shape."""
+    report = EvalReport(name="classifier/dataset")
+    cases = load_cases("classifier.yaml")
+    report.check(
+        len(cases) >= 200,
+        f"expected >= 200 classifier cases, got {len(cases)}",
+    )
+    allowed = {"question", "knowledge_update", "correction", "chitchat"}
+    for case in cases:
+        text = case.get("text")
+        labels = case.get("labels")
+        report.check(
+            isinstance(text, str) and bool(text),
+            f"malformed classifier text: {case}",
+        )
+        report.check(
+            isinstance(labels, list) and bool(labels) and set(labels) <= allowed,
+            f"malformed classifier labels: {case}",
+        )
+    return report
+
+
+def eval_listener_dataset() -> EvalReport:
+    """Validate question labels and expected temporal pairs."""
+    report = EvalReport(name="listener/dataset")
+    cases = load_cases("listener.yaml")
+    report.check(len(cases) >= 50, f"expected >= 50 listener cases, got {len(cases)}")
+    allowed = {"question", "answer_like", "chitchat", "knowledge_update", "correction"}
+    for case in cases:
+        messages = case.get("messages")
+        report.check(
+            isinstance(messages, list) and len(messages) >= 2,
+            f"listener case needs messages: {case}",
+        )
+        if not isinstance(messages, list):
+            continue
+        ids = {
+            str(message.get("id")) for message in messages if isinstance(message, dict)
+        }
+        report.check(len(ids) == len(messages), f"listener ids must be unique: {case}")
+        for message in messages:
+            report.check(
+                isinstance(message, dict) and message.get("expected_label") in allowed,
+                f"listener message label is invalid: {message}",
+            )
+        pairs = case.get("expected_pairs", [])
+        if not isinstance(pairs, list):
+            report.check(False, f"listener expected_pairs is not a list: {case}")
+            continue
+        for pair in pairs:
+            report.check(
+                isinstance(pair, list)
+                and len(pair) == 2
+                and all(str(item) in ids for item in pair),
+                f"listener pair references an unknown message: {pair}",
+            )
+    return report
+
+
+def eval_answer_dataset() -> EvalReport:
+    """Validate the expanded factual-answer dataset shape."""
+    report = EvalReport(name="answers/dataset")
+    cases = load_cases("answers.yaml")
+    report.check(len(cases) >= 70, f"expected >= 70 answer cases, got {len(cases)}")
+    for case in cases:
+        report.check(bool(case.get("id")), f"answer case lacks id: {case}")
+        report.check(
+            bool(case.get("question")) or case.get("expected_mode") == "abstain",
+            f"answer case lacks question: {case}",
+        )
+        report.check(
+            isinstance(case.get("must_include"), list),
+            f"answer case must_include is not a list: {case}",
         )
     return report
 
@@ -526,6 +619,9 @@ def run_offline() -> list[EvalReport]:
     return [
         eval_trigger(),
         eval_abstention_set(),
+        eval_classifier_dataset(),
+        eval_listener_dataset(),
+        eval_answer_dataset(),
         eval_citation_format(),
         eval_seed_versioning(),
         eval_conflicts(),
@@ -685,7 +781,10 @@ def eval_live_answers(base_url: str) -> EvalReport:
 def eval_live_abstention(base_url: str) -> EvalReport:
     """Check that unknown questions abstain instead of inventing (spec §41)."""
     report = EvalReport(name="abstention/live")
-    for case in load_cases("abstention.yaml"):
+    for case in [
+        *load_cases("abstention.yaml"),
+        *load_cases("abstention_synthetic.yaml"),
+    ]:
         _eval_answer(base_url, {**case, "expected_mode": "abstention"}, report)
     return report
 
