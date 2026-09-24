@@ -3,6 +3,8 @@
 
 from datetime import datetime
 
+from knowledge_bot.ports.repositories import DailyReportSnapshot
+
 
 class InMemoryRecapStateRepository:
     """Dict-backed implementation of ``RecapStateRepository``."""
@@ -140,6 +142,19 @@ class InMemoryDailyReportStateRepository:
     async def set(self, key: str, sent_at: datetime) -> None:
         """Record a successful report time."""
         self._last_sent[key] = sent_at
+
+
+class InMemoryDailyReportSource:
+    """In-memory deterministic daily report source."""
+
+    def __init__(self, snapshot: DailyReportSnapshot | None = None) -> None:
+        """Configure the snapshot returned for every window."""
+        self.snapshot = snapshot or DailyReportSnapshot()
+
+    async def collect(self, start: datetime, end: datetime) -> DailyReportSnapshot:
+        """Return the configured snapshot."""
+        del start, end
+        return self.snapshot
 
 
 class InMemoryReportStateRepository:

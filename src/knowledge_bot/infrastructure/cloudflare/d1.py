@@ -40,6 +40,7 @@ from knowledge_bot.domain.enums import (
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.repositories import DailyReportSnapshot
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from knowledge_bot.ports.vector_store import VectorRecord
@@ -1836,6 +1837,110 @@ def _reviewer_event(row: dict[str, object]) -> ReviewerEvent:
         approval_scope=_opt_str(row["approval_scope"]),
         reported=bool(row["reported"]),
     )
+
+
+class D1DailyReportSource:
+    """D1 source for deterministic daily report counters."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def collect(self, start: datetime, end: datetime) -> DailyReportSnapshot:
+        """Collect one report window without calling an AI model."""
+        modes = _rows(
+            await self._db.prepare(
+                "SELECT answer_mode, COUNT(*) AS n FROM bot_answers"
+                " WHERE created_at >= ? AND created_at < ? GROUP BY answer_mode"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        counts = {str(row["answer_mode"]): _count(row) for row in modes}
+        feedback = _count(
+            _row(
+                await self._db.prepare(
+                    "SELECT COUNT(*) AS n FROM feedback"
+                    " WHERE created_at >= ? AND created_at < ?"
+                )
+                .bind(_iso(start), _iso(end))
+                .first()
+            )
+        )
+        listener = _rows(
+            await self._db.prepare(
+                "SELECT classification_status, index_status, COUNT(*) AS n"
+                " FROM messages WHERE created_at >= ? AND created_at < ?"
+                " GROUP BY classification_status, index_status"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        status_counts: dict[str, int] = {}
+        for row in listener:
+            status_counts[str(row["classification_status"])] = status_counts.get(
+                str(row["classification_status"]), 0
+            ) + _count(row)
+        correction_rows = _rows(
+            await self._db.prepare(
+                "SELECT status, COUNT(*) AS n FROM feedback"
+                " WHERE created_at >= ? AND created_at < ? GROUP BY status"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        corrections = {str(row["status"]): _count(row) for row in correction_rows}
+        audit_rows = _rows(
+            await self._db.prepare(
+                "SELECT reviewer_name, group_label, action, approval_scope"
+                " FROM reviewer_events WHERE created_at >= ? AND created_at < ?"
+                " ORDER BY created_at"
+            )
+            .bind(_iso(start), _iso(end))
+            .run()
+        )
+        audit = tuple(
+            f"{row.get('reviewer_name') or 'reviewer'}"
+            f" · {row.get('group_label') or 'global'}"
+            f" · {row.get('action') or 'resolved'}"
+            for row in audit_rows
+        )
+        return DailyReportSnapshot(
+            addressed_total=sum(counts.values()),
+            direct=counts.get("direct_qa", 0),
+            synthesis=counts.get("synthesis", 0),
+            abstention=counts.get("abstention", 0),
+            unavailable=counts.get("unavailable", 0),
+            flagged=feedback,
+            background_questions=status_counts.get("question", 0),
+            background_paired=_count(
+                _row(
+                    await self._db.prepare(
+                        "SELECT COUNT(*) AS n FROM messages"
+                        " WHERE context_question IS NOT NULL"
+                        " AND created_at >= ? AND created_at < ?"
+                    )
+                    .bind(_iso(start), _iso(end))
+                    .first()
+                )
+            ),
+            messages_stored=sum(status_counts.values()),
+            evidence_indexed=sum(
+                _count(row) for row in listener if str(row["index_status"]) == "indexed"
+            ),
+            non_evidence=sum(
+                _count(row)
+                for row in listener
+                if str(row["index_status"]) in {"not_eligible", "not_indexed"}
+            ),
+            deferred=status_counts.get("deferred_budget", 0),
+            failures=status_counts.get("failed", 0),
+            corrections_proposed=corrections.get("pending_review", 0),
+            approved_local=corrections.get("approved", 0),
+            approved_global=0,
+            rejected=corrections.get("rejected", 0),
+            audit_labels=audit,
+        )
 
 
 class D1DailyReportStateRepository:

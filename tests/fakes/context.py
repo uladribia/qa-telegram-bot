@@ -41,6 +41,7 @@ from tests.fakes.ai import (
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.support import (
     FrozenClock,
+    InMemoryDailyReportSource,
     InMemoryDailyReportStateRepository,
     RecordingTransport,
 )
@@ -252,10 +253,10 @@ def build_test_context(
         router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
         reviewer_report=reviewer_report,
         daily_report=DailyReportService(
-            recap=recap,
-            reviewer_report=reviewer_report,
+            source=InMemoryDailyReportSource(),
             state=InMemoryDailyReportStateRepository(),
             transport=transport,
+            budget=budget,
             clock=clock,
             admin_principal_id="1",
         ),
