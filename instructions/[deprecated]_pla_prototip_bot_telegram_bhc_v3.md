@@ -30,7 +30,10 @@
 > curator oficial de Q&A roman deliberadament pendent: les parelles detectades
 > es desen com a evidència no autoritativa i no es promouen automàticament a
 > Q&A canònic. Aquest document històric no descriu cap d'aquests
-> comportaments com a sistema actual.
+> comportaments com a sistema actual. El desplegament Cloudflare actual
+> també s'ha verificat amb una migració D1, els índexs Vectorize
+> `kind/status/scope_key` i `/healthz`; només queda la comprovació manual
+> de Telegram amb credencials reals.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;
