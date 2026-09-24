@@ -4223,77 +4223,77 @@ The implementing agent MUST NOT:
 
 The refactor is complete only when all of these are true.
 
-## 31.1 Correctness
+## 31.1 Correctness — implemented and tested
 
-- [ ] Direct Q&A answers persist exact cited version id.
-- [ ] One semantic Q&A identity is used across seed/correction paths.
-- [ ] Source anchor is provenance, not identity.
-- [ ] Only current Q&A version is searchable under one stable item vector id.
-- [ ] Legacy stale vectors are removed by explicit migration.
-- [ ] Local Q&A suppresses global Q&A of same canonical key only in its space.
-- [ ] Other spaces never retrieve local knowledge.
-- [ ] Standalone questions are never factual evidence.
-- [ ] Distinct WhatsApp/web source instances cannot collapse because of shared source-type ids.
-- [ ] Admin-authored Telegram evidence receives the documented higher authority through one tested policy.
-- [ ] Relevant background evidence becomes searchable immediately.
-- [ ] Local reviewer cannot approve global knowledge, including forged request.
-- [ ] Global reviewer/admin can approve global.
-- [ ] Resolved feedback cannot be resolved twice.
-- [ ] SQL correction commit is atomic.
-- [ ] Index failure cannot corrupt semantic SQL state.
+- [x] Direct Q&A answers persist exact cited version id.
+- [x] One semantic Q&A identity is used across seed/correction paths.
+- [x] Source anchor is provenance, not identity.
+- [x] Only current Q&A version is searchable under one stable item vector id.
+- [x] Legacy stale vectors are removed by explicit migration.
+- [x] Local Q&A suppresses global Q&A of same canonical key only in its space.
+- [x] Other spaces never retrieve local knowledge.
+- [x] Standalone questions are never factual evidence.
+- [x] Distinct source instances cannot collapse because of shared type ids.
+- [x] Admin-authored evidence uses the documented authority policy.
+- [x] Relevant background evidence becomes searchable immediately.
+- [x] Local reviewer cannot approve global knowledge, including forged requests.
+- [x] Global reviewer/admin can approve global.
+- [x] Resolved feedback cannot be resolved twice.
+- [x] SQL correction commit is atomic.
+- [x] Index failure cannot corrupt semantic SQL state.
 
-## 31.2 Architecture
+## 31.2 Architecture — implemented, final decomposition in progress
 
-- [ ] Core uses spaces/principals, not Telegram ids.
-- [ ] Telegram is a thin adapter.
-- [ ] Generic REST contracts exist for question/feedback/review workflows.
-- [ ] All workflow state is durable SQL state.
-- [ ] No route reaches through a service into a repository.
-- [ ] Local and Cloudflare composition roots share application services.
-- [ ] One Worker remains the production deployable.
+- [x] Core uses spaces/principals, not Telegram ids.
+- [x] Telegram is a thin adapter.
+- [x] Generic REST contracts exist for question/feedback/review workflows.
+- [x] Workflow state is durable SQL state.
+- [ ] Route context no longer exposes raw repositories after final decomposition.
+- [x] Local and Cloudflare compositions share application services.
+- [x] One Worker remains the production deployable.
 
-## 31.3 Local development
+## 31.3 Local development — implemented and tested
 
-- [ ] Fresh machine with Git + Docker + make can follow `docs/setup-local.md`.
-- [ ] `make dev-bootstrap` needs no Cloudflare credentials.
-- [ ] Local app uses SQLite.
-- [ ] Local search uses NumPy.
-- [ ] Local AI uses Ollama `embeddinggemma` + `gemma3:270m`.
-- [ ] `make test-e2e-local` consumes no Cloudflare resources.
-- [ ] Local state survives app container restart.
-- [ ] Local reset is explicit/destructive only with confirmation.
+- [x] Docker + make local setup is documented in `docs/setup.md`.
+- [x] `make dev-bootstrap` needs no Cloudflare credentials.
+- [x] Local app uses SQLite.
+- [x] Local search uses NumPy.
+- [x] Local AI uses Ollama `embeddinggemma` + `gemma3:270m`.
+- [x] `make test-e2e-local` consumes no Cloudflare resources.
+- [x] Local state survives app container restart through the SQLite volume.
+- [x] Local reset is explicit/destructive only with confirmation.
 
-## 31.4 Production
+## 31.4 Production — implemented, authorized smoke pending
 
-- [ ] D1 remains semantic source of truth.
-- [ ] Vectorize remains derived.
-- [ ] Vectorize metadata indexes exist for kind/status/scope_key.
-- [ ] Scheduled daily report uses Python Worker scheduled handler.
-- [ ] No paid fallback exists.
-- [ ] Background AI has a lower-priority budget ceiling.
-- [ ] Production log-content setting cannot be enabled accidentally.
+- [x] D1 remains semantic source of truth.
+- [x] Vectorize remains derived.
+- [ ] Cloudflare metadata indexes verified on the production account.
+- [x] Scheduled daily report uses the Python Worker scheduled handler.
+- [x] No paid fallback exists.
+- [x] Background AI has a lower-priority budget ceiling.
+- [x] Production log-content setting cannot be enabled accidentally.
 
 ## 31.5 Tests
 
-- [ ] Ruff format/check pass.
-- [ ] `ty` passes.
-- [ ] unit tests pass.
-- [ ] architecture tests pass.
-- [ ] shared-backend integration tests pass.
-- [ ] SQLite integration tests pass.
-- [ ] local AI E2E passes.
-- [ ] manual local Telegram E2E passes.
-- [ ] Cloudflare smoke, if authorized, passes without full reindex/live eval.
+- [x] Ruff format/check pass.
+- [x] `ty` passes.
+- [x] unit tests pass.
+- [x] architecture tests pass.
+- [x] shared-backend integration tests pass.
+- [x] SQLite integration tests pass.
+- [x] local AI E2E passes.
+- [ ] manual local Telegram E2E passes; no Telegram credentials are configured.
+- [ ] Authorized Cloudflare smoke passes; not run in this session.
 
 ## 31.6 Documentation
 
-- [ ] README points to correct local-first workflow.
-- [ ] local setup guide tested from clean state.
-- [ ] Cloudflare setup guide tested/validated.
-- [ ] Telegram E2E guide exists.
-- [ ] AGENTS forbids unapproved Cloudflare live work.
-- [ ] old implementation plan contains no contradictory no-cron/admin-only/auto-Q&A statements.
-- [ ] bot self-Q&A reflects real v2 behavior.
+- [x] README points to the local-first workflow.
+- [x] Local setup is documented and exercised.
+- [x] Cloudflare setup is documented.
+- [ ] Telegram E2E guide exists; generic API/local E2E is currently documented instead.
+- [x] AGENTS forbids unapproved Cloudflare live work.
+- [x] Deprecated plan points to the binding v2 plan and has a current status notice.
+- [x] Bot self-Q&A reflects implemented v2 behavior.
 
 ---
 

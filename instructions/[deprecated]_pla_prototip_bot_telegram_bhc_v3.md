@@ -24,9 +24,12 @@
 > diari usa el handler programat del Worker. La generació, feedback, revisió,
 > lliurament i correlació d'interaccions tenen rutes i estat durables. La
 > separació física completa de rutes continua com a millora estructural. La
-> branca `refactor/v2-local-runtime` està implementant el runtime local
-> SQLite + NumPy + Ollama, les migracions locals, el runner local i els
-> Dockerfile/Makefile locals. Aquest document històric no descriu cap d'aquests
+> branca `refactor/v2-production-docs` ha completat el runtime local SQLite +
+> NumPy + Ollama, les finestres durables d'aparellament de fons, el report
+> diari determinista i l'escalonament configurable dels revisors. El rol de
+> curator oficial de Q&A roman deliberadament pendent: les parelles detectades
+> es desen com a evidència no autoritativa i no es promouen automàticament a
+> Q&A canònic. Aquest document històric no descriu cap d'aquests
 > comportaments com a sistema actual.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:

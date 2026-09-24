@@ -1,154 +1,92 @@
 # Session handoff
 
-_Last updated: 2026-09-24 after PR #3._
+_Last updated: 2026-09-24 on `refactor/v2-production-docs`._
 
-## Repository state
+## Current state
 
-- Branch used for this handoff: `docs/session-handoff`.
-- Base commit: `d0577e6` (`main` after PR #3).
 - Binding plan: [`instructions/qa-telegram-bot-refactor-v2-spec.md`](../instructions/qa-telegram-bot-refactor-v2-spec.md).
 - Historical plan: `instructions/[deprecated]_pla_prototip_bot_telegram_bhc_v3.md`; it is not authoritative.
-- `main` and `origin/main` were synchronized when PR #3 merged.
-- `TODO.md` contains an intentional, uncommitted local edit. Preserve it; do not
-  stage, revert, or overwrite it during the next implementation branch.
+- Current branch: `refactor/v2-production-docs`.
+- `main` is at the last merged production boundary commit; this branch is pushed but not merged.
+- `TODO.md` contains an intentional uncommitted edit. Preserve it; do not stage, reset, or revert it.
 
-## Merged PRs
+## Merged work
 
-1. **PR #1 — `refactor/v2-correctness`**
-   - https://github.com/uladribia/qa-telegram-bot/pull/1
-   - merge: `8618265`
-   - immediate correctness, spaces, connector-defined source provenance, semantic
-     Q&A identity, stable Q&A vector IDs, projection manifest.
+1. PR #1 — correctness, spaces, connector provenance, semantic Q&A identity, stable vectors, projection manifest.
+2. PR #2 — background evidence, bounded backlog, synthesis limits, reviewer authorization, atomic corrections.
+3. PR #3 — Pydantic HTTP contracts, generic `/v1` API, durable delivery/interactions, scheduled report path, Telegram adapter split.
+4. PR #4 — session handoff documentation.
+5. PR #5 — local SQLite + NumPy + Ollama runtime, migrations, local Docker/Make workflow.
+6. PR #6 — local environment aliases, readiness, bootstrap, and local E2E fixes.
 
-2. **PR #2 — `refactor/v2-learning-review`**
-   - https://github.com/uladribia/qa-telegram-bot/pull/2
-   - merge: `33e1bc0`
-   - evidence-only background indexing, bounded backlog processing, lower-priority
-     AI budget, synthesis limits, no runtime judge, scoped reviewer authority,
-     pending unreachable reviews, atomic correction commit.
+## Implemented on the current branch
 
-3. **PR #3 — `refactor/v2-boundaries-report`**
-   - https://github.com/uladribia/qa-telegram-bot/pull/3
-   - merge: `d0577e6`
-   - Pydantic HTTP contracts, generic `/v1/*` API, idempotent question requests,
-     durable delivery receipts, consumed-once Telegram interactions, daily report
-     state, Worker scheduled handler, Cron Trigger, Telegram webhook adapter split.
+- Durable reviewer-delivery failure state and configurable admin escalation:
+  - `REVIEWER_ESCALATION_TIMEOUT_SECONDS`;
+  - timeout is shown in the notification;
+  - admin can edit and approve after escalation;
+  - test uses a zero-second timeout.
+- Temporal listener pairing:
+  - durable pending windows;
+  - quiet-period flush;
+  - configurable window/quiet/overlap settings;
+  - stable candidate ids and idempotent evidence indexing;
+  - local Ollama and Workers AI pairing adapters.
+- Pair candidates remain non-authoritative evidence; no curator promotion is implemented.
+- Deterministic daily report with addressed questions, background questions, ingestion, corrections, seed divergence, AI usage, and reviewer audit sections.
+- D1 report source now calculates seed-divergence counts from refreshed web versions that did not replace human-approved current versions.
+- Shared `AppContext` moved to `infrastructure/context.py`.
+- Cloudflare settings now pass raw values through Pydantic instead of manual `_int/_float/_flag` coercion.
 
-## Current implemented behavior
+## Functional tests
 
-- SQL is authoritative; Vectorize is a derived projection.
-- `data/` is the durable knowledge input. Existing D1 experiment data is
-  disposable and the canonical cutover may use fresh D1/Vectorize resources.
-- Connectors declare `SourceDescriptor(id, kind, authority)`. Core code has no
-  Telegram/WhatsApp/web source registry; an architecture test enforces this.
-- Logical spaces and channel bindings are independent from Telegram chat IDs.
-- Q&A identity is semantic; source anchors stay on versions.
-- Q&A vectors use stable `qa:<qa_item_id>` IDs and `search_projection` tracks the
-  derived state.
-- Background messages are stored even when classification/indexing is skipped.
-  Only eligible evidence is indexed; questions and chitchat are not factual
-  evidence.
-- Deferred background work requires an explicit bounded maintenance request.
-- Corrections use one SQL transaction for version, pointer, evidence, and feedback
-  state. A failed D1 batch rolls back all writes.
-- Reviewer authorization checks actor and requested approval scope. A local
-  reviewer cannot approve global knowledge.
-- Generic application endpoints exist under `/v1` and do not know Telegram.
-- Reviewer delivery failures are persisted with a configurable escalation timeout;
-  after expiry the admin can edit and approve the task through the normal flow.
-- Telegram prompt/reply interactions and answer deliveries are durable SQL state.
-- A deterministic daily report job is available at
-  `POST /internal/jobs/daily-report` and from the Worker Cron handler. The full
-  report-content work from Phase 9 is not finished; current recap/reviewer report
-  services still supply the interim content.
+Passing:
 
-## Validation baseline
+```text
+make all
+126 fast tests passed
 
-Run before changing the next branch:
-
-```bash
-make lint
-make test
 make test-integration
+124 integration tests passed
+
 uv run python -m evals.run offline
+6/6 suites passed
+
+make test-e2e-local
+2 passed
 ```
 
-Expected at the handoff baseline:
+Important scenarios covered:
 
-- lint/type checks: pass;
-- fast tests: 126 passed;
-- integration tests: 121 passed;
-- offline eval suites: 6/6 passed;
-- `make smoke`: passed (`/healthz` returned OK).
+- real local Ollama embedding, generation, and pairing response validation;
+- local seed → SQLite/NumPy retrieval → generic answer;
+- correction proposal flow;
+- two independent groups returning different corrected local answers;
+- unreachable reviewer → admin timeout escalation → admin edit → local approval;
+- mixed listener window accumulation and candidate indexing;
+- deterministic daily report sections.
 
-`make smoke` was last run after the generic API, durable state, daily report,
-Worker entrypoint, and Telegram adapter changes.
+## Curator status
 
-## Completed Phase 8: local runtime
+The official Q&A curator role is deliberately deferred. The current design only
+stores and indexes `message_pair_candidates` as evidence. There is no curator
+notification, candidate approval CLI, or automatic promotion to canonical Q&A.
+Do not infer that the admin is permanently the curator.
 
-PR #5 (`refactor/v2-local-runtime`) was merged into `main` at `5c0829d`.
-Implemented:
+## Remaining work
 
-- local dependency group with `numpy`, `aiosqlite`, `httpx`, and `uvicorn`;
-- validated `RuntimeMode`, local SQLite/Ollama settings, and model allowlists;
-- `migrations/local/0001_local_vectors.sql` and an idempotent SQLite migration
-  runner using `schema_migrations`;
-- `NumpySqliteVectorStore` with strict dimensions, normalized float32 storage,
-  equality filters, and cosine queries;
-- raw Ollama `/api/embed` and `/api/chat` adapters with validated output and
-  exactly one malformed-generation retry;
-- shared local composition, local Uvicorn entrypoint, `/healthz`, `/readyz`, and
-  explicit local E2E test;
-- `Dockerfile.local`, direct Docker dev commands, `.env.local.example`, and local
-  documentation/self-Q&A updates;
-- real local functional flow: seed Q&A → Ollama embedding → SQLite/NumPy
-  retrieval → generic answer endpoint → request-id replay, plus real Ollama
-  embedding smoke coverage.
-
-The local graph currently reuses the existing purpose-specific SQL repository
-classes through a small SQLite statement binding while the oversized D1 module
-is split later in Phase 10. This is functional local persistence, not a second
-database or ORM.
-
-## Next branch and scope
-
-The current branch is `refactor/v2-production-docs`, started from the merged
-Phase 8 `main`. It owns Phases 9–12:
-
-1. finish the Cloudflare composition root and deterministic daily report content;
-2. split remaining oversized route/infrastructure modules where behavior permits;
-3. synchronize all documentation and bot self-Q&A with final behavior;
-4. run the final offline/local/Worker validation matrix.
-
-The local functional test exposed and fixed two real defects: SQLite DML needed
-autocommit outside explicit transactions, and generic API answers needed a
-source-backed API conversation to satisfy the durable answer foreign key.
-
-Do not run Cloudflare migrations, deploys, live AI evals, or reindexing without
-explicit human authorization. Preserve the unstaged `TODO.md` edit.
-
-## Known transitional gaps
-
-These are intentional follow-up work, not reasons to undo completed PRs:
-
-- `wrangler.jsonc` and the Cloudflare composition are still the production
-  runtime; the Worker scheduled handler exists but the full Phase 9 report
-  sections are not complete.
-- The large HTTP app still contains legacy operational and Telegram helper
-  routing; the generic API and Telegram webhook registration are split, but
-  Phase 10 may split the remaining internal route modules.
-- Telegram reviewer persistence still has legacy raw-id compatibility fields;
-  generic API flows use principals, but complete reviewer-principal migration is
-  still worth checking before final acceptance.
-- Generic idempotent question replay returns the stored answer and answer id;
-  verify whether the API contract should replay structured sources as well.
-- No Cloudflare live migration, deploy, D1 reseed, Vectorize metadata-index
-  change, or live AI evaluation was authorized or run in this session. Do not
-  run those without explicit human authorization.
-- `TODO.md` is modified locally and must survive the handoff.
+1. Finish Phase 10 structural cleanup:
+   - split the oversized D1 module by concern;
+   - make the Cloudflare composition location explicit;
+   - remove obsolete recap/reviewer wiring where safe;
+   - keep route context from exposing raw repositories.
+2. Update final documentation and self-Q&A against the actual code.
+3. Run final local, offline, Worker smoke, and authorized Cloudflare checks.
+4. Do not run Cloudflare migrations, deploys, live AI evals, or remote reindexing
+   without explicit human authorization.
 
 ## Handoff rule
 
-Before starting Phase 8, read the binding plan and `AGENTS.md`, inspect
-`git status`, and preserve the unstaged `TODO.md` edit. Do not reset the worktree
-or use destructive checkout commands to discard it.
+Read `AGENTS.md` and the binding plan before continuing. Preserve the unstaged
+`TODO.md` edit. The local Docker services and pulled Ollama models may still be
+running; `make dev-down` preserves their volumes.
