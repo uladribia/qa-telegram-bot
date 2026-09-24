@@ -3,17 +3,11 @@
 
 from dataclasses import dataclass
 
-from knowledge_bot.application.budget import AiBudget
-from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
+from knowledge_bot.domain.entities import Reviewer
 from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import (
-    ReportStateRepository,
-    ReviewerEventRepository,
-    ReviewerRepository,
-)
-from knowledge_bot.ports.transport import MessageTransport
+from knowledge_bot.ports.repositories import ReviewerRepository
 
 
 def parse_reviewer_command(text: str) -> tuple[str, bool]:
@@ -30,23 +24,6 @@ def render_reviewer_list(reviewers: list[Reviewer]) -> str:
         f"• {'Global' if item.scope == GLOBAL_SCOPE else item.scope} → {item.name}"
         for item in reviewers
     )
-
-
-def render_report(
-    events: list[ReviewerEvent], *, spend: tuple[float, float, int] | None = None
-) -> str:
-    """Render a legacy reviewer event report for compatibility with audit data."""
-    lines = [f"📋 Correccions revisades ({len(events)}):"]
-    for event in events:
-        lines.append(
-            f"• {event.reviewer_name or '?'} · "
-            f"{event.group_label or '?'} · {event.action}"
-        )
-    if spend is not None:
-        lines.append(
-            f"IA avui: {spend[0]:.0f} / {spend[1]:.0f} neurones en {spend[2]} crides"
-        )
-    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,25 +116,3 @@ class ReviewerManager:
     async def list_reviewers(self) -> list[Reviewer]:
         """List all reviewers."""
         return await self.reviewers.all()
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewerReportService:
-    """Legacy audit-event service retained only for historical table readers."""
-
-    events: ReviewerEventRepository
-    state: ReportStateRepository
-    transport: MessageTransport
-    clock: Clock
-    admin_user_id: str
-    mode: str = "always"
-    interval_min: int = 60
-    budget: AiBudget | None = None
-
-    async def record(self, event: ReviewerEvent) -> None:
-        """Persist a reviewer event without scheduling active reports."""
-        await self.events.add(event)
-
-    async def maybe_send(self) -> bool:
-        """Return false because active legacy reporting is retired."""
-        return False

@@ -15,4 +15,4 @@ make test-e2e-local
 
 SQLite and Ollama models persist in named volumes. `make dev-reset CONFIRM=1` removes only the local SQLite volume; the Ollama model volume is preserved. `make dev-down` stops containers without deleting volumes.
 
-All local AI work is explicit. `make test` and `make test-integration` do not call Ollama. `make test-e2e-local` rebuilds the current app image and runs the local AI smoke tests inside the container.
+All local AI work is explicit. `make test` and `make test-integration` do not call Ollama. `make test-e2e-local` rebuilds the current app image and runs synthetic Telegram, real SQLite/NumPy, and real Ollama smoke flows inside the container. No real Telegram token or network is used.

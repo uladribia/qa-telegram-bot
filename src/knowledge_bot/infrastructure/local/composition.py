@@ -44,29 +44,53 @@ from knowledge_bot.infrastructure.metering import (
 )
 from knowledge_bot.infrastructure.settings import Settings
 from knowledge_bot.infrastructure.sql.repositories import (
-    D1AiUsageRepository,
-    D1AttachmentRepository,
-    D1BotAnswerRepository,
-    D1ChannelBindingRepository,
-    D1ConversationRepository,
-    D1CorrectionCommitStore,
-    D1DailyReportSource,
-    D1DailyReportStateRepository,
-    D1DeliveryReceiptRepository,
-    D1FeedbackRepository,
-    D1ListenerPairingWindowRepository,
-    D1MessagePairCandidateRepository,
-    D1MessageRepository,
-    D1QAItemRepository,
-    D1QAVersionRepository,
-    D1ReviewerRepository,
-    D1ReviewSource,
-    D1SearchIndexSource,
-    D1SearchProjectionRepository,
-    D1SourceRepository,
-    D1SpaceRepository,
-    D1TelegramInteractionRepository,
+    SqlAiUsageRepository,
+    SqlAttachmentRepository,
+    SqlBotAnswerRepository,
+    SqlChannelBindingRepository,
+    SqlConversationRepository,
+    SqlCorrectionCommitStore,
+    SqlDailyReportSource,
+    SqlDailyReportStateRepository,
+    SqlDeliveryReceiptRepository,
+    SqlFeedbackRepository,
+    SqlListenerPairingWindowRepository,
+    SqlMessagePairCandidateRepository,
+    SqlMessageRepository,
+    SqlQAItemRepository,
+    SqlQAVersionRepository,
+    SqlReviewerRepository,
+    SqlReviewSource,
+    SqlSearchIndexSource,
+    SqlSearchProjectionRepository,
+    SqlSourceRepository,
+    SqlSpaceRepository,
+    SqlTelegramInteractionRepository,
 )
+from knowledge_bot.ports.clock import Clock
+
+D1AiUsageRepository = SqlAiUsageRepository
+D1AttachmentRepository = SqlAttachmentRepository
+D1BotAnswerRepository = SqlBotAnswerRepository
+D1ChannelBindingRepository = SqlChannelBindingRepository
+D1ConversationRepository = SqlConversationRepository
+D1CorrectionCommitStore = SqlCorrectionCommitStore
+D1DailyReportSource = SqlDailyReportSource
+D1DailyReportStateRepository = SqlDailyReportStateRepository
+D1DeliveryReceiptRepository = SqlDeliveryReceiptRepository
+D1FeedbackRepository = SqlFeedbackRepository
+D1ListenerPairingWindowRepository = SqlListenerPairingWindowRepository
+D1MessagePairCandidateRepository = SqlMessagePairCandidateRepository
+D1MessageRepository = SqlMessageRepository
+D1QAItemRepository = SqlQAItemRepository
+D1QAVersionRepository = SqlQAVersionRepository
+D1ReviewerRepository = SqlReviewerRepository
+D1ReviewSource = SqlReviewSource
+D1SearchIndexSource = SqlSearchIndexSource
+D1SearchProjectionRepository = SqlSearchProjectionRepository
+D1SourceRepository = SqlSourceRepository
+D1SpaceRepository = SqlSpaceRepository
+D1TelegramInteractionRepository = SqlTelegramInteractionRepository
 
 
 class LocalNotifier:
@@ -134,18 +158,21 @@ def _transport(settings: Settings, client: httpx.AsyncClient) -> TelegramClient:
 
 async def build_context(
     settings: Settings,
+    *,
+    transport: TelegramClient | None = None,
+    clock: Clock | None = None,
 ) -> tuple[AppContext, SQLiteDatabase, httpx.AsyncClient]:
     """Build one local graph sharing one SQLite connection and HTTP client."""
     database = await SQLiteDatabase.connect(settings.sqlite_path)
     await apply_migrations(database, Path.cwd())
     client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
-    transport = _transport(settings, client)
+    transport = transport or _transport(settings, client)
     notifier = (
         TelegramNotifier(transport)
         if isinstance(transport, TelegramTransport)
         else LocalNotifier()
     )
-    clock = SystemClock()
+    clock = clock or SystemClock()
     binding = SQLiteBinding(database)
     budget = AiBudget(
         usage=D1AiUsageRepository(binding),

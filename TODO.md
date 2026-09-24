@@ -4,4 +4,3 @@
 4. Permetre que l'usuari escrigui al bot per DM, detecti a quins grups pertany i resolgui el context quan hi hagi més d'un espai.
 5. Implementar els modes off, silent, active i proactive, tant per DM com per grup.
 6. Implementar Telethon per a proves E2E sense humans.
-7. Fer el deployment, les migracions i el smoke test de Cloudflare amb autorització explícita.

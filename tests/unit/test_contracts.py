@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from knowledge_bot.contracts.api import BackgroundBacklogRequest, ReindexRequest
 from knowledge_bot.contracts.messages import (
     AttachmentRef,
     NormalizedMessage,
@@ -75,6 +76,16 @@ def test_normalized_message_rejects_empty_source_kind() -> None:
                 "content_type": ContentType.TEXT,
             }
         )
+
+
+def test_bounded_maintenance_requests_cap_at_one_hundred() -> None:
+    """Maintenance request limits cannot exceed the server budget."""
+    assert BackgroundBacklogRequest(limit=100).limit == 100
+    assert ReindexRequest(limit=100).limit == 100
+    with pytest.raises(ValidationError):
+        BackgroundBacklogRequest(limit=101)
+    with pytest.raises(ValidationError):
+        ReindexRequest(limit=101)
 
 
 def test_seed_qa_rejects_unknown_status() -> None:

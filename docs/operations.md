@@ -34,11 +34,11 @@ Run a bounded repair first:
 uv run kb index repair --limit 100
 ```
 
-Use a full rebuild only when SQL truth is known to be correct and the derived index needs complete reconstruction. Rebuild cleanup removes manifest-known, legacy Q&A, legacy raw-message, and legacy `pair:*` ids before reindexing current SQL records.
+Use a full rebuild only when SQL truth is known to be correct and the derived index needs complete reconstruction. The rebuild cleanup is a separate zero-AI operation; the CLI then sends bounded batches of at most 100 and prints resume cursors after every batch. A resumed run skips cleanup.
 
 ## Logs
 
-Local logs are human-readable. Cloudflare logs are structured JSON. Logs contain ids, scope, decisions, counts, model names, durations, and state transitions. They never contain raw message text, answers, prompts, usernames, phone numbers, tokens, or secrets.
+Local logs are human-readable and debug-level. Cloudflare logs are structured JSON at info level. Logs contain ids, scope, decisions, counts, model names, durations, and state transitions. They never contain raw message text, answers, prompts, usernames, phone numbers, tokens, or secrets.
 
 ## Daily report
 

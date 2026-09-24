@@ -24,7 +24,7 @@ fallback exists anywhere in the code.
 | [docs/knowledge-base.md](docs/knowledge-base.md) | Adding and correcting knowledge |
 | [docs/operations.md](docs/operations.md) | Quota, logs, troubleshooting, routine maintenance |
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
-| [docs/session-handoff.md](docs/session-handoff.md) | Current v2 state and next-session starting point |
+| [docs/session-handoff.md](docs/session-handoff.md) | Current hardening state and next-session starting point |
 | [docs/e2e-telegram.md](docs/e2e-telegram.md) | Manual Telegram acceptance flow |
 | [AGENTS.md](AGENTS.md) | How to write code here |
 | [instructions/](instructions/) | The binding implementation plan and current status |
@@ -72,10 +72,10 @@ uv run pywrangler deploy
 | `make dev-up` / `make dev-down` | Start or stop the local app and Ollama containers |
 | `make dev-migrate` | Apply shared and local SQLite migrations |
 | `make test-e2e-local` | Explicit local-only Ollama smoke test |
-| `make reindex` | Rebuild the derived vector index from D1 |
+| `make reindex` | Clean and batch-rebuild the derived vector index; requires explicit remote authorization |
 | `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
 | `make eval-live` | Live quality gate (real model calls; costs AI quota) |
-| `make eval-live-reindex` | Same, rebuilding the index first |
+| `make eval-live-reindex` | Same, after the explicitly authorized bounded reindex |
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
 
 Routes: `GET /healthz`; generic key-guarded `POST /v1/{questions,feedback,...}`; operational `POST /internal/jobs/daily-report`; and the Telegram webhook. Runtime generation exposes no LLM-judge endpoint.
@@ -86,7 +86,7 @@ Routes: `GET /healthz`; generic key-guarded `POST /v1/{questions,feedback,...}`;
 
 **1. The AI budget is real and shared.** The free plan allows 10,000 neurons per
 day. When it runs out the bot can answer nothing until the next reset. Live
-evals and reindex are the big consumers and are refused early by a guard; user
+evals and reindex require explicit authorization and `BOT_BASE_URL`; user
 questions are never refused. Run them **only with explicit authorization, for
 substantive changes that can affect answer quality** — never scheduled, never
 auto-retried. Details in [docs/operations.md](docs/operations.md).

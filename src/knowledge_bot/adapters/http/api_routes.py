@@ -155,13 +155,13 @@ def build_api_router(
             raise HTTPException(status_code=409, detail=str(error)) from error
         if version is None:
             raise HTTPException(status_code=409, detail="already resolved")
-        projected = await context.reindex.reindex_qa_version(version.id)
+        attempt = await context.reindex.try_reindex_qa_version(version.id)
         return ReviewDecisionResponse(
             status="approved",
             feedback_id=feedback_id,
             qa_item_id=version.qa_id,
             qa_version_id=version.id,
-            projection_status="indexed" if projected else "pending",
+            projection_status=attempt.status,
         )
 
     return router

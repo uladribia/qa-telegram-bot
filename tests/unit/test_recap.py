@@ -23,6 +23,7 @@ from tests.fakes.support import (
     FrozenClock,
     InMemoryAiUsageRepository,
     InMemoryRecapStateRepository,
+    RecordingNotifier,
     RecordingTransport,
 )
 
@@ -182,7 +183,7 @@ def test_maybe_send_appends_the_activity_footer() -> None:
         answers=answers,
         conversations=InMemoryConversationRepository(),
         state=InMemoryRecapStateRepository(),
-        transport=transport,
+        notifier=RecordingNotifier(transport),
         clock=clock,
         admin_user_id="1",
         interval_hours=24,

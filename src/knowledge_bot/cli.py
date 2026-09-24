@@ -273,7 +273,11 @@ def revert(
 @app.command()
 def reindex(
     batch: int = typer.Option(
-        50, "--batch", help="Records per request (keep small: free CPU limits)."
+        50,
+        "--batch",
+        min=1,
+        max=100,
+        help="Records per request (keep small: free CPU limits).",
     ),
     qa_after: str | None = typer.Option(None, help="Resume cursor for QA versions."),
     msg_after: str | None = typer.Option(None, help="Resume cursor for messages."),
@@ -284,12 +288,12 @@ def reindex(
     _require_live_allowed(base_url)
     if qa_after is None and msg_after is None:
         cleanup = httpx.post(
-            f"{base_url}/internal/reindex",
-            json={"rebuild": True},
+            f"{base_url}/internal/index/cleanup",
             headers=_internal_headers(Settings()),
             timeout=300.0,
         )
         cleanup.raise_for_status()
+        typer.echo(f"cleanup: {cleanup.text}")
     try:
         while True:
             settings = Settings()
@@ -314,7 +318,11 @@ def reindex(
             msg_after = counts.get("msg_after")
             totals["qa"] += counts.get("qa", 0)
             totals["messages"] += counts.get("messages", 0)
-            typer.echo(f"  indexed {totals['qa']} qa, {totals['messages']} messages")
+            typer.echo(
+                f"  indexed {totals['qa']} qa, {totals['messages']} messages; "
+                f"resume: --qa-after {qa_after or '<none>'} "
+                f"--msg-after {msg_after or '<none>'}"
+            )
             if qa_after is None and msg_after is None:
                 break
     except httpx.HTTPError as error:
