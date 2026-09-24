@@ -125,27 +125,6 @@ def _ids(value: str) -> frozenset[str]:
     return frozenset(part.strip() for part in value.split(",") if part.strip())
 
 
-def _flag(env: WorkerEnv, name: str, default: bool = False) -> bool:
-    value = getattr(env, name, None)
-    if value is None:
-        return default
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _int(env: WorkerEnv, name: str, default: int) -> int:
-    try:
-        return int(_text(env, name, str(default)))
-    except ValueError:
-        return default
-
-
-def _float(env: WorkerEnv, name: str, default: float) -> float:
-    try:
-        return float(_text(env, name, str(default)))
-    except ValueError:
-        return default
-
-
 def build_context(env: WorkerEnv) -> AppContext:
     """Build the application context from Worker bindings.
 
@@ -164,34 +143,40 @@ def build_context(env: WorkerEnv) -> AppContext:
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
         telegram_bot_username=_text(env, "TELEGRAM_BOT_USERNAME"),
         internal_admin_key=_text(env, "INTERNAL_ADMIN_KEY"),
-        recap_enabled=_flag(env, "RECAP_ENABLED", True),
-        recap_interval_hours=_int(env, "RECAP_INTERVAL_HOURS", 24),
-        recap_language=_text(env, "RECAP_LANGUAGE", "ca") or "ca",
-        admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always") or "always",
-        admin_report_interval_min=_int(env, "ADMIN_REPORT_INTERVAL_MIN", 60),
-        background_listener_enabled=_flag(env, "BACKGROUND_LISTENER_ENABLED", False),
-        classifier_chitchat_discard_threshold=_float(
-            env, "CLASSIFIER_CHITCHAT_DISCARD", 0.80
+        recap_enabled=_text(env, "RECAP_ENABLED", "true"),
+        recap_interval_hours=_text(env, "RECAP_INTERVAL_HOURS", "24"),
+        recap_language=_text(env, "RECAP_LANGUAGE", "ca"),
+        admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always"),
+        admin_report_interval_min=_text(env, "ADMIN_REPORT_INTERVAL_MIN", "60"),
+        reviewer_escalation_timeout_seconds=_text(
+            env, "REVIEWER_ESCALATION_TIMEOUT_SECONDS", "86400"
         ),
-        classifier_keep_signal_threshold=_float(env, "CLASSIFIER_KEEP_SIGNAL", 0.45),
-        classifier_question_match_threshold=_float(
-            env, "CLASSIFIER_QUESTION_MATCH", 0.60
+        pairing_window_minutes=_text(env, "PAIRING_WINDOW_MINUTES", "10"),
+        pairing_quiet_minutes=_text(env, "PAIRING_QUIET_MINUTES", "2"),
+        pairing_overlap_minutes=_text(env, "PAIRING_OVERLAP_MINUTES", "3"),
+        background_listener_enabled=_text(env, "BACKGROUND_LISTENER_ENABLED", "false"),
+        classifier_chitchat_discard_threshold=_text(
+            env, "CLASSIFIER_CHITCHAT_DISCARD", "0.80"
         ),
-        classifier_answer_match_threshold=_float(env, "CLASSIFIER_ANSWER_MATCH", 0.55),
-        direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
-        synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
-        qa_top_k=_int(env, "QA_TOP_K", 5),
-        message_top_k=_int(env, "MESSAGE_TOP_K", 4),
-        ai_daily_neuron_budget=_float(env, "AI_DAILY_NEURON_BUDGET", 10_000.0),
-        ai_neuron_reserve_fraction=_float(env, "AI_NEURON_RESERVE_FRACTION", 0.25),
-        ai_background_budget_fraction=_float(
-            env, "AI_BACKGROUND_BUDGET_FRACTION", 0.50
+        classifier_keep_signal_threshold=_text(env, "CLASSIFIER_KEEP_SIGNAL", "0.45"),
+        classifier_question_match_threshold=_text(
+            env, "CLASSIFIER_QUESTION_MATCH", "0.60"
         ),
-        ai_maintenance_budget_fraction=_float(
-            env, "AI_MAINTENANCE_BUDGET_FRACTION", 0.70
+        classifier_answer_match_threshold=_text(env, "CLASSIFIER_ANSWER_MATCH", "0.55"),
+        direct_qa_threshold=_text(env, "DIRECT_QA_THRESHOLD", "0.7"),
+        synthesis_threshold=_text(env, "SYNTHESIS_THRESHOLD", "0.3"),
+        qa_top_k=_text(env, "QA_TOP_K", "5"),
+        message_top_k=_text(env, "MESSAGE_TOP_K", "4"),
+        ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
+        ai_neuron_reserve_fraction=_text(env, "AI_NEURON_RESERVE_FRACTION", "0.25"),
+        ai_background_budget_fraction=_text(
+            env, "AI_BACKGROUND_BUDGET_FRACTION", "0.50"
         ),
-        ai_embed_neurons_per_char=_float(env, "AI_EMBED_NEURONS_PER_CHAR", 0.015),
-        ai_chat_neurons_per_char=_float(env, "AI_CHAT_NEURONS_PER_CHAR", 0.020),
+        ai_maintenance_budget_fraction=_text(
+            env, "AI_MAINTENANCE_BUDGET_FRACTION", "0.70"
+        ),
+        ai_embed_neurons_per_char=_text(env, "AI_EMBED_NEURONS_PER_CHAR", "0.015"),
+        ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
     )
     database = env.DB
     answers = D1BotAnswerRepository(database)
