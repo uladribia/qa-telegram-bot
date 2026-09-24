@@ -35,7 +35,6 @@ class TelegramIdentity:
     bot. The admin is always allowed implicitly.
     """
 
-    allowed_chat_ids: frozenset[str] = frozenset()
     admin_user_id: str | None = None
     bot_id: str | None = None
     bot_username: str | None = None
@@ -106,12 +105,6 @@ def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
     return secrets_match(provided, expected)
 
 
-def _is_allowed_chat(chat_id: int, chat_type: str, identity: TelegramIdentity) -> bool:
-    if chat_type == "private":
-        return True
-    return bool(identity.allowed_chat_ids) and str(chat_id) in identity.allowed_chat_ids
-
-
 def _attachment_for(
     message: TelegramMessage,
 ) -> tuple[ContentType, AttachmentRef | None]:
@@ -169,8 +162,6 @@ def normalize_message(
     if message is None:
         return None
     chat = message.chat
-    if not _is_allowed_chat(chat.id, chat.type, identity):
-        return None
 
     content_type, attachment = _attachment_for(message)
     text = message.text if message.text is not None else message.caption

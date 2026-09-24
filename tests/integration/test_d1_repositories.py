@@ -59,7 +59,6 @@ from knowledge_bot.ports.repositories import (
     SourceRepository,
 )
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
-from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.d1 import FakeD1Database
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
@@ -187,9 +186,9 @@ async def test_delivery_receipts_and_interactions_are_durable() -> None:
         created_at=NOW,
     )
     await interactions.add(interaction)
-    consumed = await interactions.consume("20", NOW)
+    consumed = await interactions.consume("20", "telegram:1", NOW)
     assert consumed is not None and consumed.object_id == "fb-1"
-    assert await interactions.consume("20", NOW) is None
+    assert await interactions.consume("20", "telegram:1", NOW) is None
 
 
 async def test_correction_commit_rolls_back_every_sql_write() -> None:
@@ -295,13 +294,14 @@ async def test_search_projection_manifest_round_trip() -> None:
     database = FakeD1Database()
     repository = D1SearchProjectionRepository(database)
     assert isinstance(repository, SearchProjectionRepository)
-    record = VectorRecord(
-        id="qa:q1",
-        values=[1.0, 0.0],
-        metadata={"kind": "qa", "object_id": "q1"},
-    )
-    await repository.record([record], NOW)
+    await repository.reserve("qa:q1", "qa", "q1", "v1", NOW)
+    await repository.mark_active("qa:q1", "v1", NOW)
     assert await repository.list_vector_ids() == ["qa:q1"]
+    active = await repository.get("qa:q1")
+    assert active is not None and active.state.value == "active"
+    await repository.mark_failed("qa:q1", "v1", "vector_write_failed", NOW)
+    failed = await repository.get("qa:q1")
+    assert failed is not None and failed.last_error == "vector_write_failed"
     await repository.delete(["qa:q1"])
     assert await repository.list_vector_ids() == []
 
@@ -492,11 +492,19 @@ async def test_reviewer_repositories_round_trip() -> None:
     database = FakeD1Database()
     reviewers = D1ReviewerRepository(database)
     assert await reviewers.get(GLOBAL_SCOPE) is None
-    await reviewers.save(Reviewer(GLOBAL_SCOPE, "222", "Pepe", NOW, "1"))
-    await reviewers.save(Reviewer(GLOBAL_SCOPE, "333", "Marta", NOW, "1"))
+    await reviewers.save(
+        Reviewer(GLOBAL_SCOPE, "telegram:222", "Pepe", NOW, "telegram:1")
+    )
+    await reviewers.save(
+        Reviewer(GLOBAL_SCOPE, "telegram:333", "Marta", NOW, "telegram:1")
+    )
     stored = await reviewers.get(GLOBAL_SCOPE)
-    assert stored is not None and stored.user_id == "333" and stored.name == "Marta"
-    assert [r.user_id for r in await reviewers.all()] == ["333"]
+    assert (
+        stored is not None
+        and stored.principal_id == "telegram:333"
+        and stored.name == "Marta"
+    )
+    assert [r.principal_id for r in await reviewers.all()] == ["telegram:333"]
     assert await reviewers.delete(GLOBAL_SCOPE) is True
     assert await reviewers.delete(GLOBAL_SCOPE) is False
 

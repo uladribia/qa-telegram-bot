@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: MIT
 """Typer CLI for offline snapshots, imports, seeding, and operations (spec §3.2).
 
+# ruff: noqa: TRY003
+
 The CLI reuses the same parsers as the core and talks to the deployed Worker's
 internal endpoints for anything that must touch D1. It never commits data.
 """
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlparse
 
 import httpx
 import typer
@@ -29,6 +33,19 @@ _MESSAGES_FILE = typer.Option(None, "--messages", help="Imported messages JSONL 
 
 def _internal_headers(settings: Settings) -> dict[str, str]:
     return {"X-Internal-Key": settings.internal_admin_key}
+
+
+def _is_local_url(base_url: str) -> bool:
+    """Return whether a base URL targets a local runtime."""
+    return urlparse(base_url).hostname in {"localhost", "127.0.0.1", "::1", None}
+
+
+def _require_live_allowed(base_url: str) -> None:
+    """Require an explicit opt-in before remote AI or mutation calls."""
+    if not _is_local_url(base_url) and os.getenv("ALLOW_CLOUDFLARE_LIVE_TESTS") != "1":
+        raise typer.BadParameter(  # noqa: TRY003
+            "remote operations require ALLOW_CLOUDFLARE_LIVE_TESTS=1"
+        )
 
 
 @app.command("snapshot-web")
@@ -129,6 +146,7 @@ def seed(
     base_url: str = _BASE_URL,
 ) -> None:
     """Seed the parsed Q&A and/or messages into D1 (in idempotent batches)."""
+    _require_live_allowed(base_url)
     payload = _load_payload(qa, messages)
     if not payload:
         typer.echo("Nothing to seed: pass --qa and/or --messages")
@@ -171,12 +189,34 @@ def group_add(
     base_url: str = _BASE_URL,
 ) -> None:
     """Register a served Telegram group (idempotent; refreshes the title)."""
+    _require_live_allowed(base_url)
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/groups",
         json={"chat_id": chat_id, "title": title},
         headers=_internal_headers(settings),
         timeout=60.0,
+    )
+    response.raise_for_status()
+    typer.echo(response.text)
+
+
+index_app = typer.Typer(no_args_is_help=True, help="Search projection operations.")
+app.add_typer(index_app, name="index")
+
+
+@index_app.command("repair")
+def index_repair(
+    limit: int = typer.Option(100, "--limit", min=1, max=100),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Repair pending or failed search projections."""
+    _require_live_allowed(base_url)
+    response = httpx.post(
+        f"{base_url}/internal/index/repair",
+        json={"limit": limit},
+        headers=_internal_headers(Settings()),
+        timeout=300.0,
     )
     response.raise_for_status()
     typer.echo(response.text)
@@ -190,6 +230,7 @@ def review(
     base_url: str = _BASE_URL,
 ) -> None:
     """Build the human knowledge review report (read-only)."""
+    _require_live_allowed(base_url)
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/review",
@@ -211,6 +252,7 @@ def revert(
     base_url: str = _BASE_URL,
 ) -> None:
     """Revert an approved correction to the version it superseded (CLI-only)."""
+    _require_live_allowed(base_url)
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/revert",
@@ -239,6 +281,15 @@ def reindex(
 ) -> None:
     """Rebuild the vector store from D1, in idempotent batches."""
     totals = {"qa": 0, "messages": 0}
+    _require_live_allowed(base_url)
+    if qa_after is None and msg_after is None:
+        cleanup = httpx.post(
+            f"{base_url}/internal/reindex",
+            json={"rebuild": True},
+            headers=_internal_headers(Settings()),
+            timeout=300.0,
+        )
+        cleanup.raise_for_status()
     try:
         while True:
             settings = Settings()
@@ -279,9 +330,23 @@ def reindex(
         )
 
 
+@app.command("smoke-cloudflare")
+def smoke_cloudflare(base_url: str = _BASE_URL) -> None:
+    """Run the explicitly authorized tiny Cloudflare runtime smoke."""
+    _require_live_allowed(base_url)
+    response = httpx.post(
+        f"{base_url}/internal/smoke/runtime",
+        headers=_internal_headers(Settings()),
+        timeout=120.0,
+    )
+    response.raise_for_status()
+    typer.echo(response.text)
+
+
 @app.command("set-webhook")
 def set_webhook(base_url: str = _BASE_URL) -> None:
     """Register the Telegram webhook for the deployed Worker."""
+    _require_live_allowed(base_url)
     settings = Settings()
     url = f"{base_url.rstrip('/')}/telegram/webhook"
     response = httpx.post(
@@ -300,6 +365,7 @@ def set_webhook(base_url: str = _BASE_URL) -> None:
 @app.command("delete-webhook")
 def delete_webhook() -> None:
     """Remove the Telegram webhook."""
+    _require_live_allowed("https://api.telegram.org")
     settings = Settings()
     response = httpx.post(
         f"https://api.telegram.org/bot{settings.telegram_bot_token}/deleteWebhook",

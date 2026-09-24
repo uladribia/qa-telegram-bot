@@ -26,7 +26,7 @@ from knowledge_bot.domain.entities import (
     Space,
     TelegramInteraction,
 )
-from knowledge_bot.domain.enums import FeedbackStatus
+from knowledge_bot.domain.enums import ClassificationStatus, FeedbackStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
@@ -113,11 +113,21 @@ class InMemoryTelegramInteractionRepository:
         self._items[interaction.external_message_id] = interaction
 
     async def consume(
-        self, external_message_id: str, consumed_at: datetime
+        self,
+        external_message_id: str,
+        principal_id: str,
+        consumed_at: datetime,
     ) -> TelegramInteraction | None:
-        """Return and consume one unused interaction."""
+        """Return and consume one unused interaction for its principal."""
         interaction = self._items.get(external_message_id)
-        if interaction is None or interaction.consumed_at is not None:
+        if (
+            interaction is None
+            or interaction.consumed_at is not None
+            or (
+                interaction.principal_id is not None
+                and interaction.principal_id != principal_id
+            )
+        ):
             return None
         consumed = replace(interaction, consumed_at=consumed_at)
         self._items[external_message_id] = consumed
@@ -238,6 +248,27 @@ class InMemoryMessageRepository:
                 for message in self._items.values()
                 if message.conversation_id == conversation_id
                 and message.created_at >= start
+            ],
+            key=lambda message: message.created_at,
+        )[:limit]
+
+    async def list_recent_listener(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages classified by the background listener."""
+        statuses = {
+            ClassificationStatus.CLASSIFIED.value,
+            ClassificationStatus.PREFILTER_CHITCHAT.value,
+            ClassificationStatus.DEFERRED_BUDGET.value,
+            ClassificationStatus.FAILED.value,
+        }
+        return sorted(
+            [
+                message
+                for message in self._items.values()
+                if message.conversation_id == conversation_id
+                and message.created_at >= start
+                and message.classification_status.value in statuses
             ],
             key=lambda message: message.created_at,
         )[:limit]

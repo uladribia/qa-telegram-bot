@@ -4,6 +4,8 @@
 import math
 from datetime import datetime
 
+from knowledge_bot.domain.entities import SearchProjectionEntry
+from knowledge_bot.domain.enums import ProjectionState
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
@@ -133,23 +135,94 @@ class InMemorySearchProjectionRepository:
         """Create an empty manifest."""
         self.vector_ids: set[str] = set()
         self.updated_at: datetime | None = None
+        self.entries: dict[str, SearchProjectionEntry] = {}
+
+    async def reserve(
+        self,
+        vector_id: str,
+        kind: str,
+        object_id: str,
+        version_id: str | None,
+        updated_at: datetime,
+    ) -> None:
+        """Reserve a projection entry."""
+        self.entries[vector_id] = SearchProjectionEntry(
+            vector_id, kind, object_id, version_id, ProjectionState.PENDING, updated_at
+        )
+
+    async def mark_active(
+        self, vector_id: str, version_id: str | None, updated_at: datetime
+    ) -> None:
+        """Mark a projection active."""
+        entry = self.entries[vector_id]
+        self.entries[vector_id] = SearchProjectionEntry(
+            entry.vector_id,
+            entry.kind,
+            entry.object_id,
+            version_id,
+            ProjectionState.ACTIVE,
+            updated_at,
+        )
+        self.vector_ids.add(vector_id)
+
+    async def mark_failed(
+        self,
+        vector_id: str,
+        version_id: str | None,
+        error_code: str,
+        updated_at: datetime,
+    ) -> None:
+        """Mark a projection failed."""
+        entry = self.entries[vector_id]
+        self.entries[vector_id] = SearchProjectionEntry(
+            entry.vector_id,
+            entry.kind,
+            entry.object_id,
+            version_id,
+            ProjectionState.FAILED,
+            updated_at,
+            error_code,
+        )
+
+    async def get(self, vector_id: str) -> SearchProjectionEntry | None:
+        """Return one projection entry."""
+        return self.entries.get(vector_id)
+
+    async def list_by_state(
+        self, states: list[ProjectionState], limit: int
+    ) -> list[SearchProjectionEntry]:
+        """Return bounded repair entries."""
+        return [item for item in self.entries.values() if item.state in states][:limit]
 
     async def list_vector_ids(self) -> list[str]:
         """Return every projected vector id."""
         return sorted(self.vector_ids)
 
     async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
-        """Record successful vector upserts."""
-        self.vector_ids.update(record.id for record in records)
+        """Record successful vector upserts for old fixtures."""
+        for record in records:
+            version = record.metadata.get("version_id")
+            version_id = str(version) if version is not None else None
+            await self.reserve(
+                record.id,
+                str(record.metadata.get("kind", "unknown")),
+                str(record.metadata.get("object_id", record.id)),
+                version_id,
+                updated_at,
+            )
+            await self.mark_active(record.id, version_id, updated_at)
         self.updated_at = updated_at
 
     async def delete(self, vector_ids: list[str]) -> None:
         """Remove vector ids from the manifest."""
         self.vector_ids.difference_update(vector_ids)
+        for vector_id in vector_ids:
+            self.entries.pop(vector_id, None)
 
     async def clear(self) -> None:
         """Clear the manifest."""
         self.vector_ids.clear()
+        self.entries.clear()
 
 
 class FakeSearchIndexSource:
@@ -166,10 +239,21 @@ class FakeSearchIndexSource:
 
     async def get_qa(self, version_id: str) -> IndexableQA | None:
         """Return one fixed Q&A record by version id."""
-        for item in self.qa:
-            if item.version_id == version_id:
-                return item
-        return None
+        return next((item for item in self.qa if item.version_id == version_id), None)
+
+    async def get_current_qa_by_item_id(self, qa_item_id: str) -> IndexableQA | None:
+        """Return the fixed current Q&A record for an item."""
+        return next((item for item in self.qa if item.qa_item_id == qa_item_id), None)
+
+    async def get_indexable_message(self, message_id: str) -> IndexableMessage | None:
+        """Return one fixed message record."""
+        return next(
+            (item for item in self.messages if item.message_id == message_id), None
+        )
+
+    async def list_legacy_vector_ids(self) -> list[str]:
+        """Return no legacy ids in the in-memory source."""
+        return []
 
     async def list_qa(
         self, after: str | None = None, limit: int | None = None

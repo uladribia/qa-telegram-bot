@@ -6,7 +6,8 @@ from pathlib import Path
 import httpx
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
-from knowledge_bot.adapters.outbound.telegram import TelegramTransport
+from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
+from knowledge_bot.adapters.telegram.client import TelegramClient
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -14,22 +15,35 @@ from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
-from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
 from knowledge_bot.application.review import ReviewService
-from knowledge_bot.application.reviewers import (
-    ReviewerManager,
-    ReviewerReportService,
-    ReviewerRouter,
-)
+from knowledge_bot.application.reviewers import ReviewerManager, ReviewerRouter
+from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
-from knowledge_bot.infrastructure.cloudflare.d1 import (
+from knowledge_bot.infrastructure.context import AppContext
+from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
+from knowledge_bot.infrastructure.local.http import HttpxClient
+from knowledge_bot.infrastructure.local.ollama import (
+    OllamaEmbedder,
+    OllamaGenerator,
+    OllamaPairingModel,
+)
+from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
+from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
+from knowledge_bot.infrastructure.metering import (
+    MeteredEmbedder,
+    MeteredGenerator,
+    MeteredPairingModel,
+)
+from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.sql.repositories import (
     D1AiUsageRepository,
     D1AttachmentRepository,
     D1BotAnswerRepository,
@@ -45,9 +59,6 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
-    D1RecapStateRepository,
-    D1ReportStateRepository,
-    D1ReviewerEventRepository,
     D1ReviewerRepository,
     D1ReviewSource,
     D1SearchIndexSource,
@@ -56,19 +67,15 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
-from knowledge_bot.infrastructure.context import AppContext
-from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
-from knowledge_bot.infrastructure.local.http import HttpxClient
-from knowledge_bot.infrastructure.local.ollama import (
-    OllamaEmbedder,
-    OllamaGenerator,
-    OllamaPairingModel,
-)
-from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
-from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
-from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
-from knowledge_bot.infrastructure.settings import Settings
-from knowledge_bot.ports.transport import MessageTransport
+
+
+class LocalNotifier:
+    """Local notifier that accepts text without an external provider."""
+
+    async def send_text(self, principal_id: str, text: str) -> bool:
+        """Pretend local delivery succeeded."""
+        del principal_id, text
+        return True
 
 
 class LocalTransport:
@@ -78,6 +85,10 @@ class LocalTransport:
         """Pretend a local message was delivered."""
         del conversation_id, text
         return "local-message"
+
+    async def send_text(self, conversation_id: str, text: str) -> str | None:
+        """Pretend a local text notification was delivered."""
+        return await self.send_message(conversation_id, text)
 
     async def send_answer(
         self, conversation_id: str, text: str, answer_id: str
@@ -114,7 +125,7 @@ class LocalTransport:
         del callback_id, alert
 
 
-def _transport(settings: Settings, client: httpx.AsyncClient) -> MessageTransport:
+def _transport(settings: Settings, client: httpx.AsyncClient) -> TelegramClient:
     """Select Telegram delivery only when its credentials are configured."""
     if settings.telegram_bot_token:
         return TelegramTransport(HttpxClient(client), settings.telegram_bot_token)
@@ -129,6 +140,11 @@ async def build_context(
     await apply_migrations(database, Path.cwd())
     client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
     transport = _transport(settings, client)
+    notifier = (
+        TelegramNotifier(transport)
+        if isinstance(transport, TelegramTransport)
+        else LocalNotifier()
+    )
     clock = SystemClock()
     binding = SQLiteBinding(database)
     budget = AiBudget(
@@ -158,37 +174,21 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
+    projector = SearchProjectionService(
+        source=D1SearchIndexSource(binding),
+        embedder=embedder,
+        vectors=vectors,
+        manifest=manifest,
+        clock=clock,
+        budget=budget,
+    )
+    runtime_smoke = RuntimeSmokeService(embedder, generator, vectors, manifest, clock)
     pair_candidates = D1MessagePairCandidateRepository(binding)
     pair_windows = D1ListenerPairingWindowRepository(binding)
     commits = D1CorrectionCommitStore(binding)
-    recap = RecapService(
-        answers=answers,
-        conversations=conversations,
-        state=D1RecapStateRepository(binding),
-        transport=transport,
-        clock=clock,
-        admin_user_id=settings.admin_telegram_user_id or None,
-        enabled=settings.recap_enabled,
-        interval_hours=settings.recap_interval_hours,
-        language=settings.recap_language,
-        budget=budget,
-        feedback=feedback,
-        messages=messages,
-    )
-    reviewer_report = ReviewerReportService(
-        events=D1ReviewerEventRepository(binding),
-        state=D1ReportStateRepository(binding),
-        transport=transport,
-        clock=clock,
-        admin_user_id=settings.admin_telegram_user_id,
-        mode=settings.admin_report_mode,
-        interval_min=settings.admin_report_interval_min,
-        budget=budget,
-    )
     context = AppContext(
         settings=settings,
         identity=TelegramIdentity(
-            allowed_chat_ids=frozenset(settings.allowed_chat_ids),
             admin_user_id=settings.admin_telegram_user_id,
             bot_id=settings.telegram_bot_id,
             bot_username=settings.telegram_bot_username,
@@ -211,11 +211,10 @@ async def build_context(
             conversations=conversations,
             sources=sources,
             classifier=classifier,
-            embedder=embedder,
-            vectors=vectors,
-            manifest=manifest,
+            projector=projector,
             clock=clock,
             answer_threshold=settings.classifier_answer_match_threshold,
+            budget=budget,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
@@ -226,21 +225,15 @@ async def build_context(
             ),
             generator=generator,
             answers=answers,
-            delivery_receipts=D1DeliveryReceiptRepository(binding),
-            transport=transport,
-            channel="local",
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
             conversations=conversations,
             sources=sources,
         ),
-        recap=recap,
         reindex=ReindexService(
             source=D1SearchIndexSource(binding),
-            embedder=embedder,
-            vectors=vectors,
-            manifest=manifest,
+            projector=projector,
             clock=clock,
         ),
         seed=SeedService(
@@ -279,16 +272,15 @@ async def build_context(
         reviewers=ReviewerManager(reviewers=D1ReviewerRepository(binding), clock=clock),
         router=ReviewerRouter(
             reviewers=D1ReviewerRepository(binding),
-            admin_user_id=settings.admin_telegram_user_id,
+            admin_principal_id=f"telegram:{settings.admin_telegram_user_id}",
         ),
-        reviewer_report=reviewer_report,
         daily_report=DailyReportService(
             source=D1DailyReportSource(binding),
             state=D1DailyReportStateRepository(binding),
-            transport=transport,
+            notifier=notifier,
             budget=budget,
             clock=clock,
-            admin_principal_id=settings.admin_telegram_user_id,
+            admin_principal_id=f"telegram:{settings.admin_telegram_user_id}",
         ),
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(binding),
@@ -296,18 +288,24 @@ async def build_context(
         ),
         budget=budget,
         transport=transport,
+        delivery_receipts=D1DeliveryReceiptRepository(binding),
+        projector=projector,
+        runtime_smoke=runtime_smoke,
         pairing=MessagePairingService(
             messages=messages,
             conversations=conversations,
+            sources=sources,
             candidates=pair_candidates,
             windows=pair_windows,
-            embedder=embedder,
-            vectors=vectors,
-            manifest=manifest,
-            model=OllamaPairingModel(
-                client, settings.ollama_base_url, settings.generation_model
+            projector=projector,
+            model=MeteredPairingModel(
+                OllamaPairingModel(
+                    client, settings.ollama_base_url, settings.generation_model
+                ),
+                budget,
             ),
             clock=clock,
+            budget=budget,
             window_minutes=settings.pairing_window_minutes,
             quiet_minutes=settings.pairing_quiet_minutes,
             overlap_minutes=settings.pairing_overlap_minutes,

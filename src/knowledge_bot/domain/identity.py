@@ -33,3 +33,12 @@ def principal_id(channel: str, external_user_id: str) -> str:
         message = "channel and external user id are required"
         raise ValueError(message)
     return f"{channel}:{external_user_id}"
+
+
+def split_principal_id(value: str) -> tuple[str, str]:
+    """Split and validate an opaque channel principal id."""
+    channel, separator, external_id = value.partition(":")
+    if not separator or not channel or not external_id or ":" in external_id:
+        message = "principal id must have the form <channel>:<external-id>"
+        raise ValueError(message)
+    return channel, external_id

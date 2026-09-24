@@ -3,8 +3,9 @@
 Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
-The binding product/implementation plan lives in
-[`instructions/qa-telegram-bot-refactor-v2-spec.md`](instructions/qa-telegram-bot-refactor-v2-spec.md).
+The binding product/implementation plan for the current hardening pass lives in
+[`instructions/qa-telegram-bot-final-hardening-plan.md`](instructions/qa-telegram-bot-final-hardening-plan.md).
+It supersedes [`instructions/qa-telegram-bot-refactor-v2-spec.md`](instructions/qa-telegram-bot-refactor-v2-spec.md) wherever the documents conflict.
 Read it before starting any work. The historical plan under `instructions/` is
 deprecated and must not be used as a second implementation contract. If this file
 and the binding plan disagree, stop and ask; never silently pick one.
@@ -16,6 +17,11 @@ product or architecture decision is required, when the plan is internally
 contradictory, or when an external permission/credential/resource is necessary.
 A decision deferred by the plan is not a reason to pause; record it and continue
 with the work that is still unblocked.
+
+**Default development mode is local only.** Do not invoke Cloudflare Workers AI,
+remote Vectorize, remote D1 maintenance, live evals, remote reindexing, or a
+production/staging deployment without explicit authorization in the current task.
+Use `make test-e2e-local` for AI-path iteration.
 
 ---
 

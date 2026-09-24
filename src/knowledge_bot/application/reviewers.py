@@ -1,14 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Reviewer nomination, routing, and the admin report on their resolutions.
-
-There is exactly one reviewer per scope: each registered group may have its
-own, plus one global. A correction proposal goes to the reviewer of the group
-it came from, else the global reviewer, else the admin (the env fallback, who
-keeps power over everything). Confirmations are checked server-side: only the
-assigned reviewer, the global reviewer, or the admin may approve, edit, or
-reject. Only the admin may nominate or remove reviewers, and only via the
-``/reviewer`` Telegram command.
-"""
+"""Reviewer nomination, routing, and authorization."""
 
 from dataclasses import dataclass
 
@@ -24,230 +15,135 @@ from knowledge_bot.ports.repositories import (
 )
 from knowledge_bot.ports.transport import MessageTransport
 
-REPORT_HEADER = "\U0001f4cb Correccions revisades ({count}):"
-REPORT_SPEND = (
-    "\n\U0001f916 Consum d'IA avui: {neurons:.0f} / {limit:.0f} neurones "
-    "en {calls} crides (estimat)."
-)
-
-_ACTION_LABELS: dict[str, str] = {
-    "approved": "aprovada",
-    "edited_approved": "editada i aprovada",
-    "rejected": "rebutjada",
-}
-
 
 def parse_reviewer_command(text: str) -> tuple[str, bool]:
-    """Parse a ``/reviewer`` command into its action and target scope.
-
-    Args:
-        text: The raw message text, starting with ``/reviewer``.
-
-    Returns:
-        ``(action, is_global)`` where action is ``nominate`` or ``remove``.
-        The caller decides the scope: with ``global`` it is the global scope;
-        otherwise the group the command was typed in. A plain ``/reviewer``
-        (or ``/reviewer global``) with no ``off`` nominates; listing is what
-        the caller does when there is no message to nominate from.
-    """
+    """Parse a reviewer command into action and global-scope intent."""
     tokens = text.split()[1:]
     return ("remove" if "off" in tokens else "nominate"), "global" in tokens
 
 
 def render_reviewer_list(reviewers: list[Reviewer]) -> str:
-    """Render the current reviewers as a short text block.
-
-    Args:
-        reviewers: All reviewers, global scope first.
-
-    Returns:
-        A Catalan summary of who reviews which scope.
-    """
+    """Render reviewer assignments."""
     if not reviewers:
         return "No hi ha cap revisor nominat. Les correccions arriben a l'admin."
-    labels = [
-        f"\u2022 {'Global' if reviewer.scope == GLOBAL_SCOPE else reviewer.scope}"
-        f" \u2192 {reviewer.name}"
-        for reviewer in reviewers
-    ]
-    return "Revisors:\n" + "\n".join(labels)
+    return "Revisors:\n" + "\n".join(
+        f"• {'Global' if item.scope == GLOBAL_SCOPE else item.scope} → {item.name}"
+        for item in reviewers
+    )
 
 
 def render_report(
-    events: list[ReviewerEvent],
-    *,
-    spend: tuple[float, float, int] | None = None,
+    events: list[ReviewerEvent], *, spend: tuple[float, float, int] | None = None
 ) -> str:
-    """Render the admin report over resolved corrections.
-
-    Args:
-        events: The resolved corrections to report, ordered.
-        spend: Optional ``(neurons, limit, calls)`` estimated AI usage of the
-            day, appended as a final line when given.
-
-    Returns:
-        A read-only Catalan summary; the admin cannot act on it from here.
-    """
-    lines = [REPORT_HEADER.format(count=len(events))]
+    """Render a legacy reviewer event report for compatibility with audit data."""
+    lines = [f"📋 Correccions revisades ({len(events)}):"]
     for event in events:
-        action = _ACTION_LABELS.get(event.action, event.action)
-        scope = f" ({'global' if event.approval_scope == GLOBAL_SCOPE else 'grup'})"
-        target = scope if event.action != "rejected" else ""
         lines.append(
-            f"\u2022 {event.reviewer_name or '?'} \u00b7 "
-            f'{event.group_label or "?"} \u00b7 "{event.question or "?"}"\n'
-            f"  {action}{target} \u00b7 {event.created_at:%d/%m %H:%M}"
+            f"• {event.reviewer_name or '?'} · "
+            f"{event.group_label or '?'} · {event.action}"
         )
     if spend is not None:
-        neurons, limit, calls = spend
-        lines.append(REPORT_SPEND.format(neurons=neurons, limit=limit, calls=calls))
+        lines.append(
+            f"IA avui: {spend[0]:.0f} / {spend[1]:.0f} neurones en {spend[2]} crides"
+        )
     return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewerRouter:
-    """Resolve who reviews a correction and who may confirm it.
-
-    The chain is: the reviewer of the group the correction came from, then the
-    global reviewer, then the admin. The admin may always confirm.
-    """
+    """Resolve reviewer destinations and authorize review actions."""
 
     reviewers: ReviewerRepository
-    admin_user_id: str
+    admin_principal_id: str
 
     async def destination(self, origin_space_id: str | None) -> str | None:
-        """Return the principal that should review a correction.
-
-        Args:
-            origin_space_id: The logical space where the answer originated.
-
-        Returns:
-            A principal id, or ``None`` when no reviewer or admin is configured.
-        """
+        """Return the local, global, or admin principal for a review."""
         if origin_space_id is not None:
             reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
             if reviewer is not None:
-                return reviewer.user_id
-        global_reviewer = await self.reviewers.get(GLOBAL_SCOPE)
-        if global_reviewer is not None:
-            return global_reviewer.user_id
-        return self.admin_user_id or None
+                return reviewer.principal_id
+        reviewer = await self.reviewers.get(GLOBAL_SCOPE)
+        return (
+            reviewer.principal_id if reviewer is not None else self.admin_principal_id
+        )
 
     async def reviewer_name(
-        self, user_id: str | None, origin_space_id: str | None
+        self, principal_id: str | None, origin_space_id: str | None
     ) -> str:
-        """Return a safe display name for a review destination."""
-        if user_id == self.admin_user_id:
+        """Return a safe display name for a review principal."""
+        if principal_id == self.admin_principal_id:
             return "admin"
         if origin_space_id is not None:
             reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
-            if reviewer is not None and reviewer.user_id == user_id:
+            if reviewer is not None and reviewer.principal_id == principal_id:
                 return reviewer.name
         reviewer = await self.reviewers.get(GLOBAL_SCOPE)
-        if reviewer is not None and reviewer.user_id == user_id:
-            return reviewer.name
-        return "revisor"
+        return (
+            reviewer.name
+            if reviewer is not None and reviewer.principal_id == principal_id
+            else "revisor"
+        )
 
-    async def can_approve_global(self, user_id: str | None) -> bool:
-        """Return whether a principal may render and approve global scope."""
-        if user_id is None:
+    async def can_approve_global(self, principal_id: str | None) -> bool:
+        """Return whether a principal may approve global knowledge."""
+        if principal_id is None:
             return False
-        if user_id == self.admin_user_id:
+        if principal_id == self.admin_principal_id:
             return True
         reviewer = await self.reviewers.get(GLOBAL_SCOPE)
-        return reviewer is not None and reviewer.user_id == user_id
+        return reviewer is not None and reviewer.principal_id == principal_id
 
     async def can_confirm(
         self,
-        user_id: str | None,
+        principal_id: str | None,
         origin_space_id: str | None,
         action: ReviewAction,
     ) -> bool:
-        """Return whether a principal may confirm a correction.
-
-        Args:
-            user_id: The acting principal id.
-            origin_space_id: The logical space where the answer originated.
-            action: The requested review action.
-
-        Returns:
-            Whether the actor may perform that action for the origin space.
-        """
-        if user_id is None:
+        """Return whether a principal may perform a requested action."""
+        if principal_id is None:
             return False
-        if user_id == self.admin_user_id:
+        if principal_id == self.admin_principal_id:
             return True
         global_reviewer = await self.reviewers.get(GLOBAL_SCOPE)
-        if global_reviewer is not None and global_reviewer.user_id == user_id:
+        if global_reviewer is not None and global_reviewer.principal_id == principal_id:
             return True
         if origin_space_id is None or action is ReviewAction.APPROVE_GLOBAL:
             return False
         reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
-        return reviewer is not None and reviewer.user_id == user_id
+        return reviewer is not None and reviewer.principal_id == principal_id
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewerManager:
-    """Nominate, list, and remove reviewers (admin-only, via Telegram)."""
+    """Admin-only reviewer assignment operations."""
 
     reviewers: ReviewerRepository
     clock: Clock
 
     async def nominate(
-        self,
-        scope: str,
-        user_id: str,
-        name: str,
-        nominated_by: str,
+        self, scope: str, principal_id: str, name: str, nominated_by_principal_id: str
     ) -> bool:
-        """Create or replace the reviewer of a scope.
-
-        Args:
-            scope: ``global`` or the group chat id.
-            user_id: The raw Telegram user id of the new reviewer.
-            name: The reviewer's display name, for confirmations and reports.
-            nominated_by: The admin's user id.
-
-        Returns:
-            ``True`` when a previous reviewer was replaced.
-        """
+        """Create or replace a reviewer."""
         replaced = await self.reviewers.get(scope) is not None
         await self.reviewers.save(
             Reviewer(
-                scope=scope,
-                user_id=user_id,
-                name=name,
-                nominated_by=nominated_by,
-                created_at=self.clock.now(),
+                scope, principal_id, name, self.clock.now(), nominated_by_principal_id
             )
         )
         return replaced
 
     async def remove(self, scope: str) -> bool:
-        """Remove the reviewer of a scope.
-
-        Args:
-            scope: ``global`` or the group chat id.
-
-        Returns:
-            ``True`` when a reviewer existed and was removed.
-        """
+        """Remove a reviewer."""
         return await self.reviewers.delete(scope)
 
     async def list_reviewers(self) -> list[Reviewer]:
-        """Return every reviewer, global scope first."""
+        """List all reviewers."""
         return await self.reviewers.all()
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewerReportService:
-    """Record reviewer resolutions and inform the admin about them.
-
-    ``always`` sends one report per resolution, immediately. ``batch``
-    consolidates everything pending once per interval, checked opportunistically
-    on inbound events (Workers have no cron) or via the internal report poke.
-    ``off`` records events but never reports them.
-    """
+    """Legacy audit-event service retained only for historical table readers."""
 
     events: ReviewerEventRepository
     state: ReportStateRepository
@@ -259,43 +155,9 @@ class ReviewerReportService:
     budget: AiBudget | None = None
 
     async def record(self, event: ReviewerEvent) -> None:
-        """Record one reviewer resolution and report it if the mode says so.
-
-        Args:
-            event: The resolution to record.
-        """
-        stored = await self.events.add(event)
-        if self.mode == "always" and self.admin_user_id:
-            await self._send([stored])
+        """Persist a reviewer event without scheduling active reports."""
+        await self.events.add(event)
 
     async def maybe_send(self) -> bool:
-        """Send a consolidated report when the batch interval has elapsed.
-
-        Returns:
-            ``True`` when a report was sent.
-        """
-        if self.mode != "batch" or not self.admin_user_id:
-            return False
-        now = self.clock.now()
-        last = await self.state.get_last_sent_at()
-        if last is not None and (now - last).total_seconds() < self.interval_min * 60:
-            return False
-        pending = await self.events.list_unreported()
-        if not pending:
-            return False
-        await self._send(pending)
-        return True
-
-    async def _spend(self) -> tuple[float, float, int] | None:
-        """Return today's estimated ``(neurons, limit, calls)``, or ``None``."""
-        if self.budget is None:
-            return None
-        neurons, calls = await self.budget.usage_today()
-        return (neurons, self.budget.daily_neurons, calls)
-
-    async def _send(self, events: list[ReviewerEvent]) -> None:
-        await self.transport.send_message(
-            self.admin_user_id, render_report(events, spend=await self._spend())
-        )
-        await self.events.mark_reported([event.feedback_id for event in events])
-        await self.state.set_last_sent_at(self.clock.now())
+        """Return false because active legacy reporting is retired."""
+        return False

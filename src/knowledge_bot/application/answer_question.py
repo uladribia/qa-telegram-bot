@@ -1,13 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Answer a question from retrieved evidence (spec §14-§19).
-
-The evidence gate is deterministic:
-
-- A strong active Q&A match is answered directly, without calling the model.
-- Otherwise, coherent evidence goes through grounded generation.
-- No evidence, conflicts (reported by the model), or unsupported citations
-  produce an abstention.
-"""
+"""Prepare and persist grounded answers; channel adapters deliver them."""
 
 import json
 from dataclasses import dataclass
@@ -23,27 +15,16 @@ from knowledge_bot.contracts.api import (
     AskQuestionResponse,
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.domain.entities import (
-    BotAnswer,
-    Conversation,
-    DeliveryReceipt,
-    Source,
-)
+from knowledge_bot.domain.entities import BotAnswer, Conversation, Source
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.generator import (
-    EvidenceItem,
-    GenerationRequest,
-    Generator,
-)
+from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest, Generator
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
     ConversationRepository,
-    DeliveryReceiptRepository,
     SourceRepository,
 )
-from knowledge_bot.ports.transport import MessageTransport
 
 ABSTENTION_TEXT = "No tinc prou informació fiable per respondre-ho."
 UNAVAILABLE_TEXT = (
@@ -52,14 +33,7 @@ UNAVAILABLE_TEXT = (
 
 
 def clean_question(text: str | None) -> str:
-    """Strip the ``/ask`` command and leading mentions from a question.
-
-    Args:
-        text: The raw message text.
-
-    Returns:
-        The bare question.
-    """
+    """Strip commands and leading bot mentions from a question."""
     value = (text or "").strip()
     if value.lower().startswith("/ask"):
         parts = value.split(maxsplit=1)
@@ -72,7 +46,7 @@ def clean_question(text: str | None) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AnswerOutcome:
-    """The decided answer, its mode, provenance, and text to send."""
+    """The decided answer, mode, source ids, and rendered text."""
 
     answer: str
     mode: AnswerMode
@@ -81,18 +55,17 @@ class AnswerOutcome:
     qa_version_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AnswerPreview:
+    """A decided answer and its supporting evidence."""
+
+    outcome: AnswerOutcome
+    evidence: list[Evidence]
+
+
 def render_source_line(source: Evidence) -> str:
-    """Render one source line, showing URL or author as appropriate.
-
-    Web sources cite their URL; group sources cite the author. Both add the date.
-
-    Args:
-        source: The cited evidence.
-
-    Returns:
-        A single bullet line.
-    """
-    parts: list[str] = [source.label]
+    """Render one citation line."""
+    parts = [source.label]
     if source.question is not None:
         parts.append(source.question)
     if source.url:
@@ -103,21 +76,24 @@ def render_source_line(source: Evidence) -> str:
         parts.append(source.date)
     if source.author and source.url:
         parts.append(source.author)
-    return "\u2022 " + " \u00b7 ".join(parts)
+    return "• " + " · ".join(parts)
 
 
 def _render(answer: str, sources: list[Evidence]) -> str:
+    """Render answer text with citations."""
     if not sources:
         return answer
-    lines = [answer, "", "Fonts:"]
-    lines.extend(render_source_line(source) for source in sources)
-    return "\n".join(lines)
+    return "\n".join(
+        [answer, "", "Fonts:", *(render_source_line(item) for item in sources)]
+    )
 
 
-def _api_response(record: BotAnswer, preview: "AnswerPreview") -> AskQuestionResponse:
-    """Convert an internal answer outcome to the channel-neutral API contract."""
-    cited_ids = set(preview.outcome.source_ids)
-    sources = [
+def _source_details(
+    source_ids: list[str], evidence: list[Evidence]
+) -> list[AnswerSource]:
+    """Create the immutable structured citation snapshot."""
+    cited = set(source_ids)
+    return [
         AnswerSource(
             source_id=item.source_id,
             kind="qa" if item.qa_version_id is not None else "message",
@@ -126,45 +102,46 @@ def _api_response(record: BotAnswer, preview: "AnswerPreview") -> AskQuestionRes
             author=item.author,
             date=item.date,
         )
-        for item in preview.evidence
-        if item.source_id in cited_ids
+        for item in evidence
+        if item.source_id in cited
     ]
+
+
+def _api_response(
+    record: BotAnswer, preview: AnswerPreview | None = None
+) -> AskQuestionResponse:
+    """Reconstruct an exact response from durable answer state."""
+    if preview is not None:
+        sources = _source_details(preview.outcome.source_ids, preview.evidence)
+        rendered_text = preview.outcome.text
+    else:
+        try:
+            raw_sources = json.loads(record.source_details_json)
+            sources = [AnswerSource.model_validate(item) for item in raw_sources]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            sources = []
+        rendered_text = record.rendered_text or record.answer
     return AskQuestionResponse(
         answer_id=record.id,
         mode=record.answer_mode,
         answer=record.answer,
-        rendered_text=preview.outcome.text,
+        rendered_text=rendered_text,
         sources=sources,
     )
 
 
 def _abstain() -> AnswerOutcome:
-    return AnswerOutcome(
-        answer=ABSTENTION_TEXT,
-        mode=AnswerMode.ABSTENTION,
-        source_ids=[],
-        text=ABSTENTION_TEXT,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class AnswerPreview:
-    """A decided answer plus the evidence it was decided from."""
-
-    outcome: AnswerOutcome
-    evidence: list[Evidence]
+    """Return the deterministic abstention outcome."""
+    return AnswerOutcome(ABSTENTION_TEXT, AnswerMode.ABSTENTION, [], ABSTENTION_TEXT)
 
 
 @dataclass(frozen=True, slots=True)
 class AnswerService:
-    """Decide, persist, and send an answer to an addressed message."""
+    """Decide and persist answers without performing channel delivery."""
 
     retrieval: RetrievalService
     generator: Generator
     answers: BotAnswerRepository
-    delivery_receipts: DeliveryReceiptRepository
-    transport: MessageTransport
-    channel: str
     clock: Clock
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
@@ -172,21 +149,13 @@ class AnswerService:
     sources: SourceRepository | None = None
 
     async def get_answer(self, answer_id: str) -> BotAnswer | None:
-        """Return a stored answer for correction and API flows."""
+        """Return a stored answer."""
         return await self.answers.get(answer_id)
 
     async def decide(
         self, question: str, retrieved: RetrievedEvidence
     ) -> AnswerOutcome:
-        """Apply the evidence gate to retrieved evidence.
-
-        Args:
-            question: The bare question.
-            retrieved: The retrieved Q&A and message evidence.
-
-        Returns:
-            The decided answer.
-        """
+        """Apply direct-answer and grounded-synthesis policy."""
         strong_qa = [
             item
             for item in retrieved.qa
@@ -194,7 +163,7 @@ class AnswerService:
             and item.qa_version_id is not None
         ]
         if strong_qa:
-            best = max(strong_qa, key=lambda item: item.similarity)
+            best = max(strong_qa, key=lambda item: (item.similarity, item.authority))
             return AnswerOutcome(
                 answer=best.text,
                 mode=AnswerMode.DIRECT_QA,
@@ -202,7 +171,7 @@ class AnswerService:
                 text=_render(best.text, [best]),
                 qa_version_id=best.qa_version_id,
             )
-        qa_evidence = sorted(
+        qa = sorted(
             (
                 item
                 for item in retrieved.qa
@@ -211,7 +180,7 @@ class AnswerService:
             key=lambda item: (item.similarity, item.authority),
             reverse=True,
         )[:2]
-        message_evidence = sorted(
+        messages = sorted(
             (
                 item
                 for item in retrieved.messages
@@ -220,7 +189,7 @@ class AnswerService:
             key=lambda item: (item.similarity, item.authority),
             reverse=True,
         )[:3]
-        evidence = [*qa_evidence, *message_evidence]
+        evidence = [*qa, *messages]
         if not evidence:
             return _abstain()
         result = await self.generator.generate(
@@ -251,47 +220,83 @@ class AnswerService:
         )
 
     async def answer_request(self, request: AskQuestionRequest) -> AskQuestionResponse:
-        """Answer an idempotent channel-independent API request without delivery."""
+        """Answer an idempotent API request and replay its stored response."""
         existing = await self.answers.get_by_request_id(request.request_id)
         if existing is not None:
             if existing.question != request.question.strip():
-                message = "request_id was already used for another question"
-                raise ValueError(message)
-            return AskQuestionResponse(
-                answer_id=existing.id,
-                mode=existing.answer_mode,
-                answer=existing.answer,
-                rendered_text=existing.answer,
-                sources=[],
-            )
-        question = request.question.strip()
+                raise ValueError("request_id was already used for another question")  # noqa: TRY003
+            return _api_response(existing)
+        return await self._prepare(
+            f"ans:req:{request.request_id}",
+            request.question,
+            f"api:{request.space_id or 'global'}",
+            request.space_id,
+            None,
+            request.request_id,
+        )
+
+    async def answer_message(
+        self, message: NormalizedMessage
+    ) -> AskQuestionResponse | None:
+        """Prepare and persist the answer for an addressed message."""
+        question = clean_question(message.text)
+        if not question:
+            return None
+        existing = await self.answers.get(f"ans:{message.id}")
+        if existing is not None:
+            return _api_response(existing)
+        return await self._prepare(
+            f"ans:{message.id}",
+            question,
+            message.conversation_id,
+            message.space_id,
+            message.id,
+            None,
+        )
+
+    async def _prepare(
+        self,
+        answer_id: str,
+        question: str,
+        conversation_id: str,
+        space_id: str | None,
+        user_message_id: str | None,
+        request_id: str | None,
+    ) -> AskQuestionResponse:
+        """Retrieve, decide, persist, and return one answer."""
+        question = question.strip()
         try:
-            retrieved = await self.retrieval.retrieve(question, request.space_id)
+            retrieved = await self.retrieval.retrieve(question, space_id)
             preview = AnswerPreview(
-                outcome=await self.decide(question, retrieved),
-                evidence=retrieved.all(),
+                await self.decide(question, retrieved), retrieved.all()
             )
         except ModelUnavailableError:
-            outcome = AnswerOutcome(
-                answer=UNAVAILABLE_TEXT,
-                mode=AnswerMode.UNAVAILABLE,
-                source_ids=[],
-                text=UNAVAILABLE_TEXT,
+            preview = AnswerPreview(
+                AnswerOutcome(
+                    UNAVAILABLE_TEXT, AnswerMode.UNAVAILABLE, [], UNAVAILABLE_TEXT
+                ),
+                [],
             )
-            preview = AnswerPreview(outcome=outcome, evidence=[])
+        details = _source_details(preview.outcome.source_ids, preview.evidence)
         record = BotAnswer(
-            id=f"ans:req:{request.request_id}",
-            conversation_id=f"api:{request.space_id or 'global'}",
-            space_id=request.space_id,
-            question=request.question.strip(),
+            id=answer_id,
+            conversation_id=conversation_id,
+            space_id=space_id,
+            question=question,
             answer=preview.outcome.answer,
             answer_mode=preview.outcome.mode,
             created_at=self.clock.now(),
+            user_message_id=user_message_id,
             qa_version_id=preview.outcome.qa_version_id,
             sources_json=json.dumps(preview.outcome.source_ids),
-            request_id=request.request_id,
+            rendered_text=preview.outcome.text,
+            source_details_json=json.dumps(
+                [item.model_dump(mode="json") for item in details]
+            ),
+            request_id=request_id,
         )
-        await self._ensure_api_conversation(request.space_id)
+        if request_id is not None:
+            await self._ensure_api_conversation(space_id)
         await self.answers.add(record)
         return _api_response(record, preview)
 
@@ -301,14 +306,7 @@ class AnswerService:
             return
         source_id = "source:api"
         if await self.sources.get(source_id) is None:
-            await self.sources.add(
-                Source(
-                    id=source_id,
-                    source_type="api",
-                    authority=0,
-                    created_at=self.clock.now(),
-                )
-            )
+            await self.sources.add(Source(source_id, "api", 0, self.clock.now()))
         conversation_id = f"api:{space_id or 'global'}"
         if await self.conversations.get(conversation_id) is None:
             await self.conversations.add(
@@ -322,96 +320,12 @@ class AnswerService:
                 )
             )
 
-    async def dry_run_for_message(self, message: NormalizedMessage) -> AnswerPreview:
-        """Resolve and decide a normalized message without persistence or delivery."""
-        question = clean_question(message.text)
-        retrieved = await self.retrieval.retrieve(question, message.space_id)
-        return AnswerPreview(
-            outcome=await self.decide(question, retrieved),
-            evidence=retrieved.all(),
-        )
+    async def retrieve_for_eval(self, question: str) -> RetrievedEvidence:
+        """Retrieve evidence for an explicit internal evaluation."""
+        return await self.retrieval.retrieve(clean_question(question), all_scopes=True)
 
     async def dry_run(self, question: str) -> AnswerPreview:
-        """Decide an answer without persisting or sending it (eval only).
-
-        Args:
-            question: The bare question to answer.
-
-        Returns:
-            The decided outcome plus the retrieved evidence behind it.
-        """
+        """Decide an answer without persisting it."""
         cleaned = clean_question(question)
         retrieved = await self.retrieval.retrieve(cleaned, all_scopes=True)
-        outcome = await self.decide(cleaned, retrieved)
-        return AnswerPreview(outcome=outcome, evidence=retrieved.all())
-
-    async def answer(self, message: NormalizedMessage) -> BotAnswer | None:
-        """Answer an addressed message and send it.
-
-        Args:
-            message: The addressed inbound message.
-
-        Returns:
-            The stored answer, or ``None`` when the message has no question.
-        """
-        question = clean_question(message.text)
-        if not question:
-            return None
-        prior_delivery = await self.delivery_receipts.get(
-            "answer", f"ans:{message.id}", self.channel
-        )
-        if prior_delivery is not None:
-            return await self.answers.get(f"ans:{message.id}")
-        try:
-            retrieved = await self.retrieval.retrieve(question, message.space_id)
-            outcome = await self.decide(question, retrieved)
-        except ModelUnavailableError:
-            outcome = AnswerOutcome(
-                answer=UNAVAILABLE_TEXT,
-                mode=AnswerMode.UNAVAILABLE,
-                source_ids=[],
-                text=UNAVAILABLE_TEXT,
-            )
-        record = BotAnswer(
-            id=f"ans:{message.id}",
-            conversation_id=message.conversation_id,
-            space_id=message.space_id,
-            question=question,
-            answer=outcome.answer,
-            answer_mode=outcome.mode,
-            created_at=self.clock.now(),
-            user_message_id=message.id,
-            qa_version_id=outcome.qa_version_id,
-            sources_json=json.dumps(outcome.source_ids),
-        )
-        message_id = await self.transport.send_answer(
-            message.conversation_id, outcome.text, record.id
-        )
-        if message_id is not None:
-            record = BotAnswer(
-                id=record.id,
-                conversation_id=record.conversation_id,
-                space_id=record.space_id,
-                question=record.question,
-                answer=record.answer,
-                answer_mode=record.answer_mode,
-                created_at=record.created_at,
-                user_message_id=record.user_message_id,
-                telegram_bot_message_id=message_id,
-                qa_version_id=record.qa_version_id,
-                sources_json=record.sources_json,
-            )
-        await self.answers.add(record)
-        if message_id is not None:
-            await self.delivery_receipts.add(
-                DeliveryReceipt(
-                    id=f"delivery:{record.id}:{self.channel}",
-                    object_type="answer",
-                    object_id=record.id,
-                    channel=self.channel,
-                    external_conversation_id=message.conversation_id,
-                    external_message_id=message_id,
-                    created_at=self.clock.now(),
-                )
-            )
-        return record
+        return AnswerPreview(await self.decide(cleaned, retrieved), retrieved.all())

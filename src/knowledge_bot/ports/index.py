@@ -1,21 +1,18 @@
 # SPDX-License-Identifier: MIT
-"""Ports for rebuilding the derived search index from D1."""
+"""Ports for rebuilding and repairing the derived search index."""
 
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from knowledge_bot.domain.entities import SearchProjectionEntry
+from knowledge_bot.domain.enums import ProjectionState
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
-from knowledge_bot.ports.vector_store import VectorRecord
 
 
 @dataclass(frozen=True, slots=True)
 class IndexableQA:
-    """An active Q&A version ready to be embedded.
-
-    ``url`` and ``author`` are mutually exclusive citations: a web snapshot
-    version carries the anchored URL, a human correction carries its author.
-    """
+    """An active Q&A version ready to be embedded."""
 
     qa_item_id: str
     version_id: str
@@ -32,7 +29,7 @@ class IndexableQA:
 
 @dataclass(frozen=True, slots=True)
 class IndexableMessage:
-    """A message with text, ready to be embedded."""
+    """A message with text ready to be embedded."""
 
     message_id: str
     text: str
@@ -47,56 +44,85 @@ class IndexableMessage:
 
 @runtime_checkable
 class SearchProjectionRepository(Protocol):
-    """Durable bookkeeping for vectors in the derived projection."""
+    """Durable state for derived vectors."""
 
-    async def list_vector_ids(self) -> list[str]:
-        """Return every vector id in the current projection."""
+    async def reserve(
+        self,
+        vector_id: str,
+        kind: str,
+        object_id: str,
+        version_id: str | None,
+        updated_at: datetime,
+    ) -> None:
+        """Reserve a stable vector id before projection."""
         ...
 
-    async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
-        """Record successfully upserted vectors."""
+    async def mark_active(
+        self, vector_id: str, version_id: str | None, updated_at: datetime
+    ) -> None:
+        """Mark a projection active."""
+        ...
+
+    async def mark_failed(
+        self,
+        vector_id: str,
+        version_id: str | None,
+        error_code: str,
+        updated_at: datetime,
+    ) -> None:
+        """Mark a projection failed with a safe code."""
+        ...
+
+    async def get(self, vector_id: str) -> SearchProjectionEntry | None:
+        """Return one projection entry."""
+        ...
+
+    async def list_by_state(
+        self, states: list[ProjectionState], limit: int
+    ) -> list[SearchProjectionEntry]:
+        """Return a bounded repair batch."""
+        ...
+
+    async def list_vector_ids(self) -> list[str]:
+        """Return every manifest vector id."""
         ...
 
     async def delete(self, vector_ids: list[str]) -> None:
-        """Remove deleted vectors from the manifest."""
+        """Remove manifest entries."""
         ...
 
     async def clear(self) -> None:
-        """Clear the manifest after the vector store has been cleared."""
+        """Clear the manifest."""
         ...
 
 
 class SearchIndexSource(Protocol):
-    """Reads the indexable records from the source of truth."""
+    """Read indexable records from SQL truth."""
 
     async def get_qa(self, version_id: str) -> IndexableQA | None:
-        """Return one Q&A version to index, by id."""
+        """Return one current Q&A version."""
+        ...
+
+    async def get_current_qa_by_item_id(self, qa_item_id: str) -> IndexableQA | None:
+        """Return the current active Q&A for an item."""
+        ...
+
+    async def get_indexable_message(self, message_id: str) -> IndexableMessage | None:
+        """Return one eligible message."""
         ...
 
     async def list_qa(
         self, after: str | None = None, limit: int | None = None
     ) -> list[IndexableQA]:
-        """Return the active Q&A versions to index.
-
-        Args:
-            after: Return only versions with id greater than this (cursor).
-            limit: Maximum number of versions to return.
-
-        Returns:
-            The next batch of versions, ordered by id.
-        """
+        """Return a bounded batch of current Q&A records."""
         ...
 
     async def list_messages(
         self, after: str | None = None, limit: int | None = None
     ) -> list[IndexableMessage]:
-        """Return the messages with text to index.
+        """Return a bounded batch of eligible messages."""
+        ...
 
-        Args:
-            after: Return only messages with id greater than this (cursor).
-            limit: Maximum number of messages to return.
-
-        Returns:
-            The next batch of messages, ordered by id.
-        """
+    async def list_legacy_vector_ids(self) -> list[str]:
+        """Return legacy vector ids that a rebuild must remove."""
         ...

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from knowledge_bot.contracts.api import AskQuestionRequest
 from knowledge_bot.contracts.seed import SeedQA
+from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.scope import scope_for_space
 from knowledge_bot.ports.index import IndexableQA
@@ -80,11 +81,15 @@ def test_two_groups_keep_different_local_corrections() -> None:
             (initial_a, "Resposta corregida A."),
             (initial_b, "Resposta corregida B."),
         ):
-            feedback = await context.feedback.start(answer.answer_id, "user-a")
+            feedback = await context.feedback.start(answer.answer_id, "telegram:user-a")
             assert feedback is not None
-            proposed = await context.feedback.propose(feedback.id, correction, "User A")
+            proposed = await context.feedback.propose(
+                feedback.id, correction, "telegram:user-a", "User A"
+            )
             assert proposed is not None
-            version = await context.feedback.approve(feedback.id, "group")
+            version = await context.feedback.approve(
+                feedback.id, ReviewAction.APPROVE_LOCAL
+            )
             assert version is not None
             source = context.reindex.source
             assert isinstance(source, FakeSearchIndexSource)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Pydantic request contracts for HTTP boundaries."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
@@ -17,9 +17,16 @@ class EvalAnswerRequest(BaseModel):
 class ReindexRequest(BaseModel):
     """Optional bounded incremental reindex request."""
 
+    rebuild: bool = False
     qa_after: str | None = None
     msg_after: str | None = None
     limit: int | None = Field(default=None, ge=1, le=1000)
+
+
+class IndexRepairRequest(BaseModel):
+    """Bounded projection repair request."""
+
+    limit: int = Field(default=100, ge=1, le=100)
 
 
 class BackgroundBacklogRequest(BaseModel):
@@ -55,6 +62,14 @@ class DailyReportRequest(BaseModel):
     """Manual daily report execution options."""
 
     force: bool = False
+    dry_run: bool = False
+
+    @model_validator(mode="after")
+    def _validate_mode(self) -> "DailyReportRequest":
+        """Reject force plus dry-run."""
+        if self.force and self.dry_run:
+            raise ValueError("force and dry_run cannot both be true")  # noqa: TRY003
+        return self
 
 
 class AskQuestionRequest(BaseModel):

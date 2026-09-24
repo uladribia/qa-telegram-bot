@@ -19,10 +19,15 @@ class InteractionService:
         return await self.repository.get(external_message_id)
 
     async def consume(
-        self, external_message_id: str, consumed_at: datetime
+        self,
+        external_message_id: str,
+        principal_id: str,
+        consumed_at: datetime,
     ) -> TelegramInteraction | None:
-        """Atomically consume one unused interaction."""
-        return await self.repository.consume(external_message_id, consumed_at)
+        """Atomically consume one unused interaction for its principal."""
+        return await self.repository.consume(
+            external_message_id, principal_id, consumed_at
+        )
 
     async def add(self, interaction: TelegramInteraction) -> None:
         """Persist one interaction."""

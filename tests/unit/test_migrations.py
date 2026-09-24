@@ -226,3 +226,32 @@ def test_qa_version_history_is_append_only() -> None:
         "SELECT current_version_id FROM qa_items WHERE id = 'q1'"
     ).fetchone()
     assert current == ("v2",)
+
+
+def test_final_hardening_columns_and_defaults() -> None:
+    """0020 adds answer snapshots, principal fields, and projection states."""
+    connection = _connect()
+    _apply(connection)
+    answer_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(bot_answers)")
+    }
+    reviewer_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(reviewers)")
+    }
+    event_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(reviewer_events)")
+    }
+    projection_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(search_projection)")
+    }
+    assert {"rendered_text", "source_details_json"} <= answer_columns
+    assert {"principal_id", "nominated_by_principal_id"} <= reviewer_columns
+    assert "reviewer_principal_id" in event_columns
+    assert {"version_id", "state", "last_error"} <= projection_columns
+    connection.execute(
+        "INSERT INTO search_projection (vector_id, kind, object_id, updated_at)"
+        " VALUES ('old', 'qa', 'old', '2026-01-01')"
+    )
+    assert connection.execute(
+        "SELECT state FROM search_projection WHERE vector_id = 'old'"
+    ).fetchone() == ("active",)

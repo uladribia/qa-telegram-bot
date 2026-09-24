@@ -14,7 +14,6 @@ from knowledge_bot.domain.enums import ContentType
 
 ALLOWED_CHAT = "-1001234567890"
 IDENTITY = TelegramIdentity(
-    allowed_chat_ids=frozenset({ALLOWED_CHAT}),
     admin_user_id="100000001",
     bot_id="999",
     bot_username="bhc_qa_testbot",
@@ -112,10 +111,10 @@ def test_caption_is_kept_as_text() -> None:
     assert normalized.text == "la samarreta nova"
 
 
-def test_disallowed_chat_is_ignored() -> None:
-    """Updates from any other group are dropped."""
+def test_other_group_is_normalized_for_binding_resolution() -> None:
+    """The adapter leaves group authorization to durable binding resolution."""
     message = _message(chat={"id": -1, "type": "supergroup"})
-    assert normalize_message(_update(message), IDENTITY) is None
+    assert normalize_message(_update(message), IDENTITY) is not None
 
 
 def test_direct_message_is_marked_and_allowed() -> None:

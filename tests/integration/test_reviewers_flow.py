@@ -147,7 +147,7 @@ def test_admin_nominates_a_group_reviewer_by_reply() -> None:
     _nominate_reviewer(context, client)
     reviewer = asyncio.run(context.reviewers.reviewers.get(GROUP_SCOPE))
     assert reviewer is not None
-    assert reviewer.user_id == str(REVIEWER_ID)
+    assert reviewer.principal_id == f"telegram:{REVIEWER_ID}"
     assert reviewer.name == "Pepe"
     assert any("revisor d'aquest grup" in text for _, text in transport.messages)
 
@@ -211,7 +211,7 @@ def test_flagging_twice_reuses_the_open_feedback() -> None:
     assert response.json() == {"status": "feedback_started"}
     feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
-    assert feedback.reporter_chat_id == "777"
+    assert feedback.reporter_principal_id == "telegram:777"
     assert len(transport.force_replies) == 2
 
 
@@ -383,9 +383,7 @@ def test_group_reviewer_can_confirm_and_admin_gets_a_report() -> None:
     feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.APPROVED
-    report = [text for chat, text in transport.messages if chat == "1"]
-    assert any("Correccions revisades" in text for text in report)
-    assert any("Pepe" in text for text in report)
+    assert not any("Correccions revisades" in text for _, text in transport.messages)
 
 
 def test_local_reviewer_global_approval_is_denied_by_server() -> None:
@@ -435,38 +433,6 @@ def test_a_stranger_cannot_confirm() -> None:
     feedback = asyncio.run(context.feedback.get_feedback("fb:ans:-100:10"))
     assert feedback is not None
     assert feedback.status is FeedbackStatus.PENDING_REVIEW
-
-
-def test_batch_mode_sends_the_report_only_when_poked() -> None:
-    """In batch mode the admin report waits for the interval check."""
-    context, transport = build_test_context(admin_report_mode="batch")
-    asyncio.run(_seed_answer(context))
-    client = _client(context)
-    _nominate_reviewer(context, client)
-    prompt_id = _open_proposal(client)
-    client.post(
-        "/telegram/webhook",
-        json=_reply("Resposta corregida.", reply_to=prompt_id),
-        headers=SECRET_HEADER,
-    )
-    client.post(
-        "/telegram/webhook",
-        json=_callback("feedback:approve-group:fb:ans:-100:10", from_id=REVIEWER_ID),
-        headers=SECRET_HEADER,
-    )
-    assert not any("Correccions revisades" in text for _, text in transport.messages)
-    events = asyncio.run(context.reviewer_report.events.list_unreported())
-    assert len(events) == 1
-    assert events[0].created_at == context.clock.now()
-    response = client.post(
-        "/internal/report",
-        headers={"X-Internal-Key": "internal"},
-    )
-    assert response.json() == {"status": "sent"}
-    assert any(
-        chat == "1" and "Correccions revisades" in text
-        for chat, text in transport.messages
-    )
 
 
 def test_revert_endpoint_rolls_back_and_reports_the_version() -> None:

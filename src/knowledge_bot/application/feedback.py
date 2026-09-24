@@ -21,10 +21,12 @@ from knowledge_bot.domain.enums import (
     EvidenceType,
     FeedbackStatus,
     QAStatus,
+    ReviewAction,
 )
+from knowledge_bot.domain.errors import InvalidTransitionError
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.policies import Authority
-from knowledge_bot.domain.scope import Scope, scope_for_space
+from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     BotAnswerRepository,
@@ -37,9 +39,6 @@ from knowledge_bot.ports.transactions import (
     ApproveCorrectionCommand,
     CorrectionCommitStore,
 )
-
-#: Approve target meaning "the conversation the corrected answer came from".
-GROUP_SCOPE = "group"
 
 START_PREFIX = "feedback:start:"
 APPROVE_GLOBAL_PREFIX = "feedback:approve-global:"
@@ -202,16 +201,14 @@ class FeedbackService:
     async def start(
         self,
         answer_id: str,
-        reporter_hash: str | None,
-        reporter_chat_id: str | None = None,
+        reporter_principal_id: str,
         reporter_name: str | None = None,
     ) -> Feedback | None:
         """Open a correction proposal for a bot answer.
 
         Args:
             answer_id: The bot answer the user marked wrong.
-            reporter_hash: A pseudonymized reporter id.
-            reporter_chat_id: The chat to prompt privately.
+            reporter_principal_id: The opaque reporter principal.
             reporter_name: The reporter's display name, for the citation.
 
         Returns:
@@ -227,7 +224,8 @@ class FeedbackService:
         if existing is not None and existing.resolved_at is None:
             feedback = replace(
                 existing,
-                reporter_chat_id=reporter_chat_id,
+                reporter_principal_id=reporter_principal_id,
+                origin_space_id=answer.space_id,
                 reporter_name=reporter_name,
             )
             await self.feedback.save(feedback)
@@ -247,8 +245,8 @@ class FeedbackService:
             status=FeedbackStatus.AWAITING_PROPOSAL,
             created_at=self.clock.now(),
             qa_id=cited_version.qa_id if cited_version is not None else None,
-            reporter_hash=reporter_hash,
-            reporter_chat_id=reporter_chat_id,
+            reporter_principal_id=reporter_principal_id,
+            origin_space_id=answer.space_id,
             reporter_name=reporter_name,
         )
         await self.feedback.add(feedback)
@@ -277,6 +275,7 @@ class FeedbackService:
         self,
         feedback_id: str,
         proposed_answer: str,
+        reporter_principal_id: str,
         reporter_name: str | None = None,
     ) -> Feedback | None:
         """Record the correction proposed by the reporter.
@@ -284,6 +283,7 @@ class FeedbackService:
         Args:
             feedback_id: The feedback being answered.
             proposed_answer: The text the reporter proposes.
+            reporter_principal_id: The opaque principal submitting the proposal.
             reporter_name: The proposer's display name, used as the citation
                 author once the proposal is approved.
 
@@ -292,6 +292,11 @@ class FeedbackService:
         """
         feedback = await self.feedback.get(feedback_id)
         if feedback is None:
+            return None
+        if (
+            feedback.reporter_principal_id is not None
+            and feedback.reporter_principal_id != reporter_principal_id
+        ):
             return None
         updated = replace(
             feedback,
@@ -392,7 +397,11 @@ class FeedbackService:
         version = await self.qa_versions.get(cited.current_version_id)
         return version.origin if version is not None else None
 
-    async def approve(self, feedback_id: str, scope: Scope) -> QAVersion | None:
+    async def approve(
+        self,
+        feedback_id: str,
+        action: ReviewAction,
+    ) -> QAVersion | None:
         """Approve a proposal as a new answer version in the chosen scope.
 
         Approving as global updates (or creates) the global item for the
@@ -402,7 +411,7 @@ class FeedbackService:
 
         Args:
             feedback_id: The feedback to approve.
-            scope: ``GLOBAL_SCOPE``, or ``GROUP_SCOPE`` for the asking group.
+            action: The typed approval decision.
 
         Returns:
             The new Q&A version, or ``None`` when the feedback is unknown or has
@@ -420,18 +429,16 @@ class FeedbackService:
         now = self.clock.now()
         answer = await self.answers.get(feedback.bot_answer_id)
         question = answer.question if answer is not None else ""
-        target_scope = (
-            scope_for_space(answer.space_id)
-            if scope == GROUP_SCOPE and answer is not None and answer.space_id
-            else scope
-        )
-        qa_id = await self._resolve_target(feedback, question, target_scope, now)
-        item = await self.qa_items.get(qa_id)
-        if item is None:
-            return None
+        if action is ReviewAction.APPROVE_GLOBAL:
+            target_scope = GLOBAL_SCOPE
+        elif answer is not None and answer.space_id is not None:
+            target_scope = scope_for_space(answer.space_id)
+        else:
+            raise InvalidTransitionError
+        item = await self._resolve_target(feedback, question, target_scope, now)
         version = QAVersion(
             id=f"qav:{feedback.id}:{int(now.timestamp())}",
-            qa_id=qa_id,
+            qa_id=item.id,
             answer=answer_text,
             authority=int(Authority.ADMIN_APPROVED),
             origin="human_approved",
@@ -469,9 +476,9 @@ class FeedbackService:
         self,
         feedback: Feedback,
         question: str,
-        scope: Scope,
+        scope: str,
         now: datetime,
-    ) -> str:
+    ) -> QAItem:
         """Find or create the Q&A item an approval applies to.
 
         When the corrected answer cited an item in the target scope, that item
@@ -492,12 +499,12 @@ class FeedbackService:
             cited = await self._cited_item(feedback.qa_id)
             if cited is not None:
                 if cited.scope_key == scope:
-                    return cited.id
+                    return cited
                 key = cited.canonical_key
         existing = await self.qa_items.get_by_canonical_key(key, scope)
         if existing is not None:
-            return existing.id
-        created = QAItem(
+            return existing
+        return QAItem(
             id=f"qa:{key}:{scope}",
             canonical_key=key,
             canonical_question=question,
@@ -506,8 +513,6 @@ class FeedbackService:
             updated_at=now,
             scope_key=scope,
         )
-        await self.qa_items.add(created)
-        return created.id
 
     async def _cited_item(self, qa_ref: str) -> QAItem | None:
         """Resolve a feedback's Q&A item reference, if present.

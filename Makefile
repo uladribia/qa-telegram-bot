@@ -32,10 +32,12 @@ test-all:
 # re-embedding every record is the largest single draw: `make eval-live-reindex`.
 # Requires BOT_BASE_URL (defaults to the deployed Worker).
 eval-live:
-	uv run python -m evals.run live --base-url $${BOT_BASE_URL:-https://bhc-qa-testbot.qa-bots.workers.dev}
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run python -m evals.run live --base-url "$(BOT_BASE_URL)"
 
 eval-live-reindex:
-	uv run python -m evals.run live --reindex --base-url $${BOT_BASE_URL:-https://bhc-qa-testbot.qa-bots.workers.dev}
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run python -m evals.run live --reindex --base-url "$(BOT_BASE_URL)"
 
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:
@@ -45,13 +47,17 @@ reindex:
 # deployed Worker as global knowledge. Idempotent: run it after every release
 # tag and after any change to the self-explanation entries.
 seed-self-qa:
-	BOT_BASE_URL=$${BOT_BASE_URL:-https://bhc-qa-testbot.qa-bots.workers.dev} uv run kb seed --qa data/seed/bot_self_qa.json
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	ALLOW_CLOUDFLARE_LIVE_TESTS=1 uv run kb seed --qa data/seed/bot_self_qa.json --base-url "$(BOT_BASE_URL)"
 
 # Runtime fidelity: build the dev image, run the Worker, check /healthz.
 smoke:
 	bash scripts/smoke.sh
 
-smoke-cloudflare: smoke
+smoke-cloudflare:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	ALLOW_CLOUDFLARE_LIVE_TESTS=1 BOT_BASE_URL="$(BOT_BASE_URL)" uv run kb smoke-cloudflare --base-url "$(BOT_BASE_URL)"
 
 # Local SQLite + Ollama runtime.
 dev-bootstrap:
@@ -80,4 +86,4 @@ dev-seed:
 
 # Explicit local-only AI check; ordinary tests never call Ollama.
 test-e2e-local:
-	OLLAMA_BASE_URL=http://127.0.0.1:11434 RUN_LOCAL_AI_E2E=1 uv run pytest -m e2e_local
+	bash scripts/local-dev.sh e2e-local

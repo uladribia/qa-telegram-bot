@@ -2,7 +2,7 @@
 
 A channel-agnostic **knowledge bot**. It answers questions from a curated
 knowledge base, **always with a source**, and abstains instead of inventing.
-Anyone can flag a wrong answer; only an admin can approve a correction.
+Anyone can flag a wrong answer. Local reviewers, global reviewers, and the admin can approve corrections within their scopes.
 
 Telegram is the only runtime adapter in v1. The core is channel-agnostic:
 importers and future channels feed the same domain.
@@ -17,13 +17,15 @@ fallback exists anywhere in the code.
 
 | Document | What it covers |
 |---|---|
-| [docs/setup.md](docs/setup.md) | Deploy and set up from a clean checkout |
+| [docs/setup-local.md](docs/setup-local.md) | Canonical Docker-only local setup |
+| [docs/setup-cloudflare.md](docs/setup-cloudflare.md) | Cloudflare deployment |
+| [docs/architecture.md](docs/architecture.md) | Runtime and dependency boundaries |
 | [docs/usage.md](docs/usage.md) | What the bot does, what you type, the typical flows |
 | [docs/knowledge-base.md](docs/knowledge-base.md) | Adding and correcting knowledge |
 | [docs/operations.md](docs/operations.md) | Quota, logs, troubleshooting, routine maintenance |
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
 | [docs/session-handoff.md](docs/session-handoff.md) | Current v2 state and next-session starting point |
-| [docs/telegram-e2e.md](docs/telegram-e2e.md) | Manual Telegram acceptance flow |
+| [docs/e2e-telegram.md](docs/e2e-telegram.md) | Manual Telegram acceptance flow |
 | [AGENTS.md](AGENTS.md) | How to write code here |
 | [instructions/](instructions/) | The binding implementation plan and current status |
 
@@ -43,7 +45,7 @@ curl -s http://localhost:8000/readyz
 `make dev-bootstrap` starts the pinned local Ollama container, pulls the two
 local models, applies SQLite migrations, and serves the API on port 8000.
 
-For production, follow [docs/setup.md](docs/setup.md):
+For production, follow [docs/setup-cloudflare.md](docs/setup-cloudflare.md):
 
 ```bash
 uv sync
