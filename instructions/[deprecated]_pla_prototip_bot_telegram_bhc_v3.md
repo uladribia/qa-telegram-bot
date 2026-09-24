@@ -23,9 +23,11 @@
 > depenen de Telegram, els lliuraments/interaccions són durables i el resum
 > diari usa el handler programat del Worker. La generació, feedback, revisió,
 > lliurament i correlació d'interaccions tenen rutes i estat durables. La
-> separació física completa de rutes continua com a millora estructural.
-> Aquest document històric no descriu cap d'aquests comportaments com a
-> sistema actual.
+> separació física completa de rutes continua com a millora estructural. La
+> branca `refactor/v2-local-runtime` està implementant el runtime local
+> SQLite + NumPy + Ollama, les migracions locals, el runner local i els
+> Dockerfile/Makefile locals. Aquest document històric no descriu cap d'aquests
+> comportaments com a sistema actual.
 
 **Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;
