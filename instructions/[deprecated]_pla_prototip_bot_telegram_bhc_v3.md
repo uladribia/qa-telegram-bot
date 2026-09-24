@@ -1,6 +1,13 @@
-# Pla d'implementació — prototip de bot de coneixement per Telegram
+# [DEPRECATED] Pla d'implementació — prototip de bot de coneixement per Telegram
 
-**Objectiu:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
+> **Document històric i no operatiu.** Aquest document ja no és el contracte
+> d'implementació. El pla vinculant actual és
+> [`qa-telegram-bot-refactor-v2-spec.md`](qa-telegram-bot-refactor-v2-spec.md).
+> Les instruccions, arquitectura, fluxos, models, persistència i proves descrits
+> aquí poden ser obsolets i no s'han d'aplicar sense contrastar-los amb el pla v2
+> i amb el codi/docs vigents. Es conserva únicament com a context històric.
+
+**Objectiu original:** implementar un prototip funcional, en Python i amb cost obligatori de **0 €**, que:
 1. reculli tots els missatges d'un grup privat de Telegram de test;
 2. utilitzi com a base inicial de coneixement el Q&A existent a `https://bhc-fcb.netlify.app/` i un export/extracte del grup de WhatsApp;
 3. detecti preguntes;
