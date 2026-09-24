@@ -64,6 +64,30 @@ async def test_local_seed_retrieval_and_answer_flow() -> None:
         assert "VERIFIED-LOCAL-42" in answer_body["answer"]
         assert answer_body["sources"]
 
+        feedback = await client.post(
+            "/v1/feedback",
+            headers=headers,
+            json={
+                "answer_id": answer_body["answer_id"],
+                "reporter_principal_id": "local-e2e-user",
+                "reporter_name": "Local E2E",
+            },
+        )
+        assert feedback.status_code == 200, feedback.text
+        feedback_id = feedback.json()["feedback_id"]
+        proposal = await client.put(
+            f"/v1/feedback/{feedback_id}/proposal",
+            headers=headers,
+            json={
+                "reporter_principal_id": "local-e2e-user",
+                "proposal": (
+                    "The corrected local marker is VERIFIED-LOCAL-42-CORRECTED."
+                ),
+            },
+        )
+        assert proposal.status_code == 200, proposal.text
+        assert proposal.json()["status"] == "pending_review"
+
         # A second, distinct request proves request-id isolation on the real path.
         replay_id = f"local-e2e-replay-{uuid.uuid4()}"
         first = await client.post(
