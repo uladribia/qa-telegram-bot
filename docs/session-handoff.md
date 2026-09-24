@@ -1,13 +1,13 @@
 # Session handoff
 
-_Last updated: 2026-09-24 on `fix/final-hardening-pass`._
+_Last updated: 2026-09-24 on `docs/session-handoff-e2e-status`._
 
 ## Current state
 
-- Base revision: `f5224fe0a9cc184e1f8011140ae24b620a0a16e2` from `main`.
-- Binding plan: [`instructions/qa-telegram-bot-one-pass-final-fix-plan.md`](../instructions/qa-telegram-bot-one-pass-final-fix-plan.md).
-- Branch: `fix/final-hardening-pass`.
-- The deprecated plans are not implementation contracts and are not referenced by `AGENTS.md`.
+- Main was merged and pushed at `f263ff7` with the final hardening pass.
+- Current branch: `docs/session-handoff-e2e-status`.
+- The working tree also contains an uncommitted replacement retrieval/classifier/listener plan under `instructions/`; preserve it and do not stage it with this documentation-only change.
+- `AGENTS.md` still needs a separate update to point at the replacement plan if that plan becomes the active contract.
 
 ## Work completed
 
@@ -26,14 +26,19 @@ Passed locally:
 
 ```text
 make format
-make lint
-make test                 # 122 passed
-make test-integration     # 120 passed
+make all                  # 123 fast tests passed
+make test-integration     # 120 integration tests passed
+make test-all              # 243 passed, 4 skipped
+uv run python -m evals.run offline  # 9/9 suites
+make dev-bootstrap
+make test-e2e-local       # 4 local E2E tests passed
+make smoke                # local /healthz passed
 ```
 
-`make dev-bootstrap`, `make test-e2e-local`, and `make smoke` passed locally. No Cloudflare, Telegram network, live eval, remote reindex, or production mutation was performed.
+`make test-e2e-local` covered the real local Ollama smoke, the existing local seed/retrieval flow, the synthetic Telegram two-space correction flow, and the local background temporal-pair flow. It did **not** cover the restart-persistence scenario. No real Telegram acceptance, Cloudflare smoke, live eval, remote reindex, or production mutation was performed.
 
 ## Remaining acceptance
 
+- Add and run the restart-persistence scenario against the same local SQLite database.
 - Complete the human-operated real Telegram two-group acceptance flow in [`docs/e2e-telegram.md`](e2e-telegram.md).
 - Run Cloudflare smoke or live evaluation only after explicit human authorization and an explicit `BOT_BASE_URL`.
