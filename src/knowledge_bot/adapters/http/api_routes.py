@@ -19,7 +19,7 @@ from knowledge_bot.contracts.api import (
 )
 from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.security import secrets_match
 
 

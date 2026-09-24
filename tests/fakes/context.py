@@ -26,7 +26,7 @@ from knowledge_bot.application.reviewers import (
 )
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from knowledge_bot.ports.pairing import PairingOutput
 from tests.fakes.ai import (

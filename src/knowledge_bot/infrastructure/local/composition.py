@@ -55,7 +55,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
 from knowledge_bot.infrastructure.local.http import HttpxClient
 from knowledge_bot.infrastructure.local.ollama import (

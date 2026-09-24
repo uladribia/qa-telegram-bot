@@ -59,7 +59,7 @@ from knowledge_bot.domain.enums import (
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
 

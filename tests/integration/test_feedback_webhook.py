@@ -16,7 +16,7 @@ from knowledge_bot.application.feedback import (
 )
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}

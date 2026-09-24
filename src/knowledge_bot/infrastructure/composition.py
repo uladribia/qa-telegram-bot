@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Compose the application context from Cloudflare Worker bindings."""
 
-from dataclasses import dataclass
 from typing import Protocol
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
@@ -66,15 +65,9 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIGenerator,
     WorkersAIPairingModel,
 )
+from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
-from knowledge_bot.ports.clock import Clock
-from knowledge_bot.ports.repositories import (
-    DeliveryReceiptRepository,
-    FeedbackRepository,
-    TelegramInteractionRepository,
-)
-from knowledge_bot.ports.transport import MessageTransport
 
 
 class WorkerEnv(Protocol):
@@ -83,36 +76,6 @@ class WorkerEnv(Protocol):
     DB: D1Database
     AI: AiRunner
     VECTORIZE: VectorizeIndex
-
-
-@dataclass(frozen=True, slots=True)
-class AppContext:
-    """Everything the HTTP layer needs, wired once per isolate."""
-
-    settings: Settings
-    identity: TelegramIdentity
-    clock: Clock
-    ingestor: MessageIngestor
-    classifier: MessageClassifier
-    background_indexer: BackgroundIndexer
-    answer: AnswerService
-    recap: RecapService
-    reindex: ReindexService
-    seed: SeedService
-    spaces: SpaceDirectory
-    review: ReviewService
-    feedback: FeedbackService
-    feedback_repo: FeedbackRepository
-    delivery_receipts: DeliveryReceiptRepository
-    telegram_interactions: TelegramInteractionRepository
-    reviewers: ReviewerManager
-    router: ReviewerRouter
-    reviewer_report: ReviewerReportService
-    daily_report: DailyReportService
-    reverter: CorrectionReverter
-    budget: AiBudget
-    transport: MessageTransport
-    pairing: MessagePairingService
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:

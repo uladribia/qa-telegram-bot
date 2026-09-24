@@ -10,7 +10,7 @@ from knowledge_bot.adapters.inbound.telegram import (
     is_valid_webhook_secret,
 )
 from knowledge_bot.contracts.telegram import TelegramUpdate
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 
 TelegramUpdateHandler = Callable[[AppContext, TelegramUpdate], Awaitable[str]]
 

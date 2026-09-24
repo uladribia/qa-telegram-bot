@@ -11,7 +11,7 @@ from knowledge_bot.application.feedback import PROPOSAL_ACK, PROPOSAL_PROMPT
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
 from knowledge_bot.domain.scope import scope_for_space
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from tests.fakes.context import (
     SPACE_A,
     WEBHOOK_SECRET,

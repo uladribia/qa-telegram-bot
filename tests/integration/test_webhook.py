@@ -10,7 +10,7 @@ from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.domain.enums import IntentLabel
-from knowledge_bot.infrastructure.composition import AppContext
+from knowledge_bot.infrastructure.context import AppContext
 from tests.fakes.ai import FakeEmbedder
 from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
 from tests.fakes.support import InMemoryAiUsageRepository
