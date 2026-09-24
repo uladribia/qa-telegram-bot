@@ -15,6 +15,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -274,9 +275,7 @@ async def build_context(
             commits=commits,
             clock=clock,
         ),
-        feedback_repo=feedback,
-        delivery_receipts=D1DeliveryReceiptRepository(binding),
-        telegram_interactions=D1TelegramInteractionRepository(binding),
+        interactions=InteractionService(D1TelegramInteractionRepository(binding)),
         reviewers=ReviewerManager(reviewers=D1ReviewerRepository(binding), clock=clock),
         router=ReviewerRouter(
             reviewers=D1ReviewerRepository(binding),

@@ -117,7 +117,7 @@ async def _escalate_overdue_reviews(context: AppContext) -> None:
     admin = context.settings.admin_telegram_user_id
     if not admin:
         return
-    for feedback in await context.feedback_repo.list_escalatable():
+    for feedback in await context.feedback.list_escalatable():
         failed_at = feedback.reviewer_delivery_failed_at
         if failed_at is None or now - failed_at < timedelta(seconds=timeout):
             continue
@@ -132,7 +132,9 @@ async def _escalate_overdue_reviews(context: AppContext) -> None:
         )
         if sent is None:
             continue
-        await context.feedback_repo.save(replace(feedback, reviewer_escalated_at=now))
+        await context.feedback.save_feedback(
+            replace(feedback, reviewer_escalated_at=now)
+        )
         if review.origin_conversation_id is not None:
             await context.transport.send_message(
                 review.origin_conversation_id,
@@ -170,9 +172,9 @@ async def _deliver_review(
         return True
     admin = context.settings.admin_telegram_user_id
     if destination != admin:
-        feedback = await context.feedback_repo.get(feedback_id)
+        feedback = await context.feedback.get_feedback(feedback_id)
         if feedback is not None:
-            await context.feedback_repo.save(
+            await context.feedback.save_feedback(
                 replace(
                     feedback,
                     reviewer_delivery_failed_at=context.clock.now(),
@@ -605,7 +607,7 @@ async def _match_parent_question(
         return None
     if not context.classifier.is_answer_like(scores):
         return None
-    parent = await context.ingestor.messages.get(
+    parent = await context.ingestor.get_message(
         f"{message.conversation_id}:{message.reply_to_message_id}"
     )
     if parent is None or not parent.text:
@@ -719,7 +721,7 @@ async def _is_known_correction_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None:
         return False
-    interaction = await context.telegram_interactions.get(reply_to)
+    interaction = await context.interactions.get(reply_to)
     return interaction is not None and interaction.consumed_at is None
 
 
@@ -730,9 +732,7 @@ async def _handle_feedback_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None or message.text is None:
         return None
-    interaction = await context.telegram_interactions.consume(
-        reply_to, context.clock.now()
-    )
+    interaction = await context.interactions.consume(reply_to, context.clock.now())
     if interaction is None:
         return None
     if (
@@ -740,7 +740,7 @@ async def _handle_feedback_reply(
         and interaction.principal_id != message.principal_id
     ):
         return None
-    feedback = await context.feedback_repo.get(interaction.object_id)
+    feedback = await context.feedback.get_feedback(interaction.object_id)
     if feedback is not None and interaction.interaction_type == "review_edit":
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
@@ -825,7 +825,7 @@ async def _handle_callback(
         )
         if feedback is None:
             return "ignored"
-        answer = await context.feedback.answers.get(target)
+        answer = await context.feedback.get_answer(target)
         prompt_id = await context.transport.send_force_reply(
             reporter_chat_id or "",
             proposal_prompt(
@@ -834,7 +834,7 @@ async def _handle_callback(
             ),
         )
         if prompt_id is not None:
-            await context.telegram_interactions.add(
+            await context.interactions.add(
                 TelegramInteraction(
                     external_message_id=prompt_id,
                     interaction_type="feedback_proposal",
@@ -881,7 +881,7 @@ async def _handle_callback(
         if version is None:
             return "ignored"
         await context.reindex.reindex_qa_version(version.id)
-        feedback = await context.feedback_repo.get(target)
+        feedback = await context.feedback.get_feedback(target)
         await context.reviewer_report.record(
             _reviewer_event(
                 target,
@@ -911,7 +911,7 @@ async def _handle_callback(
             reporter_chat_id or "", prompt
         )
         if prompt_id is not None:
-            await context.telegram_interactions.add(
+            await context.interactions.add(
                 TelegramInteraction(
                     external_message_id=prompt_id,
                     interaction_type="review_edit",

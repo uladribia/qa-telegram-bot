@@ -171,6 +171,10 @@ class AnswerService:
     conversations: ConversationRepository | None = None
     sources: SourceRepository | None = None
 
+    async def get_answer(self, answer_id: str) -> BotAnswer | None:
+        """Return a stored answer for correction and API flows."""
+        return await self.answers.get(answer_id)
+
     async def decide(
         self, question: str, retrieved: RetrievedEvidence
     ) -> AnswerOutcome:

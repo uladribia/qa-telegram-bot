@@ -13,6 +13,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -287,9 +288,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             commits=correction_commits,
             clock=clock,
         ),
-        feedback_repo=D1FeedbackRepository(database),
-        delivery_receipts=D1DeliveryReceiptRepository(database),
-        telegram_interactions=D1TelegramInteractionRepository(database),
+        interactions=InteractionService(D1TelegramInteractionRepository(database)),
         reviewers=ReviewerManager(
             reviewers=D1ReviewerRepository(database),
             clock=clock,

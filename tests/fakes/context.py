@@ -13,6 +13,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
@@ -246,9 +247,7 @@ def build_test_context(
             commits=correction_commits,
             clock=clock,
         ),
-        feedback_repo=feedback_repo,
-        delivery_receipts=backend.delivery_receipts,
-        telegram_interactions=backend.telegram_interactions,
+        interactions=InteractionService(backend.telegram_interactions),
         reviewers=ReviewerManager(reviewers=reviewer_repo, clock=clock),
         router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
         reviewer_report=reviewer_report,

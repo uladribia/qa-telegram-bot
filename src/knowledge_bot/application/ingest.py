@@ -37,6 +37,10 @@ class MessageIngestor:
     messages: MessageRepository
     attachments: AttachmentRepository
 
+    async def get_message(self, message_id: str) -> Message | None:
+        """Return a stored normalized message."""
+        return await self.messages.get(message_id)
+
     async def ingest(
         self,
         message: NormalizedMessage,

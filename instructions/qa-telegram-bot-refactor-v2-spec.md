@@ -4248,7 +4248,7 @@ The refactor is complete only when all of these are true.
 - [x] Telegram is a thin adapter.
 - [x] Generic REST contracts exist for question/feedback/review workflows.
 - [x] Workflow state is durable SQL state.
-- [ ] Route context no longer exposes raw repositories after final decomposition.
+- [x] Route context no longer exposes raw repositories after final decomposition.
 - [x] Local and Cloudflare compositions share application services.
 - [x] One Worker remains the production deployable.
 
