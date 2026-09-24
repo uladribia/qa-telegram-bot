@@ -163,6 +163,23 @@ async def test_approving_supersedes_a_seeded_web_version() -> None:
     assert item.current_version_id == version.id
 
 
+async def test_resolved_feedback_cannot_be_decided_twice() -> None:
+    """A repeated approval or rejection creates no second decision."""
+    service, answers, items, _, _ = await _service()
+    await _seed_answer(answers)
+    started = await service.start("ans:m1", None)
+    assert started is not None
+    await service.propose(started.id, "Resposta corregida.")
+    approved = await service.approve(started.id, GROUP_SCOPE)
+    assert approved is not None
+
+    assert await service.approve(started.id, GROUP_SCOPE) is None
+    assert await service.reject(started.id) is None
+    item = await items.get(approved.qa_id)
+    assert item is not None
+    assert item.current_version_id == approved.id
+
+
 async def test_admin_edit_takes_precedence_over_the_proposal() -> None:
     """The admin-edited text wins over the reporter's proposal."""
     service, answers, _, _, _ = await _service()

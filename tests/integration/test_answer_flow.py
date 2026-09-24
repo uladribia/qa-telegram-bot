@@ -62,7 +62,7 @@ async def _service(
 
 def _qa_record() -> VectorRecord:
     return VectorRecord(
-        id="qa1",
+        id="qav:web-1",
         values=[1.0, 0.0],
         metadata={
             "kind": "qa_version",
@@ -94,6 +94,7 @@ async def test_direct_qa_answer_is_sent_and_persisted() -> None:
     record = await service.answer(_message("/ask quan entrenen?"))
     assert record is not None
     assert record.answer_mode is AnswerMode.DIRECT_QA
+    assert record.qa_version_id == "qav:web-1"
     assert record.question == "quan entrenen?"
     assert generator.requests == []
     conversation_id, text, answer_id = transport.answers[0]
@@ -104,7 +105,7 @@ async def test_direct_qa_answer_is_sent_and_persisted() -> None:
     assert record.telegram_bot_message_id is not None
     stored = await answers.get("ans:m1")
     assert stored is not None
-    assert json.loads(stored.sources_json) == ["qa1"]
+    assert json.loads(stored.sources_json) == ["qav:web-1"]
 
 
 async def test_synthesis_uses_generator_and_citations() -> None:

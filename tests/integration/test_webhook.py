@@ -86,6 +86,17 @@ def test_addressed_message_is_answered_and_persisted() -> None:
     assert stored.text == "/ask quan entrenen?"
 
 
+def test_empty_text_does_not_crash_reviewer_command_parsing() -> None:
+    """An empty Telegram text is ignored safely."""
+    context, _ = build_test_context()
+    response = _client(context).post(
+        "/telegram/webhook", json=_update(""), headers=SECRET_HEADER
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored"}
+    assert _stored(context) is None
+
+
 def test_bare_question_is_ignored_by_default() -> None:
     """Without the background listener, an unaddressed question is ignored."""
     context, _ = build_test_context()

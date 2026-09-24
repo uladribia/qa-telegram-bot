@@ -373,6 +373,9 @@ def test_batch_mode_sends_the_report_only_when_poked() -> None:
         headers=SECRET_HEADER,
     )
     assert not any("Correccions revisades" in text for _, text in transport.messages)
+    events = asyncio.run(context.reviewer_report.events.list_unreported())
+    assert len(events) == 1
+    assert events[0].created_at == context.clock.now()
     response = client.post(
         "/internal/report",
         headers={"X-Internal-Key": "internal"},

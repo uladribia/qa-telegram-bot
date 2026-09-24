@@ -16,3 +16,15 @@ async def test_send_message_posts_to_telegram() -> None:
             {"chat_id": "-100", "text": "hola"},
         )
     ]
+
+
+async def test_telegram_ok_false_is_a_delivery_failure() -> None:
+    """A Telegram-level error is not mistaken for a delivered message."""
+    http = RecordingHttpClient()
+    http.responses.append({"ok": False, "result": {"message_id": 99}})
+    transport = TelegramTransport(http, "TOKEN")
+
+    assert await transport.send_message("-100", "hola") is None
+
+    http.responses.append({"ok": False, "result": {"message_id": 99}})
+    assert await transport.edit_message("-100", "99", "editat") is False

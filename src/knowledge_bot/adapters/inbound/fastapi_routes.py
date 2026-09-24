@@ -7,7 +7,7 @@ so the app resolves its context through a callable rather than at import time.
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -496,7 +496,8 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         # username is discoverable, so an open DM would let anyone spend the
         # shared free AI quota and buzz the admin with fake corrections.
         return "ignored"
-    if message.text is not None and message.text.split()[0].startswith("/reviewer"):
+    command_parts = (message.text or "").strip().split(maxsplit=1)
+    if command_parts and command_parts[0].startswith("/reviewer"):
         return await _handle_reviewer_command(context, message)
     if message.reply_to_message_id is not None:
         handled = await _handle_feedback_reply(context, message)
@@ -715,6 +716,7 @@ async def _handle_callback(
                 GLOBAL_SCOPE if action == "approve_global" else review.group_chat_id,
                 reporter_chat_id,
                 reporter_name,
+                context.clock.now(),
             )
         )
         if reporter_chat_id:
@@ -748,6 +750,7 @@ async def _handle_callback(
                 None,
                 reporter_chat_id,
                 reporter_name,
+                context.clock.now(),
             )
         )
         if reporter_chat_id:
@@ -764,12 +767,13 @@ def _reviewer_event(
     approval_scope: str | None,
     reviewer_user_id: str | None,
     reviewer_name: str | None,
+    created_at: datetime,
 ) -> ReviewerEvent:
     """Build the report event for a reviewer's resolution."""
     return ReviewerEvent(
         feedback_id=feedback_id,
         action=action,
-        created_at=datetime.now(UTC),
+        created_at=created_at,
         reviewer_user_id=reviewer_user_id,
         reviewer_name=reviewer_name,
         group_label=review.group_label,

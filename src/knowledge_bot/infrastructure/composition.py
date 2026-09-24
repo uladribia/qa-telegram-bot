@@ -55,6 +55,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
 )
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import FeedbackRepository
 from knowledge_bot.ports.transport import MessageTransport
 
@@ -73,6 +74,7 @@ class AppContext:
 
     settings: Settings
     identity: TelegramIdentity
+    clock: Clock
     ingestor: MessageIngestor
     classifier: MessageClassifier
     answer: AnswerService
@@ -192,6 +194,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             bot_username=settings.telegram_bot_username,
             allowed_user_ids=_ids(settings.allowed_telegram_user_ids),
         ),
+        clock=clock,
         ingestor=MessageIngestor(
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),

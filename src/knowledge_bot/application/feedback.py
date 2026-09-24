@@ -318,7 +318,10 @@ class FeedbackService:
             The updated feedback, or ``None`` when it does not exist.
         """
         feedback = await self.feedback.get(feedback_id)
-        if feedback is None:
+        if feedback is None or feedback.status in {
+            FeedbackStatus.APPROVED,
+            FeedbackStatus.REJECTED,
+        }:
             return None
         return await self._update(
             feedback,
@@ -390,7 +393,10 @@ class FeedbackService:
             no proposed answer.
         """
         feedback = await self.feedback.get(feedback_id)
-        if feedback is None:
+        if feedback is None or feedback.status in {
+            FeedbackStatus.APPROVED,
+            FeedbackStatus.REJECTED,
+        }:
             return None
         answer_text = feedback.admin_edited_answer or feedback.proposed_answer
         if not answer_text:

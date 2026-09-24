@@ -69,6 +69,7 @@ async def test_strong_qa_is_answered_directly_without_generator() -> None:
     outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.9)]))
     assert outcome.mode is AnswerMode.DIRECT_QA
     assert outcome.source_ids == ["qa1"]
+    assert outcome.qa_version_id == "qa1"
     assert generator.requests == []
 
 

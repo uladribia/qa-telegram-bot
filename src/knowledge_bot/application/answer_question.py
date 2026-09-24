@@ -58,12 +58,13 @@ def clean_question(text: str | None) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AnswerOutcome:
-    """The decided answer, its mode, and the text to send."""
+    """The decided answer, its mode, provenance, and text to send."""
 
     answer: str
     mode: AnswerMode
     source_ids: list[str]
     text: str
+    qa_version_id: str | None = None
 
 
 def render_source_line(source: Evidence) -> str:
@@ -150,6 +151,7 @@ class AnswerService:
                 mode=AnswerMode.DIRECT_QA,
                 source_ids=[best.source_id],
                 text=_render(best.text, [best]),
+                qa_version_id=best.source_id,
             )
         evidence = retrieved.all()
         if (
@@ -245,6 +247,7 @@ class AnswerService:
             answer_mode=outcome.mode,
             created_at=self.clock.now(),
             user_message_id=message.id,
+            qa_version_id=outcome.qa_version_id,
             sources_json=json.dumps(outcome.source_ids),
         )
         message_id = await self.transport.send_answer(
@@ -260,6 +263,7 @@ class AnswerService:
                 created_at=record.created_at,
                 user_message_id=record.user_message_id,
                 telegram_bot_message_id=message_id,
+                qa_version_id=record.qa_version_id,
                 sources_json=record.sources_json,
             )
         await self.answers.add(record)

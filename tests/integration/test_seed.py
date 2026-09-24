@@ -10,13 +10,10 @@ from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion
 from knowledge_bot.domain.enums import ContentType, QAOrigin, QAStatus
+from tests.fakes.backend import InMemoryBackend
 from tests.fakes.repositories import (
-    InMemoryAttachmentRepository,
-    InMemoryConversationRepository,
-    InMemoryMessageRepository,
     InMemoryQAItemRepository,
     InMemoryQAVersionRepository,
-    InMemorySourceRepository,
 )
 from tests.fakes.support import FrozenClock
 
@@ -26,18 +23,19 @@ NOW = datetime(2026, 9, 19, tzinfo=UTC)
 def _service() -> tuple[
     SeedService, InMemoryQAItemRepository, InMemoryQAVersionRepository
 ]:
-    qa_items = InMemoryQAItemRepository()
-    qa_versions = InMemoryQAVersionRepository()
+    backend = InMemoryBackend()
+    qa_items = backend.qa_items
+    qa_versions = backend.qa_versions
     ingestor = MessageIngestor(
-        sources=InMemorySourceRepository(),
-        conversations=InMemoryConversationRepository(),
-        messages=InMemoryMessageRepository(),
-        attachments=InMemoryAttachmentRepository(),
+        sources=backend.sources,
+        conversations=backend.conversations,
+        messages=backend.messages,
+        attachments=backend.attachments,
     )
     service = SeedService(
         qa_items=qa_items,
         qa_versions=qa_versions,
-        sources=InMemorySourceRepository(),
+        sources=backend.sources,
         ingestor=ingestor,
         clock=FrozenClock(NOW),
     )
