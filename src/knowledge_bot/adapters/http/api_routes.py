@@ -6,7 +6,6 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from knowledge_bot.application.feedback import GROUP_SCOPE
 from knowledge_bot.contracts.api import (
     AskQuestionRequest,
     AskQuestionResponse,
@@ -18,7 +17,7 @@ from knowledge_bot.contracts.api import (
     StartFeedbackResponse,
 )
 from knowledge_bot.domain.enums import ReviewAction
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
+from knowledge_bot.domain.errors import InvalidTransitionError
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.security import secrets_match
 
@@ -89,9 +88,11 @@ def build_api_router(
         feedback = await context.feedback.get_feedback(feedback_id)
         if feedback is None:
             raise HTTPException(status_code=404, detail="feedback not found")
-        if feedback.reporter_hash != body.reporter_principal_id:
+        if feedback.reporter_principal_id != body.reporter_principal_id:
             raise HTTPException(status_code=403, detail="not the reporter")
-        updated = await context.feedback.propose(feedback_id, body.proposal)
+        updated = await context.feedback.propose(
+            feedback_id, body.proposal, body.reporter_principal_id
+        )
         if updated is None:
             raise HTTPException(status_code=404, detail="feedback not found")
         return {"feedback_id": updated.id, "status": updated.status.value}
@@ -148,10 +149,10 @@ def build_api_router(
                 feedback_id=updated.id,
                 projection_status="not_applicable",
             )
-        target = (
-            GLOBAL_SCOPE if body.action == ReviewAction.APPROVE_GLOBAL else GROUP_SCOPE
-        )
-        version = await context.feedback.approve(feedback_id, target)
+        try:
+            version = await context.feedback.approve(feedback_id, body.action)
+        except InvalidTransitionError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         if version is None:
             raise HTTPException(status_code=409, detail="already resolved")
         projected = await context.reindex.reindex_qa_version(version.id)

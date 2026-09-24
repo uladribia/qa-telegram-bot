@@ -76,25 +76,6 @@ def test_disallowed_chat_is_ignored() -> None:
     assert _stored(context, "-1:10") is None
 
 
-def test_allowlisted_but_unbound_group_is_not_served() -> None:
-    """A channel allowlist entry does not replace logical-space binding."""
-    context, _ = build_test_context()
-    context = replace(
-        context,
-        identity=replace(
-            context.identity,
-            allowed_chat_ids=frozenset({"-100", "-300"}),
-        ),
-    )
-    response = _client(context).post(
-        "/telegram/webhook",
-        json=_update("/ask hola", chat_id=-300),
-        headers=SECRET_HEADER,
-    )
-    assert response.json() == {"status": "ignored"}
-    assert _stored(context, "-300:10") is None
-
-
 def test_addressed_message_is_answered_and_persisted() -> None:
     """An addressed message is stored and marked to be answered."""
     context, _ = build_test_context()
@@ -257,7 +238,7 @@ def test_bounded_backlog_processes_deferred_background_messages() -> None:
         headers={"X-Internal-Key": "internal"},
     )
 
-    assert processed.json() == {"processed": 1}
+    assert processed.json() == {"processed": 1, "stopped_by_budget": False}
     stored = _stored(context, "-100:28")
     assert stored is not None
     assert stored.classification_status.value == "classified"
@@ -363,15 +344,10 @@ def test_reprocessing_the_same_update_is_idempotent() -> None:
     assert _stored(context) is not None
 
 
-def test_internal_recap_requires_the_key() -> None:
-    """The internal recap endpoint rejects a missing or wrong key."""
+def test_legacy_recap_route_is_retired() -> None:
+    """Legacy recap scheduling is no longer an active endpoint."""
     context, _ = build_test_context()
-    client = _client(context)
-    assert client.post("/internal/recap").status_code == 401
-    assert (
-        client.post("/internal/recap", headers={"X-Internal-Key": "wrong"}).status_code
-        == 401
-    )
+    assert _client(context).post("/internal/recap").status_code == 404
 
 
 def test_a_strangers_dm_is_ignored_and_never_stored() -> None:

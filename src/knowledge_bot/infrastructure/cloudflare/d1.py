@@ -6,9 +6,8 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
-from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Protocol, cast
+from typing import cast
 
 from knowledge_bot.domain.entities import (
     Attachment,
@@ -25,6 +24,7 @@ from knowledge_bot.domain.entities import (
     QAVersion,
     Reviewer,
     ReviewerEvent,
+    SearchProjectionEntry,
     Source,
     Space,
     TelegramInteraction,
@@ -36,48 +36,24 @@ from knowledge_bot.domain.enums import (
     FeedbackStatus,
     IndexStatus,
     ProcessingStatus,
+    ProjectionState,
     QAStatus,
 )
+from knowledge_bot.domain.policies import effective_message_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
+from knowledge_bot.infrastructure.sql.protocol import (
+    SqlDatabase,
+    SqlResult,
+    SqlStatement,
+)
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.repositories import DailyReportSnapshot
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
-from knowledge_bot.ports.vector_store import VectorRecord
 
-
-class D1Result(Protocol):
-    """The subset of a D1 result the adapter reads."""
-
-    results: list[dict[str, object]]
-
-
-class D1Statement(Protocol):
-    """A prepared D1 statement."""
-
-    def bind(self, *params: object) -> "D1Statement":
-        """Bind positional parameters."""
-        ...
-
-    async def first(self) -> dict[str, object] | None:
-        """Return the first row, if any."""
-        ...
-
-    async def run(self) -> D1Result:
-        """Execute the statement."""
-        ...
-
-
-class D1Database(Protocol):
-    """The subset of the D1 binding the adapter uses."""
-
-    def prepare(self, sql: str) -> D1Statement:
-        """Prepare a statement."""
-        ...
-
-    async def batch(self, statements: Sequence[D1Statement]) -> object:
-        """Execute statements in one transaction."""
-        ...
+D1Result = SqlResult
+D1Statement = SqlStatement
+D1Database = SqlDatabase
 
 
 def _to_python(value: object) -> object:
@@ -252,28 +228,23 @@ class D1TelegramInteractionRepository:
         )
 
     async def consume(
-        self, external_message_id: str, consumed_at: datetime
+        self,
+        external_message_id: str,
+        principal_id: str,
+        consumed_at: datetime,
     ) -> TelegramInteraction | None:
-        """Atomically return and consume one unused interaction."""
+        """Atomically consume one unused interaction for its principal."""
         row = _row(
             await self._db.prepare(
-                "SELECT * FROM telegram_interactions"
-                " WHERE external_message_id = ? AND consumed_at IS NULL"
-            )
-            .bind(external_message_id)
-            .first()
-        )
-        if row is None:
-            return None
-        await (
-            self._db.prepare(
                 "UPDATE telegram_interactions SET consumed_at = ?"
                 " WHERE external_message_id = ? AND consumed_at IS NULL"
+                " AND (principal_id IS NULL OR principal_id = ?)"
+                " RETURNING *"
             )
-            .bind(_iso(consumed_at), external_message_id)
-            .run()
+            .bind(_iso(consumed_at), external_message_id, principal_id)
+            .first()
         )
-        return _telegram_interaction(row)
+        return _telegram_interaction(row) if row is not None else None
 
 
 def _delivery_receipt(row: dict[str, object]) -> DeliveryReceipt:
@@ -664,6 +635,22 @@ class D1MessageRepository:
         )
         return [_message(row) for row in _rows(result)]
 
+    async def list_recent_listener(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages classified by the background listener."""
+        result = (
+            await self._db.prepare(
+                "SELECT * FROM messages WHERE conversation_id = ?"
+                " AND created_at >= ? AND classification_status IN"
+                " ('classified', 'prefilter_chitchat', 'deferred_budget', 'failed')"
+                " ORDER BY created_at LIMIT ?"
+            )
+            .bind(conversation_id, _iso(start), limit)
+            .run()
+        )
+        return [_message(row) for row in _rows(result)]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:
@@ -851,8 +838,9 @@ class D1BotAnswerRepository:
                 "INSERT INTO bot_answers"
                 " (id, conversation_id, space_id, user_message_id,"
                 " telegram_bot_message_id, question, answer, answer_mode, confidence,"
-                " qa_version_id, sources_json, created_at, request_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " qa_version_id, sources_json, rendered_text, source_details_json,"
+                " created_at, request_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 answer.id,
@@ -866,6 +854,8 @@ class D1BotAnswerRepository:
                 answer.confidence,
                 answer.qa_version_id,
                 answer.sources_json,
+                answer.rendered_text or answer.answer,
+                answer.source_details_json,
                 _iso(answer.created_at),
                 answer.request_id,
             )
@@ -1031,6 +1021,8 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
         else None,
         qa_version_id=_opt_str(row["qa_version_id"]),
         sources_json=str(row["sources_json"]),
+        rendered_text=str(row.get("rendered_text") or row["answer"]),
+        source_details_json=str(row.get("source_details_json") or "[]"),
     )
 
 
@@ -1040,11 +1032,91 @@ def _message_authority(row: dict[str, object]) -> int:
 
 
 class D1SearchProjectionRepository:
-    """D1 implementation of the derived vector projection manifest."""
+    """D1 implementation of durable search projection state."""
 
     def __init__(self, database: D1Database) -> None:
         """Wrap a D1 database binding."""
         self._db = database
+
+    async def reserve(
+        self,
+        vector_id: str,
+        kind: str,
+        object_id: str,
+        version_id: str | None,
+        updated_at: datetime,
+    ) -> None:
+        """Reserve a stable vector before projection."""
+        await (
+            self._db.prepare(
+                "INSERT INTO search_projection"
+                " (vector_id, kind, object_id, version_id, state, updated_at)"
+                " VALUES (?, ?, ?, ?, 'pending', ?)"
+                " ON CONFLICT(vector_id) DO UPDATE SET kind = excluded.kind,"
+                " object_id = excluded.object_id,"
+                " version_id = excluded.version_id,"
+                " state = 'pending', last_error = NULL,"
+                " updated_at = excluded.updated_at"
+            )
+            .bind(vector_id, kind, object_id, version_id, _iso(updated_at))
+            .run()
+        )
+
+    async def mark_active(
+        self, vector_id: str, version_id: str | None, updated_at: datetime
+    ) -> None:
+        """Mark a projection active."""
+        await (
+            self._db.prepare(
+                "UPDATE search_projection SET version_id = ?, state = 'active',"
+                " last_error = NULL, updated_at = ? WHERE vector_id = ?"
+            )
+            .bind(version_id, _iso(updated_at), vector_id)
+            .run()
+        )
+
+    async def mark_failed(
+        self,
+        vector_id: str,
+        version_id: str | None,
+        error_code: str,
+        updated_at: datetime,
+    ) -> None:
+        """Mark a projection failed with a safe error code."""
+        await (
+            self._db.prepare(
+                "UPDATE search_projection SET version_id = ?, state = 'failed',"
+                " last_error = ?, updated_at = ? WHERE vector_id = ?"
+            )
+            .bind(version_id, error_code, _iso(updated_at), vector_id)
+            .run()
+        )
+
+    async def get(self, vector_id: str) -> SearchProjectionEntry | None:
+        """Return one projection entry."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM search_projection WHERE vector_id = ?"
+            )
+            .bind(vector_id)
+            .first()
+        )
+        return _projection_entry(row) if row is not None else None
+
+    async def list_by_state(
+        self, states: list[ProjectionState], limit: int
+    ) -> list[SearchProjectionEntry]:
+        """Return a bounded repair batch."""
+        if not states:
+            return []
+        placeholders = ",".join("?" for _ in states)
+        result = self._db.prepare(
+            f"SELECT * FROM search_projection WHERE state IN ({placeholders})"
+            " ORDER BY updated_at, vector_id LIMIT ?"
+        )
+        for state in states:
+            result = result.bind(state.value)
+        return [_projection_entry(row) for row in _rows(await result.bind(limit).run())]
 
     async def list_vector_ids(self) -> list[str]:
         """Return every projected vector id."""
@@ -1052,26 +1124,6 @@ class D1SearchProjectionRepository:
             "SELECT vector_id FROM search_projection ORDER BY vector_id"
         ).run()
         return [str(row["vector_id"]) for row in _rows(result)]
-
-    async def record(self, records: list[VectorRecord], updated_at: datetime) -> None:
-        """Record successfully upserted vectors."""
-        for record in records:
-            metadata = record.metadata
-            await (
-                self._db.prepare(
-                    "INSERT INTO search_projection"
-                    " (vector_id, kind, object_id, updated_at) VALUES (?, ?, ?, ?)"
-                    " ON CONFLICT(vector_id) DO UPDATE SET kind = excluded.kind,"
-                    " object_id = excluded.object_id, updated_at = excluded.updated_at"
-                )
-                .bind(
-                    record.id,
-                    str(metadata.get("kind", "unknown")),
-                    str(metadata.get("object_id", record.id)),
-                    _iso(updated_at),
-                )
-                .run()
-            )
 
     async def delete(self, vector_ids: list[str]) -> None:
         """Remove deleted vector ids from the manifest."""
@@ -1085,6 +1137,19 @@ class D1SearchProjectionRepository:
     async def clear(self) -> None:
         """Clear the projection manifest."""
         await self._db.prepare("DELETE FROM search_projection").run()
+
+
+def _projection_entry(row: dict[str, object]) -> SearchProjectionEntry:
+    """Map a projection row to its domain value."""
+    return SearchProjectionEntry(
+        vector_id=str(row["vector_id"]),
+        kind=str(row["kind"]),
+        object_id=str(row["object_id"]),
+        version_id=_opt_str(row.get("version_id")),
+        state=ProjectionState(str(row.get("state") or "active")),
+        updated_at=_dt(row["updated_at"]),
+        last_error=_opt_str(row.get("last_error")),
+    )
 
 
 class D1SearchIndexSource:
@@ -1106,13 +1171,52 @@ class D1SearchIndexSource:
                 " qi.scope_key AS scope_key"
                 " FROM qa_versions qv"
                 " JOIN qa_items qi ON qi.id = qv.qa_id"
-                " WHERE qi.status = 'active' AND qv.id = ?"
+                " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
+                " AND qv.id = ?"
             )
             .bind(version_id)
             .first()
         )
         if row is None:
             return None
+        return IndexableQA(
+            qa_item_id=str(row["item_id"]),
+            version_id=str(row["version_id"]),
+            question=str(row["question"]),
+            answer=str(row["answer"]),
+            authority=int(cast(int, row["authority"])),
+            canonical_key=str(row["canonical_key"]),
+            source_anchor=_opt_str(row["source_anchor"]),
+            url=_exact_url(row["source_url"], row["source_anchor"]),
+            date=_date_part(row["created_at"]),
+            author=_opt_str(row["author"]),
+            scope_key=str(row["scope_key"]),
+        )
+
+    async def get_current_qa_by_item_id(self, qa_item_id: str) -> IndexableQA | None:
+        """Return the current active Q&A version for one item."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT qi.id AS item_id, qv.id AS version_id,"
+                " qi.canonical_question AS question, qv.answer AS answer,"
+                " qv.authority AS authority, qi.canonical_key AS canonical_key,"
+                " qv.source_url AS source_url, qv.source_anchor AS source_anchor,"
+                " qv.author AS author, qv.created_at AS created_at,"
+                " qi.scope_key AS scope_key FROM qa_versions qv"
+                " JOIN qa_items qi ON qi.id = qv.qa_id"
+                " WHERE qi.status = 'active' AND qi.current_version_id = qv.id"
+                " AND qi.id = ?"
+            )
+            .bind(qa_item_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return self._qa_record(row)
+
+    @staticmethod
+    def _qa_record(row: dict[str, object]) -> IndexableQA:
+        """Map a Q&A row to an indexable record."""
         return IndexableQA(
             qa_item_id=str(row["item_id"]),
             version_id=str(row["version_id"]),
@@ -1176,6 +1280,36 @@ class D1SearchIndexSource:
             for row in _rows(result)
         ]
 
+    async def list_legacy_vector_ids(self) -> list[str]:
+        """Return old version, raw-message, and pair vector ids."""
+        rows = _rows(
+            await self._db.prepare(
+                "SELECT id FROM qa_versions UNION ALL"
+                " SELECT id FROM messages UNION ALL"
+                " SELECT 'pair:' || id FROM message_pair_candidates"
+            ).run()
+        )
+        return [str(row["id"]) for row in rows]
+
+    async def get_indexable_message(self, message_id: str) -> IndexableMessage | None:
+        """Return one eligible message for repair."""
+        result = (
+            await self._db.prepare(
+                "SELECT m.id, m.source_id, m.conversation_id, m.text,"
+                " m.sender_hash, m.sender_name, m.sent_at, m.context_question,"
+                " m.sender_authority, c.space_id, s.source_type AS source_kind,"
+                " s.authority AS source_authority FROM messages m"
+                " JOIN sources s ON s.id = m.source_id"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE m.id = ? AND m.text IS NOT NULL AND m.text != ''"
+                " AND m.index_status IN ('indexed', 'pending', 'failed')"
+            )
+            .bind(message_id)
+            .run()
+        )
+        rows = _rows(result)
+        return self._message_record(rows[0]) if rows else None
+
     async def list_messages(
         self, after: str | None = None, limit: int | None = None
     ) -> list[IndexableMessage]:
@@ -1183,10 +1317,12 @@ class D1SearchIndexSource:
         query = (
             "SELECT m.id, m.source_id, m.conversation_id, m.text,"
             " m.sender_hash, m.sender_name, m.sent_at, m.context_question,"
-            " c.space_id, s.source_type AS source_kind, s.authority AS source_authority"
+            " m.sender_authority, c.space_id, s.source_type AS source_kind,"
+            " s.authority AS source_authority"
             " FROM messages m JOIN sources s ON s.id = m.source_id"
             " JOIN conversations c ON c.id = m.conversation_id"
-            " WHERE m.text IS NOT NULL AND m.text != '' AND m.index_status = 'indexed'"
+            " WHERE m.text IS NOT NULL AND m.text != ''"
+            " AND m.index_status IN ('indexed', 'pending', 'failed')"
         )
         params: list[object] = []
         if after is not None:
@@ -1197,22 +1333,27 @@ class D1SearchIndexSource:
             query += " LIMIT ?"
             params.append(limit)
         result = await self._db.prepare(query).bind(*params).run()
-        return [
-            IndexableMessage(
-                message_id=str(row["id"]),
-                text=str(row["text"]),
-                source_kind=str(row["source_kind"]),
-                authority=_message_authority(row),
-                conversation_id=str(row["conversation_id"]),
-                scope_key=scope_for_space(str(row["space_id"]))
-                if row.get("space_id")
-                else GLOBAL_SCOPE,
-                author=_sender_label(row["sender_name"], row["sender_hash"]),
-                date=_datetime_part(row["sent_at"]),
-                question=_opt_str(row.get("context_question")),
-            )
-            for row in _rows(result)
-        ]
+        return [self._message_record(row) for row in _rows(result)]
+
+    @staticmethod
+    def _message_record(row: dict[str, object]) -> IndexableMessage:
+        """Map a message row to an indexable record."""
+        return IndexableMessage(
+            message_id=str(row["id"]),
+            text=str(row["text"]),
+            source_kind=str(row["source_kind"]),
+            authority=effective_message_authority(
+                int(cast(int, row["source_authority"])),
+                _opt_int(row.get("sender_authority")),
+            ),
+            conversation_id=str(row["conversation_id"]),
+            scope_key=scope_for_space(str(row["space_id"]))
+            if row.get("space_id")
+            else GLOBAL_SCOPE,
+            author=_sender_label(row["sender_name"], row["sender_hash"]),
+            date=_datetime_part(row["sent_at"]),
+            question=_opt_str(row.get("context_question")),
+        )
 
 
 class D1QAItemRepository:
@@ -1454,14 +1595,24 @@ class D1CorrectionCommitStore:
                     version.author,
                 ),
                 self._db.prepare(
-                    "UPDATE qa_items SET canonical_question = ?, status = ?,"
-                    " current_version_id = ?, updated_at = ? WHERE id = ?"
+                    "INSERT INTO qa_items"
+                    " (id, canonical_key, canonical_question, status,"
+                    " current_version_id, created_at, updated_at, scope_key)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    " ON CONFLICT(id) DO UPDATE SET"
+                    " canonical_question = excluded.canonical_question,"
+                    " status = excluded.status,"
+                    " current_version_id = excluded.current_version_id,"
+                    " updated_at = excluded.updated_at"
                 ).bind(
+                    item.id,
+                    item.canonical_key,
                     item.canonical_question,
                     item.status.value,
                     item.current_version_id,
+                    _iso(item.created_at),
                     _iso(item.updated_at),
-                    item.id,
+                    item.scope_key,
                 ),
                 self._db.prepare(
                     "INSERT INTO qa_evidence"
@@ -1518,11 +1669,12 @@ class D1FeedbackRepository:
             self._db.prepare(
                 "INSERT INTO feedback"
                 " (id, bot_answer_id, qa_id, reporter_hash, reporter_chat_id,"
-                " reporter_name, status, proposed_answer, admin_edited_answer,"
+                " reporter_name, reporter_principal_id, origin_space_id, status,"
+                " proposed_answer, admin_edited_answer,"
                 " proposal_prompt_message_id, edit_prompt_message_id, created_at,"
                 " proposed_at, resolved_at, reviewer_delivery_failed_at,"
                 " reviewer_escalated_at, reviewer_destination)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 feedback.id,
@@ -1531,6 +1683,8 @@ class D1FeedbackRepository:
                 feedback.reporter_hash,
                 feedback.reporter_chat_id,
                 feedback.reporter_name,
+                feedback.reporter_principal_id,
+                feedback.origin_space_id,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
@@ -1568,8 +1722,9 @@ class D1FeedbackRepository:
         await (
             self._db.prepare(
                 "UPDATE feedback SET qa_id = ?, reporter_hash = ?,"
-                " reporter_chat_id = ?, reporter_name = ?, status = ?,"
-                " proposed_answer = ?, admin_edited_answer = ?,"
+                " reporter_chat_id = ?, reporter_name = ?, reporter_principal_id = ?,"
+                " origin_space_id = ?, status = ?, proposed_answer = ?,"
+                " admin_edited_answer = ?,"
                 " proposal_prompt_message_id = ?, edit_prompt_message_id = ?,"
                 " proposed_at = ?, resolved_at = ?, reviewer_delivery_failed_at = ?,"
                 " reviewer_escalated_at = ?, reviewer_destination = ? WHERE id = ?"
@@ -1579,6 +1734,8 @@ class D1FeedbackRepository:
                 feedback.reporter_hash,
                 feedback.reporter_chat_id,
                 feedback.reporter_name,
+                feedback.reporter_principal_id,
+                feedback.origin_space_id,
                 feedback.status.value,
                 feedback.proposed_answer,
                 feedback.admin_edited_answer,
@@ -1654,6 +1811,8 @@ def _feedback(row: dict[str, object]) -> Feedback:
         reporter_hash=_opt_str(row["reporter_hash"]),
         reporter_chat_id=_opt_str(row["reporter_chat_id"]),
         reporter_name=_opt_str(row["reporter_name"]),
+        reporter_principal_id=_opt_str(row.get("reporter_principal_id")),
+        origin_space_id=_opt_str(row.get("origin_space_id")),
         proposed_answer=_opt_str(row["proposed_answer"]),
         admin_edited_answer=_opt_str(row["admin_edited_answer"]),
         proposal_prompt_message_id=_opt_str(row["proposal_prompt_message_id"]),
@@ -1726,18 +1885,18 @@ class D1ReviewerRepository:
         await (
             self._db.prepare(
                 "INSERT INTO reviewers"
-                " (scope, user_id, name, nominated_by, created_at)"
+                " (scope, principal_id, name, nominated_by_principal_id, created_at)"
                 " VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT(scope) DO UPDATE SET"
-                " user_id = excluded.user_id, name = excluded.name,"
-                " nominated_by = excluded.nominated_by,"
+                " principal_id = excluded.principal_id, name = excluded.name,"
+                " nominated_by_principal_id = excluded.nominated_by_principal_id,"
                 " created_at = excluded.created_at"
             )
             .bind(
                 reviewer.scope,
-                reviewer.user_id,
+                reviewer.principal_id,
                 reviewer.name,
-                reviewer.nominated_by,
+                reviewer.nominated_by_principal_id,
                 _iso(reviewer.created_at),
             )
             .run()
@@ -1764,9 +1923,9 @@ class D1ReviewerRepository:
 def _reviewer(row: dict[str, object]) -> Reviewer:
     return Reviewer(
         scope=str(row["scope"]),
-        user_id=str(row["user_id"]),
+        principal_id=str(row["principal_id"]),
         name=str(row["name"]),
-        nominated_by=_opt_str(row["nominated_by"]),
+        nominated_by_principal_id=_opt_str(row["nominated_by_principal_id"]),
         created_at=_dt(row["created_at"]),
     )
 
@@ -1783,13 +1942,13 @@ class D1ReviewerEventRepository:
         await (
             self._db.prepare(
                 "INSERT INTO reviewer_events"
-                " (feedback_id, reviewer_user_id, reviewer_name, group_label,"
+                " (feedback_id, reviewer_principal_id, reviewer_name, group_label,"
                 "  question, action, approval_scope, created_at, reported)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 event.feedback_id,
-                event.reviewer_user_id,
+                event.reviewer_principal_id,
                 event.reviewer_name,
                 event.group_label,
                 event.question,
@@ -1830,7 +1989,7 @@ def _reviewer_event(row: dict[str, object]) -> ReviewerEvent:
         feedback_id=str(row["feedback_id"]),
         action=str(row["action"]),
         created_at=_dt(row["created_at"]),
-        reviewer_user_id=_opt_str(row["reviewer_user_id"]),
+        reviewer_principal_id=_opt_str(row["reviewer_principal_id"]),
         reviewer_name=_opt_str(row["reviewer_name"]),
         group_label=_opt_str(row["group_label"]),
         question=_opt_str(row["question"]),
@@ -1940,6 +2099,12 @@ class D1DailyReportSource:
                 .first()
             )
         )
+        projection_rows = _rows(
+            await self._db.prepare(
+                "SELECT state, COUNT(*) AS n FROM search_projection GROUP BY state"
+            ).run()
+        )
+        projection_counts = {str(row["state"]): _count(row) for row in projection_rows}
         return DailyReportSnapshot(
             addressed_total=sum(counts.values()),
             direct=counts.get("direct_qa", 0),
@@ -1976,6 +2141,8 @@ class D1DailyReportSource:
             rejected=corrections.get("rejected", 0),
             audit_labels=audit,
             seed_divergences=divergence,
+            projection_pending=projection_counts.get("pending", 0),
+            projection_failed=projection_counts.get("failed", 0),
         )
 
 

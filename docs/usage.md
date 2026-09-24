@@ -1,220 +1,45 @@
 # Using the bot
 
-What the bot does, what you type, and what happens next.
+The bot answers addressed questions from global and space-scoped knowledge, cites its sources, and abstains when evidence is insufficient.
 
----
+## Addressing the bot
 
-## What it is
+The bot answers mentions, replies to its messages, direct messages, and `/ask` questions. Unaddressed group traffic is not answered. With `BACKGROUND_LISTENER_ENABLED=true`, accepted background messages are stored and eligible evidence is indexed without answering the group.
 
-A knowledge bot for a Telegram group. It answers questions from a curated
-knowledge base, **always with a source**, and it says "I don't know" instead of
-inventing. Anyone in the group can flag a wrong answer and propose a fix; only
-the admin can approve it.
+Private DMs are restricted to the admin and `ALLOWED_TELEGRAM_USER_IDS`. A correction proposal is accepted when it replies to the bot's own correction prompt, even when the reporter is not allowlisted.
 
-It is **not** a general assistant. It only answers from what is in its knowledge
-base.
+A Telegram group is served only when its chat is bound to a logical space. There is no static group allowlist.
 
-For local development, start the SQLite/Ollama runtime with
-`cp .env.local.example .env.local && make dev-bootstrap`. The local API is
-available at `http://localhost:8000`; no Cloudflare account is required.
-Production Telegram behavior is unchanged and uses the deployed Worker.
+## Answer outcomes
 
----
+- **Direct**: a strong current Q&A match is returned verbatim with its citation.
+- **Synthesis**: weaker evidence is sent through one grounded generation call.
+- **Abstention**: no reliable evidence exists.
+- **Unavailable**: the model is temporarily unavailable; the inbound question remains durable.
 
-## When it answers
+## Corrections
 
-The bot is silent unless it is addressed. A message is answered when it is any of:
+1. Press `⚠️ Està malament?` on an answer.
+2. Reply to the bot's private proposal prompt with the correction.
+3. The proposal is routed privately to the space reviewer, global reviewer, or admin.
+4. The reviewer edits, rejects, approves locally, or approves globally.
+5. A future question in the origin space sees a local override; other spaces keep the global answer.
 
-| How | Example |
-|---|---|
-| A mention | `@bhc_minis_knowledge_test_bot quan entrenen?` |
-| A reply to one of its messages | reply with your question |
-| A direct message | just type the question |
-| The `/ask` command | `/ask quan entrenen?` |
+A local reviewer cannot approve global knowledge. A global reviewer or admin can choose either scope. A wrong principal cannot consume another principal's reply prompt. Resolved feedback cannot be approved or rejected again.
 
-Anything else is ignored. Unaddressed group chatter is not answered. (There is an
-off-by-default switch, `BACKGROUND_LISTENER_ENABLED`, that stores group traffic as
-knowledge without answering it. See [knowledge-base.md](knowledge-base.md).)
+## Reviewer roles
 
-### Direct messages
+- **Anyone in a group** can flag an answer and propose a correction.
+- **Local reviewer** can review, edit, reject, and approve local scope for their own space only.
+- **Global reviewer** can review and approve local or global scope.
+- **Admin** has the same approval authority and is the only role that can nominate or remove reviewers and revert knowledge.
 
-A bot username is public, so direct messages are **restricted**: only the admin and
-the users listed in `ALLOWED_TELEGRAM_USER_IDS` get an answer there. Anyone else is
-ignored silently.
+The admin is notified when a reviewer cannot be reached. The review remains pending until the configured escalation timeout.
 
-The one exception is the correction flow: if the bot has just asked someone for a
-correction, their reply is accepted even if they are not on the list — they never
-have to be allowlisted to propose a fix.
+## Daily report
 
----
+The deterministic daily report is sent by the scheduled Worker handler. It includes addressed outcomes, background questions, indexed evidence, corrections, seed divergence, projection repair counts, and estimated AI usage. Manual preview and delivery use `POST /internal/jobs/daily-report`; `dry_run=true` does not send or update report state.
 
-## Typical flow: asking a question
+## Media and limits
 
-```text
-Quim  › @bot quan s'ha de demanar l'equipament?
-Bot   › Es demana a l'inici de temporada, normalment abans de començar
-        els entrenaments.
-
-        Fonts:
-        • Q&A · Com i quan s'ha de demanar l'equipament? · https://…#qa-equipament-com-demanar · 12/09/2026
-        • Grup · Nom Cognom · 09/04/2026 07:32
-
-        [⚠️ Està malament?]
-```
-
-Every answer carries a button. The bot decides one of three ways:
-
-| Outcome | When | What you see |
-|---|---|---|
-| **Direct** | A stored Q&A matches closely | that answer verbatim, cited |
-| **Synthesised** | Several weaker sources together answer it | a written answer, cited |
-| **Abstention** | Nothing in the knowledge base covers it | "No tinc prou informació fiable per respondre-ho." |
-
-Abstention is a feature, not a failure. A wrong confident answer is worse than no
-answer.
-
-### How to read the citations
-
-| Source | Cited as |
-|---|---|
-| Website Q&A | the **exact anchored URL** + date |
-| Group message | the **author's name** + date and time |
-| An approved correction | the **proposer's name** + date of the proposal |
-
----
-
-## Typical flow: correcting a wrong answer
-
-The whole correction happens in **private chats**. The group never sees the
-discussion.
-
-```text
-1. Group      Quim presses  [⚠️ Està malament?]  on the wrong answer
-2. DM to Quim the bot asks: "Què corregiries? Escriu la resposta correcta…"
-   and repeats the original question and the answer being corrected, for
-   context.
-3. DM to Quim Quim writes the correction → "Gràcies. Ho he enviat a revisió."
-4. DM to the group's reviewer (or the global reviewer, or the admin)
-              the bot forwards the proposal with [🌐 Aprovar global] [👥 Aprovar grup]
-              [✏️ Editar] [❌ Rebutjar]
-5. DM         the reviewer presses 🌐 or 👥
-6. Group      a future equivalent question gets the corrected answer
-              (it can take up to a minute for the index to catch up)
-7. DM to Quim "Gràcies per la correcció" (private thank-you)
-```
-
-Telegram only lets a bot DM someone who has **opened a private chat with it at
-least once** (pressed Start on its profile). Anyone who wants to flag answers or
-serve as a reviewer must do that first; otherwise the bot cannot reach them.
-When it happens anyway, the bot says so instead of failing silently. The button
-press shows a popup asking to open the chat first and the group receives a
-direct bot link. If a review cannot be delivered privately, the task remains
-pending for the configured timeout, the admin is notified, and the group is
-asked to prompt the assigned reviewer to open a private chat with the bot. If
-the timeout expires, the review is escalated to the admin, which can edit and
-approve it normally. The timeout is shown in the message and configured with
-`REVIEWER_ESCALATION_TIMEOUT_SECONDS`.
-
-Who may do what:
-
-- **Anyone in the group** can flag an answer and propose a correction.
-- **Corrections are confirmed by reviewers**: the reviewer nominated for the
-  group the answer came from, or the global reviewer when that group has none,
-  or the admin when nobody is nominated. A group reviewer may edit, reject, or
-  approve only for that group; a global reviewer or admin may choose 🌐 or 👥.
-  This is enforced server-side: a forged confirmation from anyone else is
-  ignored, not just hidden.
-- The admin is the fallback reviewer and the only one who can nominate or
-  remove reviewers (see below) or roll a correction back (CLI only, see
-  [operations.md](operations.md)).
-- Reporting needs no allowlisting: the proposal is a reply to a prompt the bot
-  sent, so it is accepted regardless of `ALLOWED_TELEGRAM_USER_IDS`.
-- Approving does **not** overwrite anything. It adds a new version; the old one is
-  kept, and the web Q&A is never modified.
-- The reviewer chooses the **scope** of the corrected answer at approval time:
-  🌐 makes it the global answer (every group sees it), 👥 makes it a
-  group-only variant (only the group the corrected answer came from sees it).
-  In that group the variant outranks the global answer; other groups keep
-  seeing the global one.
-
-`✏️ Editar` shows the current proposal and asks for the corrected text; the edited
-version comes back to the reviewer's DM with the same three buttons.
-
-### Nominating reviewers
-
-Only the admin can nominate, and only from Telegram, by **replying to a message
-of the person** (their Telegram user id is what gets stored; usernames are not
-used):
-
-| Action | Where | Command |
-|---|---|---|
-| Nominate the group's reviewer | in the group | reply to their message with `/reviewer` |
-| Nominate the global reviewer | any group | reply to their message with `/reviewer global` |
-| List current reviewers | any chat | `/reviewer` (no reply) |
-| Remove the group's reviewer | in the group | `/reviewer off` |
-| Remove the global reviewer | any chat | `/reviewer off global` |
-
-Nominating again replaces the previous reviewer of that scope; there is no
-history — it is an operational role, not knowledge. The bot itself can never be
-nominated: replying `/reviewer` to one of its messages is refused.
-
-### The admin report on reviewer corrections
-
-The admin cannot act on reviewer decisions from Telegram, but is informed of
-every one of them, configured with `ADMIN_REPORT_MODE`:
-
-- `always` (default): one private report per resolution — who, which group,
-  which question, what they did (approved global / approved group / edited /
-  rejected), and when. Every report ends with the day's estimated AI usage
-  (neurons spent against the daily limit, and the estimated call count) so the
-  admin sees how close the quota is without checking Cloudflare.
-- `batch`: one consolidated report every `ADMIN_REPORT_INTERVAL_MIN` minutes.
-  Like the recap, the check is opportunistic on inbound events; an external
-  scheduler can also poke `POST /internal/report`. The usage line is included
-  here too.
-- `off`: no reports. Events are still recorded in D1.
-
-The report is read-only. Rolling a correction back is a CLI operation only
-(`kb revert`, see [operations.md](operations.md)).
-
----
-
-## The periodic recap
-
-To stop unanswered questions being lost, the bot sends the **admin** a daily
-summary of every group's questions, each tagged with the group it came from and
-the ones it could not answer marked as pending. **Groups never receive
-summaries** — posting them in a group leaked other groups' questions and
-interrupted chats where the bot had answered nothing.
-
-Configured with `RECAP_ENABLED`, `RECAP_INTERVAL_HOURS`, `RECAP_LANGUAGE`.
-
-Every recap ends with an activity footer: listener context captured in the
-window (messages kept, and question-answer pairs matched), today's estimated
-AI spend in neurons and calls, and the question outcomes — asked, solved
-well (answered, never flagged), flagged as wrong, and unanswered. The
-solved/flagged split is an observed proxy, not a quality judgement: an
-answer nobody flagged counts as solved well.
-
-The report runs from the Worker's scheduled handler once per day. The same
-application job is available at `POST /internal/jobs/daily-report` for manual
-operations. Inbound messages no longer trigger report work.
-
----
-
-## Media
-
-v1 records photos and other attachments as **metadata only**. It is registered,
-never downloaded and never processed. Sending a photo will not get an answer.
-
----
-
-## Limits worth knowing
-
-- Answers come **only** from the knowledge base. An empty base means abstentions.
-- The daily Workers AI budget can run out, after which questions get
-  *"Ara mateix no puc consultar la informació"* until 00:00 UTC. See
-  [operations.md](operations.md).
-- Group access requires both the configured Telegram allow-list and a durable
-  channel binding to a logical space. The allow-list alone does not serve a
-  group.
+Attachments are metadata-only in v1; media is never processed. Workers AI quota exhaustion produces a temporary unavailable answer. See [operations.md](operations.md).

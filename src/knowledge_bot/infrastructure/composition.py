@@ -4,7 +4,7 @@
 from typing import Protocol
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
-from knowledge_bot.adapters.outbound.telegram import TelegramTransport
+from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -12,19 +12,19 @@ from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
-from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
 from knowledge_bot.application.review import ReviewService
 from knowledge_bot.application.reviewers import (
     ReviewerManager,
-    ReviewerReportService,
     ReviewerRouter,
 )
+from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.clock import SystemClock
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -44,9 +44,6 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
-    D1RecapStateRepository,
-    D1ReportStateRepository,
-    D1ReviewerEventRepository,
     D1ReviewerRepository,
     D1ReviewSource,
     D1SearchIndexSource,
@@ -67,7 +64,11 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIPairingModel,
 )
 from knowledge_bot.infrastructure.context import AppContext
-from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
+from knowledge_bot.infrastructure.metering import (
+    MeteredEmbedder,
+    MeteredGenerator,
+    MeteredPairingModel,
+)
 from knowledge_bot.infrastructure.settings import Settings
 
 
@@ -101,17 +102,11 @@ def build_context(env: WorkerEnv) -> AppContext:
     settings = Settings(
         telegram_bot_token=_text(env, "TELEGRAM_BOT_TOKEN"),
         telegram_webhook_secret=_text(env, "TELEGRAM_WEBHOOK_SECRET"),
-        allowed_telegram_chat_ids=_text(env, "ALLOWED_TELEGRAM_CHAT_IDS"),
         allowed_telegram_user_ids=_text(env, "ALLOWED_TELEGRAM_USER_IDS"),
         admin_telegram_user_id=_text(env, "ADMIN_TELEGRAM_USER_ID"),
         telegram_bot_id=_text(env, "TELEGRAM_BOT_ID"),
         telegram_bot_username=_text(env, "TELEGRAM_BOT_USERNAME"),
         internal_admin_key=_text(env, "INTERNAL_ADMIN_KEY"),
-        recap_enabled=_text(env, "RECAP_ENABLED", "true"),
-        recap_interval_hours=_text(env, "RECAP_INTERVAL_HOURS", "24"),
-        recap_language=_text(env, "RECAP_LANGUAGE", "ca"),
-        admin_report_mode=_text(env, "ADMIN_REPORT_MODE", "always"),
-        admin_report_interval_min=_text(env, "ADMIN_REPORT_INTERVAL_MIN", "60"),
         reviewer_escalation_timeout_seconds=_text(
             env, "REVIEWER_ESCALATION_TIMEOUT_SECONDS", "86400"
         ),
@@ -141,10 +136,14 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         ai_embed_neurons_per_char=_text(env, "AI_EMBED_NEURONS_PER_CHAR", "0.015"),
         ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
+        ai_embed_timeout_seconds=_text(env, "AI_EMBED_TIMEOUT_SECONDS", "10"),
+        ai_pairing_timeout_seconds=_text(env, "AI_PAIRING_TIMEOUT_SECONDS", "30"),
+        ai_generation_timeout_seconds=_text(env, "AI_GENERATION_TIMEOUT_SECONDS", "35"),
     )
     database = env.DB
     answers = D1BotAnswerRepository(database)
     transport = TelegramTransport(WorkersHttpClient(), settings.telegram_bot_token)
+    notifier = TelegramNotifier(transport)
     clock = SystemClock()
     budget = AiBudget(
         usage=D1AiUsageRepository(database),
@@ -157,16 +156,33 @@ def build_context(env: WorkerEnv) -> AppContext:
         chat_neurons_per_char=settings.ai_chat_neurons_per_char,
     )
     embedder = MeteredEmbedder(
-        WorkersAIEmbedder(env.AI, settings.embedding_model), budget
+        WorkersAIEmbedder(
+            env.AI, settings.embedding_model, settings.ai_embed_timeout_seconds
+        ),
+        budget,
     )
     generator = MeteredGenerator(
-        WorkersAIGenerator(env.AI, settings.generation_model), budget
+        WorkersAIGenerator(
+            env.AI, settings.generation_model, settings.ai_generation_timeout_seconds
+        ),
+        budget,
     )
     vectors = VectorizeStore(env.VECTORIZE)
     listener_messages = D1MessageRepository(database)
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    projector = SearchProjectionService(
+        source=D1SearchIndexSource(database),
+        embedder=embedder,
+        vectors=vectors,
+        manifest=projection_manifest,
+        clock=clock,
+        budget=budget,
+    )
+    runtime_smoke = RuntimeSmokeService(
+        embedder, generator, vectors, projection_manifest, clock
+    )
     pair_candidates = D1MessagePairCandidateRepository(database)
     pair_windows = D1ListenerPairingWindowRepository(database)
     correction_commits = D1CorrectionCommitStore(database)
@@ -177,35 +193,9 @@ def build_context(env: WorkerEnv) -> AppContext:
         question_match_threshold=settings.classifier_question_match_threshold,
         answer_match_threshold=settings.classifier_answer_match_threshold,
     )
-    feedback_repo = D1FeedbackRepository(database)
-    recap = RecapService(
-        answers=answers,
-        conversations=listener_conversations,
-        state=D1RecapStateRepository(database),
-        transport=transport,
-        clock=clock,
-        admin_user_id=settings.admin_telegram_user_id or None,
-        enabled=True,
-        interval_hours=24,
-        language="ca",
-        budget=budget,
-        feedback=feedback_repo,
-        messages=listener_messages,
-    )
-    reviewer_report = ReviewerReportService(
-        events=D1ReviewerEventRepository(database),
-        state=D1ReportStateRepository(database),
-        transport=transport,
-        clock=clock,
-        admin_user_id=settings.admin_telegram_user_id,
-        mode="batch",
-        interval_min=settings.admin_report_interval_min,
-        budget=budget,
-    )
     return AppContext(
         settings=settings,
         identity=TelegramIdentity(
-            allowed_chat_ids=frozenset(settings.allowed_chat_ids),
             admin_user_id=settings.admin_telegram_user_id,
             bot_id=settings.telegram_bot_id,
             bot_username=settings.telegram_bot_username,
@@ -224,11 +214,10 @@ def build_context(env: WorkerEnv) -> AppContext:
             conversations=listener_conversations,
             sources=listener_sources,
             classifier=classifier,
-            embedder=embedder,
-            vectors=vectors,
-            manifest=projection_manifest,
+            projector=projector,
             clock=clock,
             answer_threshold=settings.classifier_answer_match_threshold,
+            budget=budget,
         ),
         answer=AnswerService(
             retrieval=RetrievalService(
@@ -239,21 +228,15 @@ def build_context(env: WorkerEnv) -> AppContext:
             ),
             generator=generator,
             answers=answers,
-            delivery_receipts=D1DeliveryReceiptRepository(database),
-            transport=transport,
-            channel="telegram",
             clock=clock,
             direct_qa_threshold=settings.direct_qa_threshold,
             synthesis_threshold=settings.synthesis_threshold,
             conversations=listener_conversations,
             sources=listener_sources,
         ),
-        recap=recap,
         reindex=ReindexService(
             source=D1SearchIndexSource(database),
-            embedder=embedder,
-            vectors=vectors,
-            manifest=projection_manifest,
+            projector=projector,
             clock=clock,
         ),
         seed=SeedService(
@@ -295,16 +278,15 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         router=ReviewerRouter(
             reviewers=D1ReviewerRepository(database),
-            admin_user_id=settings.admin_telegram_user_id,
+            admin_principal_id=f"telegram:{settings.admin_telegram_user_id}",
         ),
-        reviewer_report=reviewer_report,
         daily_report=DailyReportService(
             source=D1DailyReportSource(database),
             state=D1DailyReportStateRepository(database),
-            transport=transport,
+            notifier=notifier,
             budget=budget,
             clock=clock,
-            admin_principal_id=settings.admin_telegram_user_id,
+            admin_principal_id=f"telegram:{settings.admin_telegram_user_id}",
         ),
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(database),
@@ -312,16 +294,26 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         budget=budget,
         transport=transport,
+        delivery_receipts=D1DeliveryReceiptRepository(database),
+        projector=projector,
+        runtime_smoke=runtime_smoke,
         pairing=MessagePairingService(
             messages=listener_messages,
             conversations=listener_conversations,
+            sources=listener_sources,
             candidates=pair_candidates,
             windows=pair_windows,
-            embedder=embedder,
-            vectors=vectors,
-            manifest=projection_manifest,
-            model=WorkersAIPairingModel(env.AI, settings.generation_model),
+            projector=projector,
+            model=MeteredPairingModel(
+                WorkersAIPairingModel(
+                    env.AI,
+                    settings.generation_model,
+                    settings.ai_pairing_timeout_seconds,
+                ),
+                budget,
+            ),
             clock=clock,
+            budget=budget,
             window_minutes=settings.pairing_window_minutes,
             quiet_minutes=settings.pairing_quiet_minutes,
             overlap_minutes=settings.pairing_overlap_minutes,

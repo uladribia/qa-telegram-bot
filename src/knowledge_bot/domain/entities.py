@@ -12,6 +12,7 @@ from knowledge_bot.domain.enums import (
     FeedbackStatus,
     IndexStatus,
     ProcessingStatus,
+    ProjectionState,
     QAStatus,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
@@ -157,10 +158,10 @@ class Reviewer:
     """
 
     scope: str
-    user_id: str
+    principal_id: str
     name: str
     created_at: datetime
-    nominated_by: str | None = None
+    nominated_by_principal_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +176,7 @@ class ReviewerEvent:
     feedback_id: str
     action: str
     created_at: datetime
-    reviewer_user_id: str | None = None
+    reviewer_principal_id: str | None = None
     reviewer_name: str | None = None
     group_label: str | None = None
     question: str | None = None
@@ -235,6 +236,8 @@ class BotAnswer:
     confidence: float | None = None
     qa_version_id: str | None = None
     sources_json: str = "[]"
+    rendered_text: str = ""
+    source_details_json: str = "[]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +277,8 @@ class Feedback:
     bot_answer_id: str
     status: FeedbackStatus
     created_at: datetime
+    reporter_principal_id: str | None = None
+    origin_space_id: str | None = None
     qa_id: str | None = None
     reporter_hash: str | None = None
     reporter_chat_id: str | None = None
@@ -287,3 +292,16 @@ class Feedback:
     reviewer_delivery_failed_at: datetime | None = None
     reviewer_escalated_at: datetime | None = None
     reviewer_destination: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SearchProjectionEntry:
+    """Durable state for one derived vector projection."""
+
+    vector_id: str
+    kind: str
+    object_id: str
+    version_id: str | None
+    state: ProjectionState
+    updated_at: datetime
+    last_error: str | None = None

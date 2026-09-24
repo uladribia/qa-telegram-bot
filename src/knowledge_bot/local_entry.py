@@ -8,6 +8,7 @@ from fastapi import Request
 from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.composition import build_context
+from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.settings import Settings
 
 _cached_context: AppContext | None = None
@@ -29,6 +30,7 @@ async def _resolve_context(_request: Request) -> AppContext:
     return _cached_context
 
 
+configure_logging(json_logs=False)
 app = create_app(_resolve_context)
 
 

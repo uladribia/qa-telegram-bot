@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: MIT
-"""SQLite compatibility for the existing purpose-specific SQL repositories."""
+"""SQLite execution adapter for shared SQL repositories."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from knowledge_bot.infrastructure.cloudflare.d1 import D1Result, D1Statement
 from knowledge_bot.infrastructure.local.database import SQLiteDatabase
+from knowledge_bot.infrastructure.sql.protocol import SqlResult, SqlStatement
 
 
 @dataclass(frozen=True, slots=True)
 class _SQLiteResult:
-    """Result shape consumed by the SQL repository adapters."""
+    """Result shape consumed by shared SQL repositories."""
 
     results: list[dict[str, object]]
 
@@ -25,7 +25,7 @@ class _SQLiteStatement:
         self._sql = sql
         self._parameters: tuple[object, ...] = ()
 
-    def bind(self, *params: object) -> D1Statement:
+    def bind(self, *params: object) -> SqlStatement:
         """Bind positional parameters."""
         self._parameters = params
         return self
@@ -36,30 +36,25 @@ class _SQLiteStatement:
         row = await cursor.fetchone()
         return dict(row) if row is not None else None
 
-    async def run(self) -> D1Result:
+    async def run(self) -> SqlResult:
         """Execute the statement and return all rows."""
         cursor = await self._database.connection.execute(self._sql, self._parameters)
         rows = await cursor.fetchall()
-        return cast(D1Result, _SQLiteResult([dict(row) for row in rows]))
+        return cast(SqlResult, _SQLiteResult([dict(row) for row in rows]))
 
 
 class SQLiteBinding:
-    """Expose the small D1 statement contract to shared SQL repositories.
-
-    The repository classes still contain the existing purpose-specific SQL and
-    transactions. This adapter only supplies SQLite execution; it is temporary
-    infrastructure until those repositories are split into local and D1 modules.
-    """
+    """Expose the shared SQL execution protocol to SQLite."""
 
     def __init__(self, database: SQLiteDatabase) -> None:
-        """Wrap the shared local database."""
+        """Wrap the local database."""
         self.database = database
 
-    def prepare(self, sql: str) -> D1Statement:
+    def prepare(self, sql: str) -> SqlStatement:
         """Prepare one SQLite statement."""
         return _SQLiteStatement(self.database, sql)
 
-    async def batch(self, statements: Sequence[D1Statement]) -> object:
+    async def batch(self, statements: Sequence[SqlStatement]) -> object:
         """Execute statements atomically."""
         async with self.database.transaction():
             for statement in statements:

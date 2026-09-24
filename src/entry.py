@@ -10,6 +10,7 @@ from workers import WorkerEntrypoint, asgi
 from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.infrastructure.composition import WorkerEnv, build_context
 from knowledge_bot.infrastructure.context import AppContext
+from knowledge_bot.infrastructure.logging import configure_logging
 
 _context: AppContext | None = None
 _scheduled_context: AppContext | None = None
@@ -23,6 +24,7 @@ def _resolve_context(request: Request) -> AppContext:
     return _context
 
 
+configure_logging(json_logs=True)
 app = create_app(_resolve_context)
 
 

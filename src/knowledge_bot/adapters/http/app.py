@@ -7,7 +7,7 @@ so the app resolves its context through a callable rather than at import time.
 
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
@@ -22,10 +22,8 @@ from knowledge_bot.adapters.telegram.routes import register_telegram_routes
 from knowledge_bot.application.classifier import QUESTION, IntentScores
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
-    GROUP_SCOPE,
     PROPOSAL_ACK,
     REVIEW_REJECTED,
-    CorrectionRequest,
     callback_action,
     callback_target,
     proposal_prompt,
@@ -41,6 +39,7 @@ from knowledge_bot.contracts.api import (
     BackgroundBacklogRequest,
     DailyReportRequest,
     EvalAnswerRequest,
+    IndexRepairRequest,
     RegisterGroupRequest,
     ReindexRequest,
     RevertRequest,
@@ -48,7 +47,7 @@ from knowledge_bot.contracts.api import (
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.contracts.telegram import TelegramUpdate
-from knowledge_bot.domain.entities import ReviewerEvent, TelegramInteraction
+from knowledge_bot.domain.entities import DeliveryReceipt, TelegramInteraction
 from knowledge_bot.domain.enums import (
     AiWorkClass,
     AnswerMode,
@@ -56,11 +55,10 @@ from knowledge_bot.domain.enums import (
     IndexStatus,
     ReviewAction,
 )
-from knowledge_bot.domain.errors import ModelUnavailableError
-from knowledge_bot.domain.identity import principal_id
+from knowledge_bot.domain.errors import InvalidTransitionError, ModelUnavailableError
+from knowledge_bot.domain.identity import principal_id, split_principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
-from knowledge_bot.infrastructure.logging import configure_logging
 from knowledge_bot.infrastructure.security import secrets_match
 
 ContextResolver = Callable[[Request], AppContext | Awaitable[AppContext]]
@@ -86,6 +84,7 @@ _EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
 _EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
 _EMPTY_SEED_BODY = Body(default_factory=SeedRequest)
 _EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
+_EMPTY_REPAIR_BODY = Body(default_factory=IndexRepairRequest)
 _EMPTY_GROUP_BODY = Body(default_factory=RegisterGroupRequest)
 _EMPTY_DAILY_REPORT_BODY = Body(default_factory=DailyReportRequest)
 
@@ -114,8 +113,8 @@ async def _escalate_overdue_reviews(context: AppContext) -> None:
     """Route overdue reviewer deliveries to the configured admin."""
     now = context.clock.now()
     timeout = context.settings.reviewer_escalation_timeout_seconds
-    admin = context.settings.admin_telegram_user_id
-    if not admin:
+    admin = f"telegram:{context.settings.admin_telegram_user_id}"
+    if context.settings.admin_telegram_user_id == "":
         return
     for feedback in await context.feedback.list_escalatable():
         failed_at = feedback.reviewer_delivery_failed_at
@@ -125,7 +124,7 @@ async def _escalate_overdue_reviews(context: AppContext) -> None:
         if review is None:
             continue
         sent = await context.transport.send_review(
-            admin,
+            split_principal_id(admin)[1],
             render_review(review),
             feedback.id,
             include_global=True,
@@ -162,8 +161,11 @@ async def _deliver_review(
         origin_conversation_id: Conversation used for the group activation notice.
     """
     include_global = await context.router.can_approve_global(destination)
+    channel, chat_id = split_principal_id(destination)
+    if channel != "telegram":
+        return False
     sent = await context.transport.send_review(
-        destination,
+        chat_id,
         text,
         feedback_id,
         include_global=include_global,
@@ -171,7 +173,7 @@ async def _deliver_review(
     if sent is not None:
         return True
     admin = context.settings.admin_telegram_user_id
-    if destination != admin:
+    if destination != f"telegram:{context.settings.admin_telegram_user_id}":
         feedback = await context.feedback.get_feedback(feedback_id)
         if feedback is not None:
             await context.feedback.save_feedback(
@@ -184,7 +186,7 @@ async def _deliver_review(
         timeout = context.settings.reviewer_escalation_timeout_seconds
         if admin:
             await context.transport.send_message(
-                admin,
+                context.settings.admin_telegram_user_id,
                 "⚠️ El revisor no t\u00e9 disponible per privat. "
                 f"La revisio s'escalarà a l'admin després de {timeout} s.",
             )
@@ -233,7 +235,6 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     Returns:
         The configured FastAPI app.
     """
-    configure_logging()
     app = FastAPI(title="knowledge-bot")
     app.include_router(build_api_router(resolve_context))
 
@@ -297,18 +298,6 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             ],
         }
 
-    @app.post("/internal/recap")
-    async def internal_recap(
-        request: Request,
-        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, str]:
-        """Force the opportunistic admin recap check from an external scheduler."""
-        context = await _resolved_context(resolve_context, request)
-        if not secrets_match(key, context.settings.internal_admin_key):
-            raise HTTPException(status_code=401, detail="invalid key")
-        sent = await context.recap.maybe_send()
-        return {"status": "sent" if sent else "skipped"}
-
     @app.post("/internal/jobs/daily-report")
     async def internal_daily_report(
         request: Request,
@@ -319,19 +308,9 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        if body.dry_run:
+            return {"status": "preview", "report": await context.daily_report.preview()}
         sent = await context.daily_report.run(force=body.force)
-        return {"status": "sent" if sent else "skipped"}
-
-    @app.post("/internal/report")
-    async def internal_report(
-        request: Request,
-        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, str]:
-        """Force the opportunistic admin report check from a scheduler."""
-        context = await _resolved_context(resolve_context, request)
-        if not secrets_match(key, context.settings.internal_admin_key):
-            raise HTTPException(status_code=401, detail="invalid key")
-        sent = await context.reviewer_report.maybe_send()
         return {"status": "sent" if sent else "skipped"}
 
     @app.post("/internal/revert")
@@ -356,6 +335,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         return {"status": "reverted", "restored_version_id": restored.id}
 
     @app.post("/internal/reindex")
+    @app.post("/internal/index/rebuild")
     async def internal_reindex(
         request: Request,
         body: ReindexRequest = _EMPTY_REINDEX_BODY,
@@ -370,7 +350,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         await _require_evaluation_budget(context)
-        if not body.model_fields_set:
+        if body.rebuild or not body.model_fields_set:
             report = await context.reindex.rebuild()
         else:
             report = await context.reindex.reindex(
@@ -432,20 +412,52 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             "messages": message_count,
         }
 
+    @app.post("/internal/smoke/runtime")
+    async def internal_runtime_smoke(
+        request: Request,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, object]:
+        """Run the explicitly authorized tiny runtime smoke."""
+        context = await _resolved_context(resolve_context, request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        return await context.runtime_smoke.run()
+
+    @app.post("/internal/index/repair")
+    async def internal_index_repair(
+        request: Request,
+        body: IndexRepairRequest = _EMPTY_REPAIR_BODY,
+        key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
+    ) -> dict[str, int | bool]:
+        """Repair a bounded batch of pending or failed projections."""
+        context = await _resolved_context(resolve_context, request)
+        if not secrets_match(key, context.settings.internal_admin_key):
+            raise HTTPException(status_code=401, detail="invalid key")
+        report = await context.projector.repair(body.limit)
+        return {
+            "repaired": report.repaired,
+            "removed": report.removed,
+            "failed": report.failed,
+            "stopped_by_budget": report.stopped_by_budget,
+        }
+
     @app.post("/internal/background/process-backlog")
     async def internal_process_background_backlog(
         request: Request,
         body: BackgroundBacklogRequest = _EMPTY_BACKLOG_BODY,
         key: Annotated[str | None, Header(alias="X-Internal-Key")] = None,
-    ) -> dict[str, int]:
+    ) -> dict[str, int | bool]:
         """Process a bounded batch of budget-deferred background messages."""
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
         if not await context.budget.work_allowed(AiWorkClass.MAINTENANCE):
             raise HTTPException(status_code=429, detail="maintenance budget exhausted")
-        processed = await context.background_indexer.process_backlog(body.limit)
-        return {"processed": processed}
+        result = await context.background_indexer.process_backlog(body.limit)
+        return {
+            "processed": result.processed,
+            "stopped_by_budget": result.stopped_by_budget,
+        }
 
     @app.post("/internal/groups")
     async def internal_groups(
@@ -585,8 +597,7 @@ async def _handle_background_message(
     )
     if result.created:
         await context.background_indexer.process(message.id, classification.embedding)
-        if context_question is None and context.classifier.is_answer_like(scores):
-            await context.pairing.on_message(message.id)
+    await context.pairing.on_message(message.id)
     return "ingest_pair" if context_question is not None else "ingest"
 
 
@@ -646,11 +657,34 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         return "ignored"
     if action is IntakeAction.INGEST:
         return await _handle_background_message(context, message)
-    result = await context.ingestor.ingest(message)
-    if action is IntakeAction.ANSWER and result.created:
-        await context.answer.answer(message)
-    return "answer" if action is IntakeAction.ANSWER else "ingest"
-    return action.value
+    await context.ingestor.ingest(message)
+    if action is IntakeAction.ANSWER:
+        response = await context.answer.answer_message(message)
+        if response is not None:
+            prior = await context.delivery_receipts.get(
+                "answer", response.answer_id, "telegram"
+            )
+            if prior is None:
+                message_id = await context.transport.send_answer(
+                    message.conversation_id, response.rendered_text, response.answer_id
+                )
+                if message_id is None:
+                    raise HTTPException(
+                        status_code=503, detail="telegram delivery failed"
+                    )
+                await context.delivery_receipts.add(
+                    DeliveryReceipt(
+                        id=f"delivery:{response.answer_id}:telegram",
+                        object_type="answer",
+                        object_id=response.answer_id,
+                        channel="telegram",
+                        external_conversation_id=message.conversation_id,
+                        external_message_id=message_id,
+                        created_at=context.clock.now(),
+                    )
+                )
+        return "answer"
+    return "ingest"
 
 
 async def _handle_reviewer_command(
@@ -690,9 +724,9 @@ async def _handle_reviewer_command(
         name = message.reply_to_user_name or "?"
         await context.reviewers.nominate(
             scope,
-            message.reply_to_user_id or "",
+            principal_id("telegram", message.reply_to_user_id or ""),
             name,
-            message.sender_user_id or "",
+            principal_id("telegram", message.sender_user_id or ""),
         )
         await context.transport.send_message(chat, _reviewer_confirmed(scope, name))
         return "reviewer_nominated"
@@ -732,26 +766,25 @@ async def _handle_feedback_reply(
     reply_to = message.reply_to_message_id
     if reply_to is None or message.text is None:
         return None
-    interaction = await context.interactions.consume(reply_to, context.clock.now())
-    if interaction is None:
+    if message.principal_id is None:
         return None
-    if (
-        interaction.principal_id is not None
-        and interaction.principal_id != message.principal_id
-    ):
+    interaction = await context.interactions.consume(
+        reply_to, message.principal_id, context.clock.now()
+    )
+    if interaction is None:
         return None
     feedback = await context.feedback.get_feedback(interaction.object_id)
     if feedback is not None and interaction.interaction_type == "review_edit":
         review = await context.feedback.correction_request(feedback.id)
         if review is None or not await context.router.can_confirm(
-            message.sender_user_id,
+            message.principal_id,
             review.origin_space_id,
             ReviewAction.EDIT,
         ):
             return None
         await context.feedback.admin_edit(feedback.id, message.text)
         destination = (
-            context.settings.admin_telegram_user_id
+            f"telegram:{context.settings.admin_telegram_user_id}"
             if message.sender_is_admin
             else await context.router.destination(review.origin_space_id)
         )
@@ -769,11 +802,15 @@ async def _handle_feedback_reply(
     if feedback is None or interaction.interaction_type != "feedback_proposal":
         return None
     proposed = await context.feedback.propose(
-        feedback.id, message.text, message.sender_name
+        feedback.id, message.text, message.principal_id, message.sender_name
     )
     if proposed is None:
         return None
-    reporter_chat = proposed.reporter_chat_id or message.conversation_id
+    reporter_chat = (
+        split_principal_id(proposed.reporter_principal_id)[1]
+        if proposed.reporter_principal_id is not None
+        else message.conversation_id
+    )
     await context.transport.send_message(reporter_chat, PROPOSAL_ACK)
     review = await context.feedback.correction_request(proposed.id)
     if review is not None:
@@ -813,14 +850,18 @@ async def _handle_callback(
     """
     action = callback_action(data)
     target = callback_target(data)
-    if action is None or target is None or reporter_chat_id is None:
+    if action is None:
+        return "ignored"
+    if target is None or reporter_chat_id is None:
+        await context.transport.answer_callback(
+            callback_id, "No s'ha pogut processar aquesta acció."
+        )
         return "ignored"
     if action == "start":
         # Proposing a correction is open to any group user.
         feedback = await context.feedback.start(
             target,
             principal_id("telegram", reporter_chat_id),
-            reporter_chat_id,
             reporter_name,
         )
         if feedback is None:
@@ -869,40 +910,42 @@ async def _handle_callback(
     if review_action is None:
         return "ignored"
     review = await context.feedback.correction_request(target)
-    if review is None or not await context.router.can_confirm(
-        reporter_chat_id,
+    actor_principal_id = principal_id("telegram", reporter_chat_id)
+    if review is None:
+        await context.transport.answer_callback(
+            callback_id, "La revisió ja no existeix."
+        )
+        return "ignored"
+    if not await context.router.can_confirm(
+        actor_principal_id,
         review.origin_space_id,
         review_action,
     ):
+        await context.transport.answer_callback(
+            callback_id, "No tens permís per fer aquesta acció."
+        )
         return "ignored"
     if action == "approve_global" or action == "approve_group":
-        scope = GLOBAL_SCOPE if action == "approve_global" else GROUP_SCOPE
-        version = await context.feedback.approve(target, scope)
+        try:
+            version = await context.feedback.approve(target, review_action)
+        except InvalidTransitionError:
+            await context.transport.answer_callback(
+                callback_id, "Aquesta acció no té un espai d'origen."
+            )
+            return "ignored"
         if version is None:
+            await context.transport.answer_callback(
+                callback_id, "La correcció ja està resolta."
+            )
             return "ignored"
         await context.reindex.reindex_qa_version(version.id)
         feedback = await context.feedback.get_feedback(target)
-        await context.reviewer_report.record(
-            _reviewer_event(
-                target,
-                review,
-                "edited_approved"
-                if feedback is not None and feedback.admin_edited_answer
-                else "approved",
-                GLOBAL_SCOPE
-                if action == "approve_global"
-                else scope_for_space(review.origin_space_id or ""),
-                reporter_chat_id,
-                reporter_name,
-                context.clock.now(),
-            )
-        )
         if reporter_chat_id:
             await context.transport.send_message(reporter_chat_id, ADMIN_APPROVED)
-        if feedback is not None and feedback.reporter_chat_id:
-            await context.transport.send_message(
-                feedback.reporter_chat_id, REPORTER_THANKS
-            )
+        if feedback is not None and feedback.reporter_principal_id is not None:
+            channel, reporter_chat = split_principal_id(feedback.reporter_principal_id)
+            if channel == "telegram":
+                await context.transport.send_message(reporter_chat, REPORTER_THANKS)
         await context.transport.answer_callback(callback_id)
         return "feedback_approved"
     if action == "edit":
@@ -924,41 +967,8 @@ async def _handle_callback(
         return "feedback_edit"
     if action == "reject":
         await context.feedback.reject(target)
-        await context.reviewer_report.record(
-            _reviewer_event(
-                target,
-                review,
-                "rejected",
-                None,
-                reporter_chat_id,
-                reporter_name,
-                context.clock.now(),
-            )
-        )
         if reporter_chat_id:
             await context.transport.send_message(reporter_chat_id, REVIEW_REJECTED)
         await context.transport.answer_callback(callback_id)
         return "feedback_rejected"
     return "ignored"
-
-
-def _reviewer_event(
-    feedback_id: str,
-    review: CorrectionRequest,
-    action: str,
-    approval_scope: str | None,
-    reviewer_user_id: str | None,
-    reviewer_name: str | None,
-    created_at: datetime,
-) -> ReviewerEvent:
-    """Build the report event for a reviewer's resolution."""
-    return ReviewerEvent(
-        feedback_id=feedback_id,
-        action=action,
-        created_at=created_at,
-        reviewer_user_id=reviewer_user_id,
-        reviewer_name=reviewer_name,
-        group_label=review.group_label,
-        question=review.question,
-        approval_scope=approval_scope,
-    )

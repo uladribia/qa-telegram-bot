@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Workers AI adapters for embeddings and grounded text generation."""
 
+import asyncio
 import re
 from typing import Protocol, cast
 
@@ -42,10 +43,11 @@ def _field(value: object, key: str) -> object:
 class WorkersAIEmbedder:
     """Embedder backed by a Workers AI model."""
 
-    def __init__(self, ai: AiRunner, model: str) -> None:
-        """Create the embedder."""
+    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 10.0) -> None:
+        """Create the embedder with a hard adapter deadline."""
         self._ai = ai
         self._model = model
+        self._timeout_seconds = timeout_seconds
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts.
@@ -54,10 +56,18 @@ class WorkersAIEmbedder:
             ModelUnavailableError: When the embedding model call fails.
         """
         try:
-            result = await self._ai.run(self._model, {"text": texts})
+            result = await asyncio.wait_for(
+                self._ai.run(self._model, {"text": texts}),
+                timeout=self._timeout_seconds,
+            )
         except Exception as error:
             raise ModelUnavailableError("embedding") from error
         data = cast("list[list[float]]", _field(result, "data"))
+        if len(data) != len(texts) or any(not row for row in data):
+            raise ModelUnavailableError("embedding")
+        dimensions = {len(row) for row in data}
+        if len(dimensions) != 1:
+            raise ModelUnavailableError("embedding")
         return [[float(value) for value in row] for row in data]
 
 
@@ -84,10 +94,11 @@ def _render_user(request: GenerationRequest) -> str:
 class WorkersAIPairingModel(PairingModel):
     """Extract candidate question-answer pairs with Workers AI."""
 
-    def __init__(self, ai: AiRunner, model: str) -> None:
-        """Configure the pairing model."""
+    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 30.0) -> None:
+        """Configure the pairing model with a hard deadline."""
         self._ai = ai
         self._model = model
+        self._timeout_seconds = timeout_seconds
 
     async def pair(self, messages: list[PairMessage]) -> PairingOutput:
         """Return validated pairs for one bounded window."""
@@ -98,12 +109,15 @@ class WorkersAIPairingModel(PairingModel):
             + "\n".join(f"[{message.id}] {message.text}" for message in messages)
         )
         try:
-            result = await self._ai.run(
-                self._model,
-                {
-                    "messages": [{"role": "user", "content": prompt}],
-                    "format": PairingOutput.model_json_schema(),
-                },
+            result = await asyncio.wait_for(
+                self._ai.run(
+                    self._model,
+                    {
+                        "messages": [{"role": "user", "content": prompt}],
+                        "format": PairingOutput.model_json_schema(),
+                    },
+                ),
+                timeout=self._timeout_seconds,
             )
             content = _extract_content(result)
             match = _JSON_OBJECT.search(content)
@@ -119,15 +133,25 @@ class WorkersAIPairingModel(PairingModel):
 class WorkersAIGenerator:
     """Grounded generator backed by a Workers AI chat model."""
 
-    def __init__(self, ai: AiRunner, model: str) -> None:
-        """Create the generator."""
+    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 35.0) -> None:
+        """Create the generator with a hard adapter deadline."""
         self._ai = ai
         self._model = model
+        self._timeout_seconds = timeout_seconds
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
         """Run the chat model, raising a domain error on failure."""
         try:
-            return await self._ai.run(self._model, {"messages": messages})
+            return await asyncio.wait_for(
+                self._ai.run(
+                    self._model,
+                    {
+                        "messages": messages,
+                        "format": GenerationOutput.model_json_schema(),
+                    },
+                ),
+                timeout=self._timeout_seconds,
+            )
         except Exception as error:
             raise ModelUnavailableError("generation") from error
 
@@ -144,18 +168,10 @@ class WorkersAIGenerator:
             return None
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Generate a grounded answer, retrying once only on invalid JSON."""
+        """Generate one grounded answer; malformed output becomes insufficient."""
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": _render_user(request)},
         ]
         output = await self._attempt(messages)
-        if output is None:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": "Return ONLY a valid JSON object matching the schema.",
-                }
-            )
-            output = await self._attempt(messages)
         return output or GenerationOutput(status="insufficient")

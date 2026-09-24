@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Telegram outbound transport."""
 
+from knowledge_bot.domain.identity import split_principal_id
 from knowledge_bot.ports.http import HttpClient
 
 # Inline button shown under every answer (spec §21).
@@ -66,6 +67,21 @@ def review_keyboard(
     }
 
 
+class TelegramNotifier:
+    """Adapt the notifier port to Telegram principal delivery."""
+
+    def __init__(self, transport: "TelegramTransport") -> None:
+        """Wrap a Telegram transport client."""
+        self._transport = transport
+
+    async def send_text(self, principal_id: str, text: str) -> bool:
+        """Send text to a Telegram principal."""
+        channel, external_id = split_principal_id(principal_id)
+        if channel != "telegram":
+            return False
+        return await self._transport.send_message(external_id, text) is not None
+
+
 class TelegramTransport:
     """Send and edit messages through the Telegram Bot API."""
 
@@ -107,6 +123,10 @@ class TelegramTransport:
             "sendMessage", {"chat_id": conversation_id, "text": text}
         )
         return self._message_id(response)
+
+    async def send_text(self, conversation_id: str, text: str) -> str | None:
+        """Send a plain text message."""
+        return await self.send_message(conversation_id, text)
 
     async def send_answer(
         self, conversation_id: str, text: str, answer_id: str

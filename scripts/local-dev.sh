@@ -38,6 +38,26 @@ start_ollama() {
   wait_for_ollama
 }
 
+rebuild_app() {
+  ensure_network
+  docker build -f Dockerfile.local -t "$APP_IMAGE" .
+  docker rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
+  "$0" up
+  for _ in $(seq 1 60); do
+    if curl -fsS http://127.0.0.1:8000/readyz >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "local app did not become ready" >&2
+  return 1
+}
+
+e2e_local() {
+  rebuild_app
+  docker exec "$APP_CONTAINER" env RUN_LOCAL_AI_E2E=1 .venv/bin/pytest -m smoke
+}
+
 bootstrap() {
   start_ollama
   docker exec "$OLLAMA_CONTAINER" ollama list | grep -q 'embeddinggemma' || docker exec "$OLLAMA_CONTAINER" ollama pull embeddinggemma
@@ -94,6 +114,8 @@ seed() {
 
 case "${1:-}" in
   bootstrap) bootstrap ;;
+  rebuild-app) rebuild_app ;;
+  e2e-local) e2e_local ;;
   up) up ;;
   down) down ;;
   logs) logs ;;
@@ -101,5 +123,5 @@ case "${1:-}" in
   reset) reset ;;
   migrate) migrate ;;
   seed) seed ;;
-  *) echo "usage: $0 {bootstrap|up|down|logs|shell|reset|migrate|seed}" >&2; exit 2 ;;
+  *) echo "usage: $0 {bootstrap|rebuild-app|e2e-local|up|down|logs|shell|reset|migrate|seed}" >&2; exit 2 ;;
 esac

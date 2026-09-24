@@ -11,10 +11,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /uvx /bin/
 WORKDIR /workspace
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-default-groups --group local --no-install-project
+RUN uv sync --frozen --no-default-groups --group dev --group local --no-install-project
 
 COPY . .
-RUN uv sync --frozen --no-default-groups --group local
+RUN uv sync --frozen --no-default-groups --group dev --group local
 
 EXPOSE 8000
 

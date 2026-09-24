@@ -12,19 +12,16 @@ from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener_pairing import MessagePairingService
-from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
 from knowledge_bot.application.review import ReviewService
-from knowledge_bot.application.reviewers import (
-    ReviewerManager,
-    ReviewerReportService,
-    ReviewerRouter,
-)
+from knowledge_bot.application.reviewers import ReviewerManager, ReviewerRouter
+from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.infrastructure.context import AppContext
@@ -44,6 +41,7 @@ from tests.fakes.support import (
     FrozenClock,
     InMemoryDailyReportSource,
     InMemoryDailyReportStateRepository,
+    RecordingNotifier,
     RecordingTransport,
 )
 from tests.fakes.transactions import InMemoryCorrectionCommitStore
@@ -60,21 +58,18 @@ SPACE_B = "sp_" + "2" * 32
 
 async def _seed_test_bindings(backend: InMemoryBackend) -> None:
     """Seed the two Telegram groups used by the default test context."""
-    values = ((ALLOWED_CHAT_ID, SPACE_A), ("-200", SPACE_B))
-    for chat_id, space_id in values:
+    for chat_id, space_id in ((ALLOWED_CHAT_ID, SPACE_A), ("-200", SPACE_B)):
         if await backend.spaces.get(space_id) is None:
-            await backend.spaces.add(
-                Space(id=space_id, title=f"Group {chat_id}", created_at=DEFAULT_NOW)
-            )
+            await backend.spaces.add(Space(space_id, DEFAULT_NOW, f"Group {chat_id}"))
         if await backend.bindings.get("telegram", chat_id) is None:
             await backend.bindings.add(
                 ChannelBinding(
-                    channel="telegram",
-                    external_conversation_id=chat_id,
-                    conversation_id=chat_id,
-                    space_id=space_id,
-                    title=f"Group {chat_id}",
-                    created_at=DEFAULT_NOW,
+                    "telegram",
+                    chat_id,
+                    chat_id,
+                    space_id,
+                    DEFAULT_NOW,
+                    f"Group {chat_id}",
                 )
             )
 
@@ -90,110 +85,43 @@ def build_test_context(
     pairing_output: PairingOutput | None = None,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
-    """Build a context wired to in-memory fakes.
-
-    Args:
-        background_listener_enabled: Whether unaddressed traffic is ingested.
-        recap_enabled: Whether the recap service may send.
-        spent_neurons: Estimated AI spend to pre-load for today, to exercise
-            the quota guard.
-        allowed_user_ids: Extra users who may open a private chat.
-        admin_report_mode: How the admin is informed of reviewer resolutions.
-        reviewer_escalation_timeout_seconds: Grace period before admin fallback.
-        pairing_output: Optional fixed pairing model output for listener tests.
-        backend: Optional shared state for tests that need to inspect or reuse it.
-
-    Returns:
-        The context and the recording transport used by the recap/answer services.
-    """
+    """Build a context wired to in-memory fakes."""
+    del recap_enabled, admin_report_mode
     backend = backend or InMemoryBackend()
     asyncio.run(_seed_test_bindings(backend))
     if spent_neurons:
         backend.ai_usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
-    answers = backend.answers
-    feedback_repo = backend.feedback
     transport = RecordingTransport()
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
-    projection_manifest = InMemorySearchProjectionRepository()
+    manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
-        sources=backend.sources,
-        conversations=backend.conversations,
-        messages=backend.messages,
-        attachments=backend.attachments,
+        backend.sources, backend.conversations, backend.messages, backend.attachments
     )
-    answer = AnswerService(
-        retrieval=RetrievalService(embedder=embedder, vectors=vectors),
-        generator=FakeGenerator(),
-        answers=answers,
-        delivery_receipts=backend.delivery_receipts,
-        transport=transport,
-        channel="telegram",
-        clock=clock,
-        conversations=backend.conversations,
-        sources=backend.sources,
-    )
-    recap = RecapService(
-        answers=answers,
-        conversations=backend.conversations,
-        state=backend.recap_state,
-        transport=transport,
-        clock=clock,
-        admin_user_id="1",
-        enabled=recap_enabled,
-        interval_hours=24,
-        language="ca",
-        budget=budget,
-        feedback=feedback_repo,
-        messages=ingestor.messages,
-    )
-    reviewer_repo = backend.reviewers
-    reviewer_events = backend.reviewer_events
-    reviewer_report = ReviewerReportService(
-        events=reviewer_events,
-        state=backend.report_state,
-        transport=transport,
-        clock=clock,
-        admin_user_id="1",
-        mode=admin_report_mode,
+    classifier = MessageClassifier(embedder=embedder)
+    projector = SearchProjectionService(
+        FakeSearchIndexSource(), embedder, vectors, manifest, clock, budget
     )
     settings = Settings(
+        _env_file=None,
         telegram_webhook_secret=WEBHOOK_SECRET,
         telegram_bot_id=BOT_ID,
         telegram_bot_username=BOT_USERNAME,
-        allowed_telegram_chat_ids=ALLOWED_CHAT_IDS,
         admin_telegram_user_id="1",
         internal_admin_key="internal",
         reviewer_escalation_timeout_seconds=reviewer_escalation_timeout_seconds,
         background_listener_enabled=background_listener_enabled,
-        recap_enabled=recap_enabled,
-    )
-    classifier = MessageClassifier(embedder=embedder)
-    correction_commits = InMemoryCorrectionCommitStore(
-        backend.qa_items,
-        backend.qa_versions,
-        backend.qa_evidence,
-        feedback_repo,
     )
     identity = TelegramIdentity(
-        allowed_chat_ids=frozenset({ALLOWED_CHAT_ID, "-200"}),
         admin_user_id="1",
         bot_id=BOT_ID,
         bot_username=BOT_USERNAME,
         allowed_user_ids=allowed_user_ids,
     )
-    pairing = MessagePairingService(
-        messages=backend.messages,
-        conversations=backend.conversations,
-        candidates=backend.message_pair_candidates,
-        windows=backend.listener_pairing_windows,
-        embedder=embedder,
-        vectors=vectors,
-        manifest=projection_manifest,
-        model=FakePairingModel(pairing_output),
-        clock=clock,
+    commits = InMemoryCorrectionCommitStore(
+        backend.qa_items, backend.qa_versions, backend.qa_evidence, backend.feedback
     )
     context = AppContext(
         settings=settings,
@@ -202,69 +130,73 @@ def build_test_context(
         ingestor=ingestor,
         classifier=classifier,
         background_indexer=BackgroundIndexer(
-            messages=ingestor.messages,
+            backend.messages,
+            backend.conversations,
+            backend.sources,
+            classifier,
+            projector,
+            clock,
+            0.55,
+            budget,
+        ),
+        answer=AnswerService(
+            RetrievalService(embedder, vectors),
+            FakeGenerator(),
+            backend.answers,
+            clock,
             conversations=backend.conversations,
             sources=backend.sources,
-            classifier=classifier,
-            embedder=embedder,
-            vectors=vectors,
-            manifest=projection_manifest,
-            clock=clock,
-            answer_threshold=0.55,
         ),
-        answer=answer,
-        recap=recap,
-        reindex=ReindexService(
-            source=FakeSearchIndexSource(),
-            embedder=embedder,
-            vectors=vectors,
-            manifest=projection_manifest,
-            clock=clock,
-        ),
+        reindex=ReindexService(FakeSearchIndexSource(), projector, clock),
         seed=SeedService(
-            qa_items=backend.qa_items,
-            qa_versions=backend.qa_versions,
-            sources=backend.sources,
-            ingestor=ingestor,
-            clock=clock,
+            backend.qa_items, backend.qa_versions, backend.sources, ingestor, clock
         ),
         spaces=SpaceDirectory(
-            sources=backend.sources,
-            conversations=backend.conversations,
-            spaces=backend.spaces,
-            bindings=backend.bindings,
-            clock=clock,
+            backend.sources,
+            backend.conversations,
+            backend.spaces,
+            backend.bindings,
+            clock,
         ),
-        review=ReviewService(
-            source=FakeReviewSource(), conversations=backend.conversations
-        ),
+        review=ReviewService(FakeReviewSource(), backend.conversations),
         feedback=FeedbackService(
-            answers=answers,
-            feedback=feedback_repo,
-            qa_items=backend.qa_items,
-            qa_versions=backend.qa_versions,
-            conversations=backend.conversations,
-            commits=correction_commits,
-            clock=clock,
+            backend.answers,
+            backend.feedback,
+            backend.qa_items,
+            backend.qa_versions,
+            backend.conversations,
+            commits,
+            clock,
         ),
         interactions=InteractionService(backend.telegram_interactions),
-        reviewers=ReviewerManager(reviewers=reviewer_repo, clock=clock),
-        router=ReviewerRouter(reviewers=reviewer_repo, admin_user_id="1"),
-        reviewer_report=reviewer_report,
+        reviewers=ReviewerManager(backend.reviewers, clock),
+        router=ReviewerRouter(backend.reviewers, "telegram:1"),
         daily_report=DailyReportService(
-            source=InMemoryDailyReportSource(),
-            state=InMemoryDailyReportStateRepository(),
-            transport=transport,
-            budget=budget,
-            clock=clock,
-            admin_principal_id="1",
+            InMemoryDailyReportSource(),
+            InMemoryDailyReportStateRepository(),
+            RecordingNotifier(transport),
+            budget,
+            clock,
+            "telegram:1",
         ),
-        reverter=CorrectionReverter(
-            qa_items=backend.qa_items,
-            qa_versions=backend.qa_versions,
-        ),
+        reverter=CorrectionReverter(backend.qa_items, backend.qa_versions),
         budget=budget,
         transport=transport,
-        pairing=pairing,
+        delivery_receipts=backend.delivery_receipts,
+        pairing=MessagePairingService(
+            backend.messages,
+            backend.conversations,
+            backend.sources,
+            backend.message_pair_candidates,
+            backend.listener_pairing_windows,
+            projector,
+            FakePairingModel(pairing_output),
+            clock,
+            budget,
+        ),
+        projector=projector,
+        runtime_smoke=RuntimeSmokeService(
+            embedder, FakeGenerator(), vectors, manifest, clock
+        ),
     )
     return context, transport

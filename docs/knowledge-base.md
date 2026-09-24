@@ -98,17 +98,13 @@ npx wrangler d1 execute knowledge-bot --remote --yes \
   --command "DELETE FROM messages WHERE source_id='whatsapp_import'"
 ```
 
-Pass `--scope <group-chat-id>` to `kb seed` to tag the imported messages and
-their source as belonging to one group instead of the global layer.
+Pass a logical `space_id` to scoped imports. A Telegram chat id is never a knowledge scope; bind the chat to a space first.
 
 ---
 
 ## Registering the served groups
 
-A Telegram group must be both listed in `ALLOWED_TELEGRAM_CHAT_IDS` and bound to
-a logical space. The allow-list is connector configuration; the durable channel
-binding is the application-level space relationship. An allow-listed group with
-no binding is ignored.
+A Telegram group is served if and only if it has an active `channel_bindings` row. There is no static group allowlist.
 
 Before seeding group-scoped knowledge, register each group so the binding,
 logical space, and conversation exist with its title:
@@ -119,9 +115,7 @@ BOT_BASE_URL=https://<worker>.workers.dev uv run kb group add --chat-id -1001234
 
 The operation is idempotent; re-running with a new `--title` refreshes the name.
 The Telegram adapter supplies the Telegram source descriptor, while the shared
-space service stores only the opaque channel/external binding. The v2 canonical
-CLI will expose this as `kb channel bind telegram`; until that CLI phase lands,
-the authenticated internal registration endpoint performs the same operation.
+space service stores only the opaque channel/external binding. The operation is idempotent; the authenticated internal registration endpoint performs the same binding operation.
 
 ## Reclassifying existing knowledge
 
@@ -176,7 +170,7 @@ The normal path, and the only one that produces a human-approved answer:
 
 1. Someone presses `⚠️ Està malament?` on a wrong answer.
 2. They propose the correction in a private chat.
-3. The admin gets it privately and approves / edits / rejects.
+3. A local reviewer, global reviewer, or admin receives it according to the review matrix and approves / edits / rejects.
 
 An approval creates a **new version** with the proposer's name and the proposal
 date, and supersedes the old one. The version, current pointer, evidence link,
@@ -189,9 +183,7 @@ the flow, including how the admin nominates reviewers with `/reviewer`.
 Knowledge generated from one group's conversation should stay group-scoped; the
 reclassification command in the section below fixes existing rows.
 
-The admin is informed of every reviewer resolution (`ADMIN_REPORT_MODE`:
-`always`, `batch` or `off`) and can roll a correction back with `kb revert`
-(see [operations.md](operations.md)) — never from Telegram.
+Reviewer delivery failures remain pending and escalate to the admin. The deterministic daily report is the only active report mechanism. The admin can roll a correction back with `kb revert` (see [operations.md](operations.md)) — never from Telegram.
 
 ---
 
@@ -270,9 +262,7 @@ on it goes through the normal Telegram correction flow.
 make reindex                       # or: uv run kb reindex
 ```
 
-`make reindex` deletes every vector recorded in the SQL projection manifest,
-clears the manifest, then reads current active Q&A items and eligible message
-evidence. Q&A uses one stable vector id per item (`qa:<qa_item_id>`), so a new
+`make reindex` performs a full SQL rebuild. It deletes known and legacy vector ids, clears the manifest, then reads current active Q&A items and eligible message evidence in bounded batches. Q&A uses one stable vector id per item (`qa:<qa_item_id>`), so a new
 version replaces the old projection instead of leaving a stale searchable
 version.
 

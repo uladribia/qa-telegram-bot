@@ -78,6 +78,14 @@ class IndexStatus(StrEnum):
     FAILED = "failed"
 
 
+class ProjectionState(StrEnum):
+    """Lifecycle of a durable search projection entry."""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    FAILED = "failed"
+
+
 class ReviewAction(StrEnum):
     """Actions available in correction review."""
 

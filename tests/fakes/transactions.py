@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 """In-memory correction transaction store for integration tests."""
 
+from copy import deepcopy
+
 from knowledge_bot.domain.entities import Feedback, QAVersion
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
 from tests.fakes.repositories import (
@@ -28,11 +30,25 @@ class InMemoryCorrectionCommitStore:
         self.feedback = feedback
 
     async def approve(self, command: ApproveCorrectionCommand) -> QAVersion:
-        """Persist the complete correction decision."""
-        await self.versions.add(command.version)
-        await self.items.save(command.item)
-        await self.evidence.add(command.evidence)
-        await self.feedback.save(command.feedback)
+        """Persist all correction writes or none of them."""
+        item_state = deepcopy(self.items._items)
+        version_state = deepcopy(self.versions._items)
+        evidence_state = deepcopy(self.evidence._items)
+        feedback_state = deepcopy(self.feedback._items)
+        try:
+            await self.versions.add(command.version)
+            if await self.items.get(command.item.id) is None:
+                await self.items.add(command.item)
+            else:
+                await self.items.save(command.item)
+            await self.evidence.add(command.evidence)
+            await self.feedback.save(command.feedback)
+        except Exception:
+            self.items._items = item_state
+            self.versions._items = version_state
+            self.evidence._items = evidence_state
+            self.feedback._items = feedback_state
+            raise
         return command.version
 
     async def reject(self, feedback: Feedback) -> Feedback:

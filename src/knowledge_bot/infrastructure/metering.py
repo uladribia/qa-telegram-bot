@@ -16,6 +16,7 @@ from knowledge_bot.ports.generator import (
     GenerationRequest,
     Generator,
 )
+from knowledge_bot.ports.pairing import PairingModel, PairingOutput, PairMessage
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,22 @@ class MeteredEmbedder:
         with contextlib.suppress(Exception):
             await self.budget.record_embedding(texts)
         return vectors
+
+
+@dataclass(frozen=True, slots=True)
+class MeteredPairingModel:
+    """Pairing model that meters one successful extraction call."""
+
+    inner: PairingModel
+    budget: AiBudget
+
+    async def pair(self, messages: list[PairMessage]) -> PairingOutput:
+        """Extract pairs, then record the conservative chat estimate."""
+        result = await self.inner.pair(messages)
+        prompt = "\n".join(item.text for item in messages)
+        with contextlib.suppress(Exception):
+            await self.budget.record_chat(prompt, result.model_dump_json())
+        return result
 
 
 @dataclass(frozen=True, slots=True)

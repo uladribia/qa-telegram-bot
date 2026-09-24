@@ -128,6 +128,18 @@ class RecordingTransport:
         return
 
 
+class RecordingNotifier:
+    """Notifier double backed by a recording transport."""
+
+    def __init__(self, transport: RecordingTransport) -> None:
+        """Store the transport used for notifications."""
+        self._transport = transport
+
+    async def send_text(self, principal_id: str, text: str) -> bool:
+        """Record a notification and report success."""
+        return await self._transport.send_message(principal_id, text) is not None
+
+
 class InMemoryDailyReportStateRepository:
     """In-memory daily report send state."""
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Integration tests for the full answer flow (fake embedder/store/generator)."""
+"""Integration tests for durable answer preparation."""
 
 import json
 from datetime import UTC, datetime
@@ -11,11 +11,8 @@ from knowledge_bot.domain.enums import AnswerMode, ContentType
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
-from tests.fakes.repositories import (
-    InMemoryBotAnswerRepository,
-    InMemoryDeliveryReceiptRepository,
-)
-from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.repositories import InMemoryBotAnswerRepository
+from tests.fakes.support import FrozenClock
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 SPACE_ID = "sp_" + "1" * 32
@@ -40,19 +37,12 @@ def _message(text: str) -> NormalizedMessage:
 
 
 async def _service(
-    records: list[VectorRecord],
-    result: GenerationOutput | None = None,
-) -> tuple[
-    AnswerService,
-    InMemoryBotAnswerRepository,
-    RecordingTransport,
-    FakeGenerator,
-]:
+    records: list[VectorRecord], result: GenerationOutput | None = None
+) -> tuple[AnswerService, InMemoryBotAnswerRepository, FakeGenerator]:
     store = FakeVectorStore()
     await store.upsert(records)
     generator = FakeGenerator(result)
     answers = InMemoryBotAnswerRepository()
-    transport = RecordingTransport()
     service = AnswerService(
         retrieval=RetrievalService(
             embedder=FakeEmbedder([1.0, 0.0]),
@@ -62,12 +52,9 @@ async def _service(
         ),
         generator=generator,
         answers=answers,
-        delivery_receipts=InMemoryDeliveryReceiptRepository(),
-        transport=transport,
-        channel="test",
         clock=FrozenClock(NOW),
     )
-    return service, answers, transport, generator
+    return service, answers, generator
 
 
 def _qa_record() -> VectorRecord:
@@ -101,71 +88,58 @@ def _message_record() -> VectorRecord:
     )
 
 
-async def test_direct_qa_answer_is_sent_and_persisted() -> None:
-    """A strong Q&A match is sent with sources and stored."""
-    service, answers, transport, generator = await _service([_qa_record()])
-    record = await service.answer(_message("/ask quan entrenen?"))
-    assert record is not None
-    assert record.answer_mode is AnswerMode.DIRECT_QA
-    assert record.qa_version_id == "qav:web-1"
-    assert record.question == "quan entrenen?"
-    assert generator.requests == []
-    conversation_id, text, answer_id = transport.answers[0]
-    assert conversation_id == "-100"
-    assert text.startswith("Els dimarts.")
-    assert "Fonts:" in text
-    assert answer_id == "ans:m1"
-    assert record.telegram_bot_message_id is not None
+async def test_direct_qa_is_persisted_before_delivery() -> None:
+    """Answer preparation stores the rendered response and citations."""
+    service, answers, generator = await _service([_qa_record()])
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.DIRECT_QA
+    assert response.answer_id == "ans:m1"
+    assert response.sources[0].source_id == "qa:web-item"
     stored = await answers.get("ans:m1")
     assert stored is not None
-    assert json.loads(stored.sources_json) == ["qa:web-item"]
+    assert stored.rendered_text == response.rendered_text
+    assert json.loads(stored.source_details_json)[0]["source_id"] == "qa:web-item"
+    assert generator.requests == []
 
 
-async def test_delivery_receipt_prevents_duplicate_answer_delivery() -> None:
-    """Retrying the same application answer does not send a second message."""
-    service, _, transport, generator = await _service([_qa_record()])
+async def test_answer_message_replay_returns_exact_response() -> None:
+    """A repeated message reuses the durable answer without another decision."""
+    service, _, generator = await _service([_qa_record()])
     message = _message("/ask quan entrenen?")
-
-    first = await service.answer(message)
-    second = await service.answer(message)
-
-    assert first is not None and second is not None
-    assert second.id == first.id
-    assert len(transport.answers) == 1
-    assert len(generator.requests) == 0
+    first = await service.answer_message(message)
+    second = await service.answer_message(message)
+    assert first == second
+    assert generator.requests == []
 
 
 async def test_synthesis_uses_generator_and_citations() -> None:
     """Message evidence goes through the generator and validates citations."""
-    service, _, transport, generator = await _service(
+    service, _, generator = await _service(
         [_message_record()],
         GenerationOutput(
-            status="answered",
-            answer="Sí, els dimarts.",
-            source_ids=["msg:m9"],
+            status="answered", answer="Sí, els dimarts.", source_ids=["msg:m9"]
         ),
     )
-    record = await service.answer(_message("/ask quan entrenen?"))
-    assert record is not None
-    assert record.answer_mode is AnswerMode.SYNTHESIS
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
     assert len(generator.requests) == 1
-    assert transport.answers[0][1].startswith("Sí, els dimarts.")
+    assert response.sources[0].source_id == "msg:m9"
 
 
-async def test_no_knowledge_abstains_and_sends_the_abstention() -> None:
-    """With an empty index the bot abstains and says so."""
-    service, answers, transport, generator = await _service([])
-    record = await service.answer(_message("/ask quan entrenen?"))
-    assert record is not None
-    assert record.answer_mode is AnswerMode.ABSTENTION
-    assert record.answer == ABSTENTION_TEXT
-    assert transport.answers[0][1] == ABSTENTION_TEXT
+async def test_no_knowledge_abstains_and_persists() -> None:
+    """With an empty index the bot abstains durably."""
+    service, answers, generator = await _service([])
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.ABSTENTION
+    assert response.answer == ABSTENTION_TEXT
     assert generator.requests == []
     assert await answers.get("ans:m1") is not None
 
 
 async def test_empty_question_is_not_answered() -> None:
-    """A bare /ask with no question produces no answer and no message."""
-    service, _, transport, _ = await _service([])
-    assert await service.answer(_message("/ask")) is None
-    assert transport.answers == []
+    """A bare ask with no question produces no answer."""
+    service, _, _ = await _service([])
+    assert await service.answer_message(_message("/ask")) is None

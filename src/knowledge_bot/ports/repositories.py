@@ -125,6 +125,12 @@ class MessageRepository(Protocol):
         """Return a bounded batch with the requested classification state."""
         ...
 
+    async def list_recent_listener(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages classified by the background listener."""
+        ...
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:
@@ -283,9 +289,12 @@ class TelegramInteractionRepository(Protocol):
         ...
 
     async def consume(
-        self, external_message_id: str, consumed_at: datetime
+        self,
+        external_message_id: str,
+        principal_id: str,
+        consumed_at: datetime,
     ) -> TelegramInteraction | None:
-        """Atomically return and consume one unused interaction."""
+        """Atomically consume one unused interaction for its principal."""
         ...
 
 
@@ -396,6 +405,8 @@ class DailyReportSnapshot:
     rejected: int = 0
     audit_labels: tuple[str, ...] = ()
     seed_divergences: int = 0
+    projection_pending: int = 0
+    projection_failed: int = 0
 
 
 @runtime_checkable

@@ -15,6 +15,7 @@ Usage::
 
 import argparse
 import asyncio
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -25,11 +26,7 @@ import httpx
 import yaml
 
 from knowledge_bot.application.answer_question import AnswerService, render_source_line
-from knowledge_bot.application.feedback import (
-    GROUP_SCOPE,
-    FeedbackService,
-    canonical_key_for,
-)
+from knowledge_bot.application.feedback import FeedbackService, canonical_key_for
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.retrieval import (
     Evidence,
@@ -39,10 +36,9 @@ from knowledge_bot.application.retrieval import (
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
-from knowledge_bot.domain.enums import AnswerMode, QAStatus
+from knowledge_bot.domain.enums import AnswerMode, QAStatus, ReviewAction
 from knowledge_bot.domain.identity import source_instance_id
 from knowledge_bot.domain.policies import is_ask_command
-from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import (
     FakeEmbedder,
@@ -53,7 +49,6 @@ from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryBotAnswerRepository,
     InMemoryConversationRepository,
-    InMemoryDeliveryReceiptRepository,
     InMemoryFeedbackRepository,
     InMemoryMessageRepository,
     InMemoryQAEvidenceRepository,
@@ -61,7 +56,7 @@ from tests.fakes.repositories import (
     InMemoryQAVersionRepository,
     InMemorySourceRepository,
 )
-from tests.fakes.support import FrozenClock, RecordingTransport
+from tests.fakes.support import FrozenClock
 from tests.fakes.transactions import InMemoryCorrectionCommitStore
 
 EVALS_DIR = Path(__file__).resolve().parents[1] / "evals"
@@ -229,9 +224,6 @@ def eval_conflicts() -> EvalReport:
             ),
             generator=generator,
             answers=InMemoryBotAnswerRepository(),
-            delivery_receipts=InMemoryDeliveryReceiptRepository(),
-            transport=RecordingTransport(),
-            channel="test",
             clock=FrozenClock(NOW),
         )
         question = str(case.get("question", ""))
@@ -310,10 +302,12 @@ def eval_corrections() -> EvalReport:
             )
         )
         service, items, versions = _correction_flow(answers)
-        started = await service.start("ans:m1", "reporter")
+        started = await service.start("ans:m1", "telegram:reporter")
         assert started is not None
-        await service.propose(started.id, "La llista la passa l'entrenador.")
-        version = await service.approve(started.id, GROUP_SCOPE)
+        await service.propose(
+            started.id, "La llista la passa l'entrenador.", "telegram:reporter"
+        )
+        version = await service.approve(started.id, ReviewAction.APPROVE_GLOBAL)
         report.check(
             version is not None
             and version.authority == 100
@@ -358,10 +352,10 @@ def eval_corrections() -> EvalReport:
                 created_at=NOW,
             )
         )
-        started = await service.start("ans:m1", None)
+        started = await service.start("ans:m1", "telegram:reporter")
         assert started is not None
-        await service.propose(started.id, "Resposta corregida.")
-        override = await service.approve(started.id, GLOBAL_SCOPE)
+        await service.propose(started.id, "Resposta corregida.", "telegram:reporter")
+        override = await service.approve(started.id, ReviewAction.APPROVE_GLOBAL)
         report.check(
             override is not None
             and override.supersedes_version_id == "qav-web-1"
@@ -387,9 +381,11 @@ def eval_corrections() -> EvalReport:
             )
         )
         reject_service, _, _ = _correction_flow(reject_answers)
-        reject_started = await reject_service.start("ans:reject", None)
+        reject_started = await reject_service.start("ans:reject", "telegram:reporter")
         assert reject_started is not None
-        await reject_service.propose(reject_started.id, "proposta rebutjada")
+        await reject_service.propose(
+            reject_started.id, "proposta rebutjada", "telegram:reporter"
+        )
         rejected = await reject_service.reject(reject_started.id)
         report.check(
             rejected is not None and rejected.status.value == "rejected",
@@ -410,11 +406,11 @@ def eval_corrections() -> EvalReport:
             )
         )
         service, items, versions = _correction_flow(answers)
-        started = await service.start("ans:m2", None)
+        started = await service.start("ans:m2", "telegram:reporter")
         assert started is not None
-        await service.propose(started.id, "proposta del reporter")
+        await service.propose(started.id, "proposta del reporter", "telegram:reporter")
         await service.admin_edit(started.id, "text editat per l'admin")
-        edited = await service.approve(started.id, GROUP_SCOPE)
+        edited = await service.approve(started.id, ReviewAction.APPROVE_GLOBAL)
         report.check(
             edited is not None and edited.answer == "text editat per l'admin",
             "case 4 (admin edit): the edited text did not win",
@@ -435,14 +431,14 @@ def eval_corrections() -> EvalReport:
                 )
             )
         service, items, versions = _correction_flow(answers)
-        first = await service.start("ans:m3", None)
+        first = await service.start("ans:m3", "telegram:reporter")
         assert first is not None
-        await service.propose(first.id, "Primera correcció.")
-        first_version = await service.approve(first.id, GROUP_SCOPE)
-        second = await service.start("ans:m4", None)
+        await service.propose(first.id, "Primera correcció.", "telegram:reporter")
+        first_version = await service.approve(first.id, ReviewAction.APPROVE_GLOBAL)
+        second = await service.start("ans:m4", "telegram:reporter")
         assert second is not None
-        await service.propose(second.id, "Segona correcció.")
-        second_version = await service.approve(second.id, GROUP_SCOPE)
+        await service.propose(second.id, "Segona correcció.", "telegram:reporter")
+        second_version = await service.approve(second.id, ReviewAction.APPROVE_GLOBAL)
         assert first_version is not None and second_version is not None
         report.check(
             second_version.qa_id == first_version.qa_id
@@ -722,6 +718,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.mode == "live" and (
+        not args.base_url or os.getenv("ALLOW_CLOUDFLARE_LIVE_TESTS") != "1"
+    ):
+        parser.error("live evals require --base-url and ALLOW_CLOUDFLARE_LIVE_TESTS=1")
     reports = (
         run_offline()
         if args.mode == "offline"

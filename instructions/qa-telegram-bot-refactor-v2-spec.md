@@ -3,7 +3,7 @@
 **Repository:** `uladribia/qa-telegram-bot`
 **Delivery:** small phase-group branches, merged in canonical order
 **Audience:** coding agents (DeepSeek-class) and human maintainers
-**Status:** implementation contract
+**Status:** implementation contract. The final-hardening plan at `instructions/qa-telegram-bot-final-hardening-plan.md` supersedes this document wherever their wording conflicts; its migration is `0020_final_hardening.sql`.
 **Primary goals:** correctness, maintainability, channel independence, fully local development, zero paid production dependencies
 **Last reviewed against repository:** 2026-09-24
 
