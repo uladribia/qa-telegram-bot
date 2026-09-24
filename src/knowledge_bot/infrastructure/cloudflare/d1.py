@@ -1925,6 +1925,21 @@ class D1DailyReportSource:
                 and str(row.get("approval_scope")) == "global"
             )
         )
+        divergence = _count(
+            _row(
+                await self._db.prepare(
+                    "SELECT COUNT(DISTINCT refreshed.qa_id) AS n"
+                    " FROM qa_versions refreshed"
+                    " JOIN qa_versions current"
+                    " ON current.id = refreshed.supersedes_version_id"
+                    " WHERE refreshed.origin = 'web_seed'"
+                    " AND current.origin = 'human_approved'"
+                    " AND refreshed.created_at >= ? AND refreshed.created_at < ?"
+                )
+                .bind(_iso(start), _iso(end))
+                .first()
+            )
+        )
         return DailyReportSnapshot(
             addressed_total=sum(counts.values()),
             direct=counts.get("direct_qa", 0),
@@ -1960,6 +1975,7 @@ class D1DailyReportSource:
             approved_global=approved_global,
             rejected=corrections.get("rejected", 0),
             audit_labels=audit,
+            seed_divergences=divergence,
         )
 
 
