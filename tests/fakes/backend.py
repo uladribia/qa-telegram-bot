@@ -10,6 +10,7 @@ from tests.fakes.repositories import (
     InMemoryConversationRepository,
     InMemoryDeliveryReceiptRepository,
     InMemoryFeedbackRepository,
+    InMemoryMessagePairCandidateRepository,
     InMemoryMessageRepository,
     InMemoryQAEvidenceRepository,
     InMemoryQAItemRepository,
@@ -41,6 +42,9 @@ class InMemoryBackend:
     )
     messages: InMemoryMessageRepository = field(
         default_factory=InMemoryMessageRepository
+    )
+    message_pair_candidates: InMemoryMessagePairCandidateRepository = field(
+        default_factory=InMemoryMessagePairCandidateRepository
     )
     attachments: InMemoryAttachmentRepository = field(
         default_factory=InMemoryAttachmentRepository

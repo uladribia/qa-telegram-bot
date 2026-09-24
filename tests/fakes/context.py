@@ -13,6 +13,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -27,9 +28,11 @@ from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.pairing import PairingOutput
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
+    FakePairingModel,
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
@@ -82,6 +85,7 @@ def build_test_context(
     allowed_user_ids: frozenset[str] = frozenset(),
     admin_report_mode: str = "always",
     reviewer_escalation_timeout_seconds: int = 86_400,
+    pairing_output: PairingOutput | None = None,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
@@ -94,6 +98,7 @@ def build_test_context(
         allowed_user_ids: Extra users who may open a private chat.
         admin_report_mode: How the admin is informed of reviewer resolutions.
         reviewer_escalation_timeout_seconds: Grace period before admin fallback.
+        pairing_output: Optional fixed pairing model output for listener tests.
         backend: Optional shared state for tests that need to inspect or reuse it.
 
     Returns:
@@ -177,6 +182,16 @@ def build_test_context(
         bot_username=BOT_USERNAME,
         allowed_user_ids=allowed_user_ids,
     )
+    pairing = MessagePairingService(
+        messages=backend.messages,
+        conversations=backend.conversations,
+        candidates=backend.message_pair_candidates,
+        embedder=embedder,
+        vectors=vectors,
+        manifest=projection_manifest,
+        model=FakePairingModel(pairing_output),
+        clock=clock,
+    )
     context = AppContext(
         settings=settings,
         identity=identity,
@@ -249,5 +264,6 @@ def build_test_context(
         ),
         budget=budget,
         transport=transport,
+        pairing=pairing,
     )
     return context, transport

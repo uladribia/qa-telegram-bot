@@ -18,6 +18,7 @@ from knowledge_bot.domain.entities import (
     DeliveryReceipt,
     Feedback,
     Message,
+    MessagePairCandidate,
     QAEvidence,
     QAItem,
     QAVersion,
@@ -647,6 +648,20 @@ class D1MessageRepository:
         )
         return [_message(row) for row in _rows(result)]
 
+    async def list_recent(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages in a conversation ordered by creation time."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM messages WHERE conversation_id = ?"
+                " AND created_at >= ? ORDER BY created_at LIMIT ?"
+            )
+            .bind(conversation_id, _iso(start), limit)
+            .run()
+        )
+        return [_message(row) for row in _rows(result)]
+
     async def listener_stats_between(
         self, start: datetime, end: datetime
     ) -> tuple[int, int]:
@@ -670,6 +685,54 @@ class D1MessageRepository:
             .first()
         )
         return (_count(ingested), _count(paired))
+
+
+class D1MessagePairCandidateRepository:
+    """D1 implementation of non-authoritative listener pair candidates."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def add(self, candidate: MessagePairCandidate) -> bool:
+        """Persist one candidate idempotently."""
+        try:
+            await (
+                self._db.prepare(
+                    "INSERT INTO message_pair_candidates"
+                    " (id, conversation_id, question_message_id, answer_message_id,"
+                    " confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                )
+                .bind(
+                    candidate.id,
+                    candidate.conversation_id,
+                    candidate.question_message_id,
+                    candidate.answer_message_id,
+                    candidate.confidence,
+                    candidate.source,
+                    _iso(candidate.created_at),
+                )
+                .run()
+            )
+        except Exception as error:
+            if "UNIQUE" in str(error).upper():
+                return False
+            raise
+        return True
+
+    async def list_for_conversation(
+        self, conversation_id: str
+    ) -> list[MessagePairCandidate]:
+        """Return candidates for one conversation."""
+        result = await (
+            self._db.prepare(
+                "SELECT * FROM message_pair_candidates"
+                " WHERE conversation_id = ? ORDER BY created_at"
+            )
+            .bind(conversation_id)
+            .run()
+        )
+        return [_pair_candidate(row) for row in _rows(result)]
 
 
 class D1AttachmentRepository:
@@ -850,6 +913,18 @@ def _message(row: dict[str, object]) -> Message:
             str(row.get("index_status") or IndexStatus.NOT_INDEXED.value)
         ),
         indexed_at=_opt_dt(row.get("indexed_at")),
+    )
+
+
+def _pair_candidate(row: dict[str, object]) -> MessagePairCandidate:
+    return MessagePairCandidate(
+        id=str(row["id"]),
+        conversation_id=str(row["conversation_id"]),
+        question_message_id=str(row["question_message_id"]),
+        answer_message_id=str(row["answer_message_id"]),
+        confidence=float(cast(float, row["confidence"])),
+        source=str(row["source"]),
+        created_at=_dt(row["created_at"]),
     )
 
 

@@ -1018,20 +1018,34 @@ OR
 correction >= configured threshold
 ```
 
-A reply may be indexed as a Q→A pair when:
+An explicit reply may be indexed as a Q→A pair when:
 
 - parent message exists in the same space;
 - parent classification is `question` above the question threshold;
 - reply is answer-like (`knowledge_update` or `correction`) above answer threshold.
 
-Embed the pair as:
+For mixed chat windows where an answer is nearby but not an explicit reply:
+
+- group messages by conversation and bounded idle gaps;
+- cap the number of messages and characters per window;
+- send each ambiguous window once to the approved generator;
+- require a validated JSON list of message-id pairs and confidence values;
+- reject invented ids, duplicate pairs, and low-confidence pairs;
+- store accepted pairs as non-authoritative `message_pair_candidates`;
+- index them as message evidence, never as canonical Q&A.
+
+The pairing model is an extraction step, not a judge and not a Q&A generator.
+Do not retry failed model calls automatically.
+
+Embed an accepted pair as:
 
 ```text
 Question: <parent question>
 Answer: <reply text>
 ```
 
-Store the reply message id as the evidence object id.
+Store the stable pair-candidate id as the evidence object id for windowed pairs;
+keep the existing reply-message object id for explicit reply pairs.
 
 ## 8.5 Evidence authority
 
@@ -1054,7 +1068,8 @@ The D1/SQLite search-index query must join/read the source row's `source_type` a
 When an eligible background message is accepted:
 
 - standalone update: reuse the classifier's message embedding;
-- paired Q→A: issue one embedding for the combined pair;
+- explicit paired Q→A: issue one embedding for the combined pair;
+- windowed candidate pair: issue one embedding for each accepted combined pair;
 - upsert immediately;
 - update `messages.index_status='indexed'` only after vector upsert succeeds.
 

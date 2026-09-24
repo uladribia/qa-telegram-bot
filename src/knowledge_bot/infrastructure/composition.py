@@ -14,6 +14,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -37,6 +38,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1Database,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
@@ -60,6 +62,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     AiRunner,
     WorkersAIEmbedder,
     WorkersAIGenerator,
+    WorkersAIPairingModel,
 )
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
 from knowledge_bot.infrastructure.settings import Settings
@@ -107,6 +110,7 @@ class AppContext:
     reverter: CorrectionReverter
     budget: AiBudget
     transport: MessageTransport
+    pairing: MessagePairingService
 
 
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
@@ -212,6 +216,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    pair_candidates = D1MessagePairCandidateRepository(database)
     correction_commits = D1CorrectionCommitStore(database)
     classifier = MessageClassifier(
         embedder=embedder,
@@ -357,4 +362,14 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         budget=budget,
         transport=transport,
+        pairing=MessagePairingService(
+            messages=listener_messages,
+            conversations=listener_conversations,
+            candidates=pair_candidates,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=projection_manifest,
+            model=WorkersAIPairingModel(env.AI, settings.generation_model),
+            clock=clock,
+        ),
     )

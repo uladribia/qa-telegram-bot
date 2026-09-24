@@ -15,6 +15,7 @@ from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.recap_service import RecapService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -37,6 +38,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1DailyReportStateRepository,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
+    D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
     D1QAVersionRepository,
@@ -54,7 +56,11 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
 from knowledge_bot.infrastructure.composition import AppContext
 from knowledge_bot.infrastructure.local.database import SQLiteDatabase, apply_migrations
 from knowledge_bot.infrastructure.local.http import HttpxClient
-from knowledge_bot.infrastructure.local.ollama import OllamaEmbedder, OllamaGenerator
+from knowledge_bot.infrastructure.local.ollama import (
+    OllamaEmbedder,
+    OllamaGenerator,
+    OllamaPairingModel,
+)
 from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
 from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
 from knowledge_bot.infrastructure.metering import MeteredEmbedder, MeteredGenerator
@@ -149,6 +155,7 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
+    pair_candidates = D1MessagePairCandidateRepository(binding)
     commits = D1CorrectionCommitStore(binding)
     recap = RecapService(
         answers=answers,
@@ -287,5 +294,17 @@ async def build_context(
         ),
         budget=budget,
         transport=transport,
+        pairing=MessagePairingService(
+            messages=messages,
+            conversations=conversations,
+            candidates=pair_candidates,
+            embedder=embedder,
+            vectors=vectors,
+            manifest=manifest,
+            model=OllamaPairingModel(
+                client, settings.ollama_base_url, settings.generation_model
+            ),
+            clock=clock,
+        ),
     )
     return context, database, client

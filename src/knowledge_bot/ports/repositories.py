@@ -16,6 +16,7 @@ from knowledge_bot.domain.entities import (
     DeliveryReceipt,
     Feedback,
     Message,
+    MessagePairCandidate,
     QAEvidence,
     QAItem,
     QAVersion,
@@ -130,6 +131,27 @@ class MessageRepository(Protocol):
         Only messages classified by the background listener count as
         ingested; ``paired`` counts those matched to a parent question.
         """
+        ...
+
+    async def list_recent(
+        self, conversation_id: str, start: datetime, limit: int
+    ) -> list[Message]:
+        """Return recent messages in a conversation ordered by creation time."""
+        ...
+
+
+@runtime_checkable
+class MessagePairCandidateRepository(Protocol):
+    """Persistence for non-authoritative listener pairing candidates."""
+
+    async def add(self, candidate: MessagePairCandidate) -> bool:
+        """Persist one candidate, returning false when already present."""
+        ...
+
+    async def list_for_conversation(
+        self, conversation_id: str
+    ) -> list[MessagePairCandidate]:
+        """Return candidates for one conversation."""
         ...
 
 

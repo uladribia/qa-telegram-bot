@@ -158,5 +158,13 @@
     "answer": "La correcció queda pendent i el bot explica a l'admin i al grup quant temps hi ha per obrir un xat privat amb el bot. Si passa el temps configurat sense entrega, la revisió s'escala a l'admin, que pot editar-la i aprovar-la normalment. El termini és REVIEWER_ESCALATION_TIMEOUT_SECONDS; en proves es pot posar a 0 per fer-ho immediat.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/knowledge-base.md",
+    "section": "Escolta i agrupació",
+    "question": "Com aparelles una pregunta i una resposta que no tenen resposta directa?",
+    "answer": "Quan hi ha una finestra de missatges propera, el bot classifica primer amb embeddings i després pot enviar aquesta finestra, de manera acotada, al model d'IA per extreure parelles candidates. Valida els identificats i la confiança, desa cada parella com a evidència de missatges i la indexa. No crea automàticament un Q&A canònic: el Q&A només creix amb seeds/imports o correccions aprovades.",
+    "status": "published",
+    "retrieved_at": "2026-09-24T00:00:00Z"
   }
 ]

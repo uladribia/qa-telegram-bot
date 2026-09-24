@@ -152,11 +152,14 @@ skip the embedding call. Stored questions, chitchat, bot commands, media without
 text, and other ineligible messages are not indexed as factual evidence.
 Relevant standalone updates and corrections are indexed immediately.
 
-A reply that looks like an answer (`CLASSIFIER_ANSWER_MATCH`, default 0.55)
-to a stored message that looks like a question
-(`CLASSIFIER_QUESTION_MATCH`, default 0.60) is matched into a
-question-answer pair: the parent question is stored on the reply, and the pair is
-embedded and indexed immediately as one evidence record.
+Answer pairing is windowed. Recent unaddressed messages are grouped by
+conversation and time proximity (bounded to small batches), classified with the
+embedding model, and then ambiguous windows are sent once to a bounded pairing
+model. The model may return several candidate pairs; ids and confidence are
+validated before anything is stored. A candidate is embedded and indexed as
+message evidence, but it is never promoted to canonical Q&A. Explicit reply
+links and deterministic classifier scores remain the preferred path; the model
+handles mixed chats where the answer is nearby but not a direct reply.
 
 When the background AI budget is above its configured ceiling, accepted messages
 are still stored with deferred classification state and no model call. They do

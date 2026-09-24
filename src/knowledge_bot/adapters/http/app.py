@@ -583,6 +583,8 @@ async def _handle_background_message(
     )
     if result.created:
         await context.background_indexer.process(message.id, classification.embedding)
+        if context_question is None and context.classifier.is_answer_like(scores):
+            await context.pairing.process_message(message.id)
     return "ingest_pair" if context_question is not None else "ingest"
 
 

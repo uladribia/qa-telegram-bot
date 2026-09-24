@@ -238,6 +238,19 @@ class BotAnswer:
 
 
 @dataclass(frozen=True, slots=True)
+class MessagePairCandidate:
+    """A non-authoritative question-answer pair extracted from listener messages."""
+
+    id: str
+    conversation_id: str
+    question_message_id: str
+    answer_message_id: str
+    confidence: float
+    source: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class Feedback:
     """A correction proposed by a user and its review state.
 
