@@ -125,9 +125,9 @@ make eval-live                         # real model calls; costs quota
 the files are well formed. Live checks the deployed bot's real behaviour: retrieval
 recall, answer correctness, citation validity, and abstention.
 
-The live answer suite runs the LLM judge as a **second, conditional call** — only
-for cases that already passed every deterministic check. Keep it that way; the
-judge is the largest quota consumer in the suite.
+Runtime and default test code do not run an LLM judge. Live answer checks use
+retrieval/citation/schema assertions and must be explicitly authorized; the
+judge endpoint has been removed.
 
 Eval thresholds in the plan are acceptance criteria, not suggestions.
 

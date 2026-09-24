@@ -16,6 +16,7 @@ from knowledge_bot.application.reviewers import (
     render_reviewer_list,
 )
 from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
+from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.repositories import (
@@ -77,12 +78,37 @@ def test_can_confirm_only_for_assigned_reviewers_and_admin() -> None:
     """Confirmation is limited to the group's reviewer, the global one, admin."""
     router = ReviewerRouter(reviewers=InMemoryReviewerRepository(), admin_user_id="1")
     asyncio.run(router.reviewers.save(Reviewer(GROUP_A, "222", "Pepe", NOW)))
-    assert asyncio.run(router.can_confirm("222", SPACE_A)) is True
-    assert asyncio.run(router.can_confirm("222", SPACE_B)) is False
-    assert asyncio.run(router.can_confirm("1", SPACE_B)) is True
-    assert asyncio.run(router.can_confirm(None, SPACE_A)) is False
+    assert (
+        asyncio.run(router.can_confirm("222", SPACE_A, ReviewAction.APPROVE_LOCAL))
+        is True
+    )
+    assert (
+        asyncio.run(router.can_confirm("222", SPACE_B, ReviewAction.APPROVE_LOCAL))
+        is False
+    )
+    assert (
+        asyncio.run(router.can_confirm("1", SPACE_B, ReviewAction.APPROVE_GLOBAL))
+        is True
+    )
+    assert (
+        asyncio.run(router.can_confirm(None, SPACE_A, ReviewAction.APPROVE_LOCAL))
+        is False
+    )
     asyncio.run(router.reviewers.save(Reviewer(GLOBAL_SCOPE, "9", "G", NOW)))
-    assert asyncio.run(router.can_confirm("9", SPACE_B)) is True
+    assert (
+        asyncio.run(router.can_confirm("9", SPACE_B, ReviewAction.APPROVE_GLOBAL))
+        is True
+    )
+
+
+def test_local_reviewer_cannot_approve_global_knowledge() -> None:
+    """A forged global callback is denied independently of button visibility."""
+    router = ReviewerRouter(reviewers=InMemoryReviewerRepository(), admin_user_id="1")
+    asyncio.run(router.reviewers.save(Reviewer(GROUP_A, "222", "Pepe", NOW)))
+    assert (
+        asyncio.run(router.can_confirm("222", SPACE_A, ReviewAction.APPROVE_GLOBAL))
+        is False
+    )
 
 
 def test_render_reviewer_list_and_report() -> None:

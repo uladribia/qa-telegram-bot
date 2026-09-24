@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.domain.entities import Reviewer, ReviewerEvent
+from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
@@ -132,28 +133,57 @@ class ReviewerRouter:
             return global_reviewer.user_id
         return self.admin_user_id or None
 
-    async def can_confirm(
+    async def reviewer_name(
         self, user_id: str | None, origin_space_id: str | None
+    ) -> str:
+        """Return a safe display name for a review destination."""
+        if user_id == self.admin_user_id:
+            return "admin"
+        if origin_space_id is not None:
+            reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
+            if reviewer is not None and reviewer.user_id == user_id:
+                return reviewer.name
+        reviewer = await self.reviewers.get(GLOBAL_SCOPE)
+        if reviewer is not None and reviewer.user_id == user_id:
+            return reviewer.name
+        return "revisor"
+
+    async def can_approve_global(self, user_id: str | None) -> bool:
+        """Return whether a principal may render and approve global scope."""
+        if user_id is None:
+            return False
+        if user_id == self.admin_user_id:
+            return True
+        reviewer = await self.reviewers.get(GLOBAL_SCOPE)
+        return reviewer is not None and reviewer.user_id == user_id
+
+    async def can_confirm(
+        self,
+        user_id: str | None,
+        origin_space_id: str | None,
+        action: ReviewAction,
     ) -> bool:
         """Return whether a principal may confirm a correction.
 
         Args:
             user_id: The acting principal id.
             origin_space_id: The logical space where the answer originated.
+            action: The requested review action.
 
         Returns:
-            ``True`` for the space reviewer, global reviewer, or admin.
+            Whether the actor may perform that action for the origin space.
         """
         if user_id is None:
             return False
         if user_id == self.admin_user_id:
             return True
-        if origin_space_id is not None:
-            reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
-            if reviewer is not None and reviewer.user_id == user_id:
-                return True
         global_reviewer = await self.reviewers.get(GLOBAL_SCOPE)
-        return global_reviewer is not None and global_reviewer.user_id == user_id
+        if global_reviewer is not None and global_reviewer.user_id == user_id:
+            return True
+        if origin_space_id is None or action is ReviewAction.APPROVE_GLOBAL:
+            return False
+        reviewer = await self.reviewers.get(scope_for_space(origin_space_id))
+        return reviewer is not None and reviewer.user_id == user_id
 
 
 @dataclass(frozen=True, slots=True)

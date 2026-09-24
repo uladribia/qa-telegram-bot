@@ -164,7 +164,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         direct_qa_threshold=_float(env, "DIRECT_QA_THRESHOLD", 0.7),
         synthesis_threshold=_float(env, "SYNTHESIS_THRESHOLD", 0.3),
         qa_top_k=_int(env, "QA_TOP_K", 5),
-        message_top_k=_int(env, "MESSAGE_TOP_K", 8),
+        message_top_k=_int(env, "MESSAGE_TOP_K", 4),
         ai_daily_neuron_budget=_float(env, "AI_DAILY_NEURON_BUDGET", 10_000.0),
         ai_neuron_reserve_fraction=_float(env, "AI_NEURON_RESERVE_FRACTION", 0.25),
         ai_background_budget_fraction=_float(

@@ -51,7 +51,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Qui pot aprovar una correcció?",
-    "answer": "El revisor del grup on va sorgir la correcció; si el grup no en té, el revisor global; si no n'hi ha cap, l'admin. Ho comprovo al servidor: una confirmació d'una altra persona s'ignora, no només s'amaga. Tothom, en canvi, pot marcar una resposta com a incorrecta i proposar la correcció: per fer una proposta no cal cap permís especial. Si no puc enviar la revisió al revisor perquè encara no té un xat privat amb mi, l'admin la rep directament amb els botons i se'n pot ocupar ell.",
+    "answer": "El revisor del grup on va sorgir la correcció; si el grup no en té, el revisor global; si no n'hi ha cap, l'admin. El revisor del grup només pot aprovar per al seu grup; el global i l'admin també poden aprovar globalment. Ho comprovo al servidor: una confirmació forgada o d'una altra persona s'ignora. Tothom pot marcar una resposta com a incorrecta i proposar una correcció. Si el revisor no té un xat privat amb mi, la revisió queda pendent, aviso l'admin i demano al grup que l'activi.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -59,7 +59,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Corregir una resposta",
     "question": "Quan aprovo una correcció, es perd la resposta antiga?",
-    "answer": "No. Aprovar una correcció afegeix una nova versió de la resposta; l'anterior es conserva, i el Q&A original del web mai no es modifica. A més, en aprovar, l'admin tria l'abast: global (tots els grups veuran la resposta corregida) o només per al grup on va sorgir la correcció. En aquest grup, la versió del grup té prioritat sobre la global.",
+    "answer": "No. Aprovar una correcció afegeix una nova versió de la resposta; l'anterior es conserva i el Q&A original del web no es modifica. El revisor del grup pot aprovar-la només per al seu grup. El revisor global o l'admin poden fer-la global per a tots els grups. En el grup on existeix una versió local, aquesta té prioritat sobre la global.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },

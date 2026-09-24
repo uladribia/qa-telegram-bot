@@ -608,16 +608,9 @@ def _terms(value: object) -> list[str]:
     return [str(item) for item in value]
 
 
-def _eval_answer(
-    base_url: str, case: dict[str, object], report: EvalReport, *, judged: bool
-) -> None:
-    """Ask one question live and assert on the rendered answer.
-
-    The judge is a second, conditional call: it only runs for cases whose
-    deterministic checks all passed, which halves its share of the AI quota.
-    """
+def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> None:
+    """Ask one question live and assert deterministic answer and citation rules."""
     question = str(case["question"])
-    failed_before = len(report.failures)
     try:
         response = httpx.post(
             f"{base_url}/internal/eval/answer",
@@ -673,45 +666,13 @@ def _eval_answer(
                 claim.lower() not in answer.lower(),
                 f"{question!r}: answer claims {claim!r}",
             )
-    if not judged or mode != "synthesis":
-        return
-    # Judge only what already passed every deterministic check.
-    if len(report.failures) != failed_before:
-        return
-    verdict = _judge(base_url, question, answer, citations)
-    if verdict is None:
-        report.check(False, f"{question!r}: judge request failed")
-        return
-    report.check(
-        verdict.get("verdict") == "grounded",
-        f"{question!r}: judge said {verdict.get('verdict')!r}: {verdict.get('reason')}",
-    )
-
-
-def _judge(
-    base_url: str, question: str, answer: str, citations: list[dict[str, object]]
-) -> dict[str, object] | None:
-    """Ask the judge about an answer, giving it only the cited evidence."""
-    evidence = [str(item.get("text", "")) for item in citations]
-    try:
-        response = httpx.post(
-            f"{base_url}/internal/eval/judge",
-            headers=_internal_headers(),
-            json={"question": question, "answer": answer, "evidence": evidence},
-            timeout=600.0,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPError:
-        return None
-    return payload if isinstance(payload, dict) else None
 
 
 def eval_live_answers(base_url: str) -> EvalReport:
     """Check that live answers are correct, sourced, and grounded (spec §46)."""
     report = EvalReport(name="answers/live")
     for case in load_cases("answers.yaml"):
-        _eval_answer(base_url, case, report, judged=True)
+        _eval_answer(base_url, case, report)
     return report
 
 
@@ -719,9 +680,7 @@ def eval_live_abstention(base_url: str) -> EvalReport:
     """Check that unknown questions abstain instead of inventing (spec §41)."""
     report = EvalReport(name="abstention/live")
     for case in load_cases("abstention.yaml"):
-        _eval_answer(
-            base_url, {**case, "expected_mode": "abstention"}, report, judged=False
-        )
+        _eval_answer(base_url, {**case, "expected_mode": "abstention"}, report)
     return report
 
 

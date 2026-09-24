@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: MIT
 """Tests for the Telegram outbound transport."""
 
-from knowledge_bot.adapters.outbound.telegram import TelegramTransport
+from typing import cast
+
+from knowledge_bot.adapters.outbound.telegram import TelegramTransport, review_keyboard
 from tests.fakes.http import RecordingHttpClient
 
 
@@ -16,6 +18,19 @@ async def test_send_message_posts_to_telegram() -> None:
             {"chat_id": "-100", "text": "hola"},
         )
     ]
+
+
+def test_local_reviewer_keyboard_omits_global_approval() -> None:
+    """A local reviewer sees only the local approval action."""
+    keyboard = review_keyboard("fb-1", include_global=False)
+    inline_keyboard = keyboard.get("inline_keyboard")
+    assert isinstance(inline_keyboard, list)
+    first_row = inline_keyboard[0]
+    assert isinstance(first_row, list)
+    callbacks = [
+        cast("dict[str, object]", button).get("callback_data") for button in first_row
+    ]
+    assert callbacks == ["feedback:approve-group:fb-1"]
 
 
 async def test_telegram_ok_false_is_a_delivery_failure() -> None:

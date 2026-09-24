@@ -15,7 +15,6 @@ from knowledge_bot.ports.generator import (
     GenerationOutput,
     GenerationRequest,
     Generator,
-    JudgeVerdict,
 )
 
 
@@ -53,13 +52,3 @@ class MeteredGenerator:
         )
         await self._record(prompt, result.answer)
         return result
-
-    async def judge(
-        self, question: str, answer: str, evidence: list[str]
-    ) -> JudgeVerdict:
-        """Judge an answer, then record the estimate."""
-        verdict = await self.inner.judge(question, answer, evidence)
-        await self._record(
-            f"{question}\n{answer}\n{''.join(evidence)}", verdict.verdict
-        )
-        return verdict

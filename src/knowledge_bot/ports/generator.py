@@ -8,7 +8,7 @@ models living here next to the protocol that produces them.
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,12 +36,21 @@ class GenerationOutput(BaseModel):
     answer: str = ""
     source_ids: list[str] = Field(default_factory=list)
 
-
-class JudgeVerdict(BaseModel):
-    """An answer-quality verdict; ``error`` marks an unparseable judge call."""
-
-    verdict: Literal["grounded", "unsupported", "wrong", "error"]
-    reason: str = ""
+    @model_validator(mode="after")
+    def _validate_answer_and_sources(self) -> "GenerationOutput":
+        """Require coherent answer text and unique source ids."""
+        if len(self.source_ids) != len(set(self.source_ids)):
+            message = "generation source ids must be unique"
+            raise ValueError(message)
+        if self.status == "answered" and (
+            not self.answer.strip() or not self.source_ids
+        ):
+            message = "answered generation requires text and at least one source"
+            raise ValueError(message)
+        if self.status == "insufficient" and self.source_ids:
+            message = "insufficient generation cannot cite sources"
+            raise ValueError(message)
+        return self
 
 
 @runtime_checkable
@@ -50,10 +59,4 @@ class Generator(Protocol):
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Generate an answer, or report insufficient evidence."""
-        ...
-
-    async def judge(
-        self, question: str, answer: str, evidence: list[str]
-    ) -> JudgeVerdict:
-        """Judge whether an answer is fully supported by its evidence."""
         ...

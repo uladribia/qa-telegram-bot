@@ -43,7 +43,7 @@ class FeedbackStatus(StrEnum):
     """Lifecycle of a correction proposal."""
 
     AWAITING_PROPOSAL = "awaiting_proposal"
-    PENDING_ADMIN = "pending_admin"
+    PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
     REJECTED = "rejected"
 
@@ -76,6 +76,15 @@ class IndexStatus(StrEnum):
     PENDING = "pending"
     INDEXED = "indexed"
     FAILED = "failed"
+
+
+class ReviewAction(StrEnum):
+    """Actions available in correction review."""
+
+    APPROVE_LOCAL = "approve_local"
+    APPROVE_GLOBAL = "approve_global"
+    EDIT = "edit"
+    REJECT = "reject"
 
 
 class AiWorkClass(StrEnum):

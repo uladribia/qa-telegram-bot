@@ -67,6 +67,7 @@ class RecordingTransport:
         self.edits: list[tuple[str, str, str]] = []
         self.force_replies: list[tuple[str, str]] = []
         self.reviews: list[tuple[str, str, str]] = []
+        self.review_global_access: dict[str, bool] = {}
         self.callback_alerts: list[tuple[str, str]] = []
         #: Chat ids that simulate an unreachable DM target (user never
         #: started a private chat with the bot).
@@ -105,12 +106,17 @@ class RecordingTransport:
         return str(len(self.force_replies))
 
     async def send_review(
-        self, conversation_id: str, text: str, feedback_id: str
+        self,
+        conversation_id: str,
+        text: str,
+        feedback_id: str,
+        include_global: bool = True,
     ) -> str | None:
         """Record an admin review message."""
         if not self._reachable(conversation_id):
             return None
         self.reviews.append((conversation_id, text, feedback_id))
+        self.review_global_access[conversation_id] = include_global
         return str(len(self.reviews))
 
     async def answer_callback(self, callback_id: str, alert: str | None = None) -> None:

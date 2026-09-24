@@ -5,11 +5,7 @@ import math
 from datetime import datetime
 
 from knowledge_bot.domain.errors import ModelUnavailableError
-from knowledge_bot.ports.generator import (
-    GenerationOutput,
-    GenerationRequest,
-    JudgeVerdict,
-)
+from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
@@ -108,20 +104,11 @@ class FakeGenerator:
             result if result is not None else GenerationOutput(status="insufficient")
         )
         self.requests: list[GenerationRequest] = []
-        self.verdict = JudgeVerdict(verdict="grounded")
-        self.judgements: list[tuple[str, str, list[str]]] = []
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Record the request and return the fixed result."""
         self.requests.append(request)
         return self.result
-
-    async def judge(
-        self, question: str, answer: str, evidence: list[str]
-    ) -> JudgeVerdict:
-        """Record the judgement and return the fixed verdict."""
-        self.judgements.append((question, answer, evidence))
-        return self.verdict
 
 
 class InMemorySearchProjectionRepository:

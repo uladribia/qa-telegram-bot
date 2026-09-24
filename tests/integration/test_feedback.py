@@ -126,7 +126,7 @@ async def test_full_correction_flow_creates_a_new_authoritative_version() -> Non
 
     proposed = await service.propose(started.id, "La llista la passa l'entrenador.")
     assert proposed is not None
-    assert proposed.status is FeedbackStatus.PENDING_ADMIN
+    assert proposed.status is FeedbackStatus.PENDING_REVIEW
 
     request = await service.correction_request(started.id)
     assert request is not None

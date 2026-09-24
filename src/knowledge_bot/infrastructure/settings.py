@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     direct_qa_threshold: float = 0.7
     synthesis_threshold: float = 0.3
     qa_top_k: int = 5
-    message_top_k: int = 8
+    message_top_k: int = 4
 
     ai_daily_neuron_budget: float = 10_000.0
     ai_neuron_reserve_fraction: float = 0.25
