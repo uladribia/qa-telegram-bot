@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     admin_report_mode: str = "always"
     admin_report_interval_min: int = 60
     reviewer_escalation_timeout_seconds: int = 86_400
+    pairing_window_minutes: int = 10
+    pairing_quiet_minutes: int = 2
+    pairing_overlap_minutes: int = 3
 
     background_listener_enabled: bool = False
 
@@ -129,10 +132,11 @@ class Settings(BaseSettings):
             self.recap_interval_hours <= 0
             or self.admin_report_interval_min <= 0
             or self.reviewer_escalation_timeout_seconds < 0
+            or self.pairing_window_minutes <= 0
+            or self.pairing_quiet_minutes < 0
+            or self.pairing_overlap_minutes < 0
         ):
-            message = (
-                "report intervals must be positive and reviewer timeout non-negative"
-            )
+            message = "report and pairing intervals must be valid"
             raise ValueError(message)
         if self.ai_daily_neuron_budget <= 0:
             message = "AI daily budget must be greater than zero"

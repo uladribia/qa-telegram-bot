@@ -308,6 +308,9 @@ async def build_context(
                 client, settings.ollama_base_url, settings.generation_model
             ),
             clock=clock,
+            window_minutes=settings.pairing_window_minutes,
+            quiet_minutes=settings.pairing_quiet_minutes,
+            overlap_minutes=settings.pairing_overlap_minutes,
         ),
     )
     return context, database, client
