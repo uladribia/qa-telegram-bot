@@ -5,9 +5,13 @@
 Python data.
 """
 
+from itertools import batched
 from typing import Protocol, cast
 
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
+
+# Vectorize accepts at most 100 ids per delete call.
+_DELETE_CHUNK = 100
 
 
 class VectorizeIndex(Protocol):
@@ -75,6 +79,6 @@ class VectorizeStore:
         ]
 
     async def delete(self, ids: list[str]) -> None:
-        """Delete vectors by id."""
-        if ids:
-            await self._index.deleteByIds(ids)
+        """Delete vectors by id, in chunks the index accepts."""
+        for chunk in batched(ids, _DELETE_CHUNK, strict=False):
+            await self._index.deleteByIds(list(chunk))

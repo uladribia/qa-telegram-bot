@@ -9,6 +9,7 @@ the exported coefficients with plain Python.
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import httpx
@@ -83,8 +84,35 @@ def report(
         )
 
 
+EMBEDDED_MODULE_PATH = (
+    ROOT / "src" / "knowledge_bot" / "infrastructure" / "classifier_head_data.py"
+)
+
+
+def _write_embedded_module(payload: dict) -> None:
+    """Write the same exported head as a Python module for the Worker runtime.
+
+    A Python Worker isolate cannot read repository-relative data files, so the
+    Cloudflare runtime loads this generated module instead of
+    ``data/classifier/model.json``. Both come from the same export.
+    """
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    EMBEDDED_MODULE_PATH.write_text(
+        "# SPDX-License-Identifier: MIT\n"
+        '"""Generated from data/classifier/model.json; do not edit by hand."""\n\n'
+        f"HEAD_DATA = {body}\n",
+        encoding="utf-8",
+    )
+    print(f"exported {EMBEDDED_MODULE_PATH}")
+
+
 def main() -> None:
     """Train, validate, and export the linear head."""
+    if "--export-only" in sys.argv[1:]:
+        payload = json.loads(MODEL_PATH.read_text(encoding="utf-8"))
+        _write_embedded_module(payload)
+        print(f"\nexported {EMBEDDED_MODULE_PATH} from {MODEL_PATH}")
+        return
     train_texts, train_labels = load_split("train.jsonl")
     test_texts, test_labels = load_split("test.jsonl")
     train_vectors = embed(train_texts)
@@ -116,6 +144,18 @@ def main() -> None:
         )
         + "\n",
         encoding="utf-8",
+    )
+    _write_embedded_module(
+        {
+            "embedding_model": EMBEDDING_MODEL,
+            "labels": [str(label) for label in ordered],
+            "coef": model.coef_.tolist(),
+            "intercept": model.intercept_.tolist(),
+            "train_sha256": hashlib.sha256(
+                (DATA_DIR / "train.jsonl").read_bytes()
+            ).hexdigest(),
+            "created_from_cases": len(train_labels),
+        }
     )
     print(f"\nexported {MODEL_PATH}")
 

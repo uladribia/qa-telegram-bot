@@ -16,6 +16,16 @@ Direct user questions are never refused by the estimate guard. Background classi
 
 Do not schedule live evals or automatically retry a failed remote operation. A full reindex is not a routine repair.
 
+## Cloudflare runtime gotchas
+
+Observed on the v1.1.0 release (2026-09-25); each one has bitten a real operation:
+
+- **Vectorize deletes cap at 100 ids per call** (`VECTOR_DELETE_ERROR`, code 40007). The projection cleanup removed 1423 ids at once and failed. `VectorizeStore.delete`, the lexical projection, and the manifest now chunk their writes, so a cleanup of any size succeeds.
+- **The first request on a cold isolate can fail** with `1101`/`1102` (Python start-up plus the request's work exceeds the per-request budget). Retry the same idempotent request; the second attempt runs on a warm isolate. The `kb seed` and `kb reindex` CLIs already retry.
+- **Reindex in small batches.** A batch of 100 items means ~200 embedding calls in one request and trips the request limit. In practice use `--limit 20` (or the endpoint default 50 only on a warm isolate) and follow the printed cursors to the end.
+- **Some requests hit a Pyodide runtime bug** (`SystemError: Cannot enter a promising task from inside another running promising task`) and return `500` with no application traceback. It is intermittent: the same request usually succeeds on retry, and `/healthz` and `/readyz` never build the context, so they do not prove the AI paths work. Use a real authenticated endpoint for verification.
+- **Vectorize is eventually consistent.** Right after a batch, a write-then-query of the same id can return zero matches; the runtime smoke reporting `vector_matches: 0` immediately after its write is expected, not a failure.
+
 ## Answer delivery
 
 The inbound row and answer are persisted before Telegram delivery. A Telegram `ok=false` response is a delivery failure and produces a retryable webhook response. A delivery receipt prevents intentional duplicate sends after success; a crash after Telegram accepts a message but before receipt persistence can still produce a duplicate on retry.

@@ -54,11 +54,12 @@ reindex:
 
 # Seed the bot's self-explanation Q&A (data/seed/bot_self_qa.json) into the
 # deployed Worker as global knowledge. Idempotent: run it after every release
-# tag and after any change to the self-explanation entries.
+# tag and after any change to the self-explanation entries. --renew updates
+# entries whose answer text changed.
 seed-self-qa:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
-	uv run kb seed --qa data/seed/bot_self_qa.json --base-url "$(BOT_BASE_URL)"
+	uv run kb seed --qa data/seed/bot_self_qa.json --renew --base-url "$(BOT_BASE_URL)"
 
 # Runtime fidelity: build the dev image, run the Worker, check /healthz.
 smoke:
