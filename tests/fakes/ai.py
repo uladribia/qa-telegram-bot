@@ -100,19 +100,28 @@ class FakeVectorStore:
 
 
 class FakeGenerator:
-    """A generator that returns a fixed result and records its requests."""
+    """A generator that records requests and returns a fixed result.
+
+    With no fixed result it behaves like a helpful model: it answers using
+    every source it was given, which is the shape of the runtime now that
+    the model produces the answer.
+    """
 
     def __init__(self, result: GenerationOutput | None = None) -> None:
         """Create a generator with a fixed result."""
-        self.result = (
-            result if result is not None else GenerationOutput(status="insufficient")
-        )
+        self.result = result
         self.requests: list[GenerationRequest] = []
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Record the request and return the fixed result."""
+        """Record the request and return the fixed or helpful result."""
         self.requests.append(request)
-        return self.result
+        if self.result is not None:
+            return self.result
+        return GenerationOutput(
+            status="answered",
+            answer="resposta de prova",
+            source_ids=[item.source_id for item in request.evidence],
+        )
 
 
 def linear_head(dimensions: int = 4) -> ClassifierHead:

@@ -26,6 +26,7 @@ from pathlib import Path
 import httpx
 import yaml
 
+from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService, render_source_line
 from knowledge_bot.application.feedback import FeedbackService, canonical_key_for
 from knowledge_bot.application.ingest import MessageIngestor
@@ -424,6 +425,9 @@ def eval_conflicts() -> EvalReport:
             generator=generator,
             answers=InMemoryBotAnswerRepository(),
             clock=FrozenClock(NOW),
+            # The synthetic conflict evidence sits at 0.6 similarity, so the
+            # floor is lowered here: this eval checks the model call itself.
+            policy=AnswerPolicy(floor=0.5),
         )
         question = str(case.get("question", ""))
         retrieved = RetrievedEvidence(messages=_conflict_evidence(case))

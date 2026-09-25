@@ -51,7 +51,7 @@ def test_question_request_is_idempotent() -> None:
     second = client.post("/v1/questions", json=body, headers=KEY)
 
     assert first.status_code == 200
-    assert first.json()["mode"] == "direct_qa"
+    assert first.json()["mode"] == "synthesis"
     assert second.json()["answer_id"] == first.json()["answer_id"]
 
 

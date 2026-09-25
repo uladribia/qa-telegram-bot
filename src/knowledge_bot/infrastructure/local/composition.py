@@ -8,6 +8,7 @@ import httpx
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
 from knowledge_bot.adapters.telegram.client import TelegramClient
+from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -254,8 +255,7 @@ async def build_context(
             generator=generator,
             answers=answers,
             clock=clock,
-            direct_qa_threshold=settings.direct_qa_threshold,
-            synthesis_threshold=settings.synthesis_threshold,
+            policy=AnswerPolicy(floor=settings.answer_similarity_floor),
             conversations=conversations,
             sources=sources,
         ),

@@ -94,19 +94,24 @@ def _message_record() -> VectorRecord:
     )
 
 
-async def test_direct_qa_is_persisted_before_delivery() -> None:
+async def test_grounded_answer_is_persisted_before_delivery() -> None:
     """Answer preparation stores the rendered response and citations."""
-    service, answers, generator = await _service([_qa_record()])
+    service, answers, generator = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+        ),
+    )
     response = await service.answer_message(_message("/ask quan entrenen?"))
     assert response is not None
-    assert response.mode is AnswerMode.DIRECT_QA
+    assert response.mode is AnswerMode.SYNTHESIS
     assert response.answer_id == "ans:m1"
     assert response.sources[0].source_id == "qa:web-item"
     stored = await answers.get("ans:m1")
     assert stored is not None
     assert stored.rendered_text == response.rendered_text
     assert json.loads(stored.source_details_json)[0]["source_id"] == "qa:web-item"
-    assert generator.requests == []
+    assert len(generator.requests) == 1
 
 
 async def test_answer_message_replay_returns_exact_response() -> None:
@@ -116,7 +121,7 @@ async def test_answer_message_replay_returns_exact_response() -> None:
     first = await service.answer_message(message)
     second = await service.answer_message(message)
     assert first == second
-    assert generator.requests == []
+    assert len(generator.requests) == 1
 
 
 async def test_synthesis_uses_generator_and_citations() -> None:

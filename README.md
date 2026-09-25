@@ -24,6 +24,7 @@ fallback exists anywhere in the code.
 | [docs/knowledge-base.md](docs/knowledge-base.md) | Adding and correcting knowledge |
 | [docs/operations.md](docs/operations.md) | Quota, logs, troubleshooting, routine maintenance |
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
+| [docs/experiments.md](docs/experiments.md) | Measured experiments and the decisions they justify |
 | [docs/session-handoff.md](docs/session-handoff.md) | Current hardening state and next-session starting point |
 | [docs/e2e-telegram.md](docs/e2e-telegram.md) | Manual Telegram acceptance flow |
 | [AGENTS.md](AGENTS.md) | How to write code here |

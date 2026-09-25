@@ -2,8 +2,9 @@
 """Prepare and persist grounded answers; channel adapters deliver them."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.retrieval import (
     Evidence,
     RetrievalService,
@@ -143,8 +144,7 @@ class AnswerService:
     generator: Generator
     answers: BotAnswerRepository
     clock: Clock
-    direct_qa_threshold: float = 0.7
-    synthesis_threshold: float = 0.3
+    policy: AnswerPolicy = field(default_factory=AnswerPolicy)
     conversations: ConversationRepository | None = None
     sources: SourceRepository | None = None
 
@@ -155,43 +155,16 @@ class AnswerService:
     async def decide(
         self, question: str, retrieved: RetrievedEvidence
     ) -> AnswerOutcome:
-        """Apply direct-answer and grounded-synthesis policy."""
-        strong_qa = [
-            item
-            for item in retrieved.qa
-            if item.similarity >= self.direct_qa_threshold
-            and item.qa_version_id is not None
-        ]
-        if strong_qa:
-            best = max(strong_qa, key=lambda item: (item.similarity, item.authority))
-            return AnswerOutcome(
-                answer=best.text,
-                mode=AnswerMode.DIRECT_QA,
-                source_ids=[best.source_id],
-                text=_render(best.text, [best]),
-                qa_version_id=best.qa_version_id,
-            )
-        qa = sorted(
-            (
-                item
-                for item in retrieved.qa
-                if item.similarity >= self.synthesis_threshold
-            ),
-            key=lambda item: (item.similarity, item.authority),
-            reverse=True,
-        )[:2]
-        messages = sorted(
-            (
-                item
-                for item in retrieved.messages
-                if item.similarity >= self.synthesis_threshold
-            ),
-            key=lambda item: (item.similarity, item.authority),
-            reverse=True,
-        )[:3]
-        evidence = [*qa, *messages]
-        if not evidence:
+        """Answer from the selected evidence, or abstain without it.
+
+        Every answered question goes to the generator: a verbatim echo cannot
+        decline, and the model returns ``insufficient`` for unknown questions
+        instead of quoting an unrelated document.
+        """
+        selection = self.policy.select(retrieved.qa, retrieved.messages)
+        if selection.abstain:
             return _abstain()
+        evidence = list(selection.evidence)
         result = await self.generator.generate(
             GenerationRequest(
                 question=question,

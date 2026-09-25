@@ -2,6 +2,7 @@
 """Two-group correction and retrieval scenario."""
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from knowledge_bot.contracts.api import AskQuestionRequest
@@ -9,11 +10,35 @@ from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.scope import scope_for_space
+from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableQA
 from tests.fakes.ai import FakeSearchIndexSource
 from tests.fakes.context import SPACE_A, SPACE_B, build_test_context
 
 QUESTION = "Quina és la resposta local del grup?"
+
+
+class _EchoingGenerator:
+    """Answer with the text of the first supplied evidence.
+
+    The model produces the answer, so echoing the evidence keeps this
+    scenario's assertion meaningful: the answer still shows which space's
+    Q&A was retrieved.
+    """
+
+    def __init__(self) -> None:
+        """Create the echoing generator."""
+        self.requests: list[GenerationRequest] = []
+
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
+        """Answer with the first evidence item's text."""
+        self.requests.append(request)
+        if not request.evidence:
+            return GenerationOutput(status="insufficient", source_ids=[])
+        first = request.evidence[0]
+        return GenerationOutput(
+            status="answered", answer=first.text, source_ids=[first.source_id]
+        )
 
 
 def _entry(answer: str, suffix: str) -> SeedQA:
@@ -33,6 +58,9 @@ def _entry(answer: str, suffix: str) -> SeedQA:
 def test_two_groups_keep_different_local_corrections() -> None:
     """Correct the same question independently in two logical spaces."""
     context, _ = build_test_context()
+    context = replace(
+        context, answer=replace(context.answer, generator=_EchoingGenerator())
+    )
 
     async def run() -> None:
         for space_id, answer in (
