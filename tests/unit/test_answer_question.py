@@ -69,41 +69,44 @@ def test_clean_question_strips_command_and_mentions() -> None:
     assert clean_question("/ask") == ""
 
 
-async def test_strong_qa_is_answered_directly_without_generator() -> None:
-    """A strong active Q&A match bypasses the model."""
+async def test_evidence_is_answered_by_the_generator() -> None:
+    """A usable Q&A candidate reaches the model, which produces the answer."""
     service, generator = _service()
     outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.9)]))
-    assert outcome.mode is AnswerMode.DIRECT_QA
+    assert outcome.mode is AnswerMode.SYNTHESIS
     assert outcome.source_ids == ["qa1"]
-    assert outcome.qa_version_id == "qav1"
+    assert len(generator.requests) == 1
+
+
+async def test_evidence_above_the_floor_is_sent_to_the_model() -> None:
+    """Every candidate that clears the floor is offered to the generator."""
+    service, generator = _service()
+    second = Evidence(
+        "qa2", "Q&A", "Els dimearts.", 90, 0.85, question="Quan?", qa_version_id="qav2"
+    )
+    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.9), second]))
+    assert outcome.mode is AnswerMode.SYNTHESIS
+    assert [item.source_id for item in generator.requests[0].evidence] == [
+        "qa1",
+        "qa2",
+    ]
+
+
+async def test_evidence_below_the_floor_abstains() -> None:
+    """Nothing clears the floor, so the model is never called."""
+    service, generator = _service()
+    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.4)]))
+    assert outcome.mode is AnswerMode.ABSTENTION
     assert generator.requests == []
 
 
-async def test_direct_qa_authority_breaks_equal_similarity_ties() -> None:
-    """Equal similarity prefers the higher-authority Q&A item."""
-    service, _ = _service()
-    low = _qa(0.8, 90)
-    high = Evidence(
-        "qa2",
-        "Q&A",
-        "Authoritatiu",
-        100,
-        0.8,
-        question="Quan?",
-        qa_item_id="qa2",
-        qa_version_id="qav2",
-    )
-    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[low, high]))
-    assert outcome.source_ids == ["qa2"]
-
-
-async def test_weak_qa_falls_through_to_synthesis() -> None:
-    """A weak Q&A match does not bypass the model."""
+async def test_model_can_still_decline_with_evidence() -> None:
+    """Usable evidence is offered, but the model may return insufficient."""
     service, generator = _service(
-        GenerationOutput(status="answered", answer="sintetitzat", source_ids=["qa1"])
+        GenerationOutput(status="insufficient", source_ids=[])
     )
-    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.4)]))
-    assert outcome.mode is AnswerMode.SYNTHESIS
+    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.9)]))
+    assert outcome.mode is AnswerMode.ABSTENTION
     assert len(generator.requests) == 1
 
 
@@ -116,9 +119,12 @@ async def test_no_evidence_abstains_without_generator() -> None:
 
 
 async def test_synthesis_caps_qa_and_message_evidence() -> None:
-    """The generator receives at most five evidence records."""
-    qa = [_qa(0.4) for _ in range(3)]
-    messages = [_message_evidence(0.5) for _ in range(4)]
+    """The generator receives at most five Q&A and three message records."""
+    qa = [
+        Evidence(f"qa{index}", "Q&A", "text", 90, 0.9, question="Quan?")
+        for index in range(7)
+    ]
+    messages = [_message_evidence(0.75) for _ in range(4)]
     service, generator = _service(
         GenerationOutput(status="answered", answer="resposta", source_ids=["qa1", "m1"])
     )
@@ -126,7 +132,7 @@ async def test_synthesis_caps_qa_and_message_evidence() -> None:
         "pregunta", RetrievedEvidence(qa=qa, messages=messages)
     )
     assert outcome.mode is AnswerMode.SYNTHESIS
-    assert len(generator.requests[0].evidence) == 5
+    assert len(generator.requests[0].evidence) == 8
 
 
 def test_generation_output_rejects_invalid_citation_shapes() -> None:

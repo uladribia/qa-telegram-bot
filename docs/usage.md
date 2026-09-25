@@ -12,9 +12,8 @@ A Telegram group is served only when its chat is bound to a logical space. There
 
 ## Answer outcomes
 
-- **Direct**: a strong current Q&A match is returned verbatim with its citation.
-- **Synthesis**: weaker evidence is sent through one grounded generation call.
-- **Abstention**: no reliable evidence exists.
+- **Synthesis**: the retrieved Q&A items that clear the similarity floor are sent through one grounded generation call, and the answer cites them. This is the only answering path.
+- **Abstention**: no retrieved item clears the floor, or the model finds the evidence insufficient. The model is allowed to decline, so an unknown question is never answered with an unrelated document.
 - **Unavailable**: the model is temporarily unavailable; the inbound question remains durable.
 
 ## Corrections

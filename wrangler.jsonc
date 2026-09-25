@@ -33,6 +33,7 @@
     "EMBEDDING_MODEL": "@cf/google/embeddinggemma-300m",
     "GENERATION_MODEL": "@cf/zai-org/glm-4.7-flash",
     "BACKGROUND_LISTENER_ENABLED": "true",
+    "ANSWER_SIMILARITY_FLOOR": "0.70",
     "AI_EMBED_TIMEOUT_SECONDS": "10",
     "AI_GENERATION_TIMEOUT_SECONDS": "35"
   }

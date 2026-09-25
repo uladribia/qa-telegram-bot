@@ -19,7 +19,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Quan respon",
     "question": "Com funciones? Com funciona el bot?",
-    "answer": "Funciono en tres passos:\n1. Detecto si m'adreces la pregunta (menció, resposta a un missatge meu, missatge directe o /ask). Si no, me la guardo i no responc.\n2. Busco a la meva base de coneixement (Q&A del web del club, missatges del grup i correccions aprovades) i decideixo d'una de tres maneres: resposta directa si hi ha un Q&A que encaixa de près, resposta redactada si diverses fonts febles juntes ho responen, o abstenció si no n'hi ha prou.\n3. Et responc sempre amb les fonts citades, amb un botó \"⚠️ Està malament?\" per si cal corregir-me.",
+    "answer": "Funciono en tres passos:\n1. Detecto si m'adreces la pregunta (menció, resposta a un missatge meu, missatge directe o /ask). Si no, me la guardo i no responc.\n2. Busco a la meva base de coneixement (Q&A del web del club, missatges del grup i correccions aprovades) i, si hi ha alguna font que encaixa amb prou confiança, la passo al model perquè redacti la resposta amb aquelles fonts. Si cap font arriba al mínim de confiança, em callo.\n3. Et responc sempre amb les fonts citades, amb un botó \"⚠️ Està malament?\" per si cal corregir-me.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },

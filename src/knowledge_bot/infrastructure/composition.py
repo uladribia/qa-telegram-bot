@@ -5,6 +5,7 @@ from typing import Protocol
 
 from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
+from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -119,8 +120,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         classifier_model_path=_text(
             env, "CLASSIFIER_MODEL_PATH", "data/classifier/model.json"
         ),
-        direct_qa_threshold=_text(env, "DIRECT_QA_THRESHOLD", "0.7"),
-        synthesis_threshold=_text(env, "SYNTHESIS_THRESHOLD", "0.3"),
+        answer_similarity_floor=_text(env, "ANSWER_SIMILARITY_FLOOR", "0.70"),
         qa_top_k=_text(env, "QA_TOP_K", "5"),
         message_top_k=_text(env, "MESSAGE_TOP_K", "4"),
         ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
@@ -227,8 +227,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             generator=generator,
             answers=answers,
             clock=clock,
-            direct_qa_threshold=settings.direct_qa_threshold,
-            synthesis_threshold=settings.synthesis_threshold,
+            policy=AnswerPolicy(floor=settings.answer_similarity_floor),
             conversations=listener_conversations,
             sources=listener_sources,
         ),

@@ -121,14 +121,13 @@ The questions above were run against the local Docker models (`embeddinggemma` a
 | **0.70** | **88.2%** | **83.3%** | **Selected: precision-first direct-answer gate** |
 | 0.75 | 100% | 44.4% | Rejected: too many false abstentions |
 
-The local configuration therefore keeps:
+Those thresholds governed the removed verbatim-echo path. The bot now always grounds in the model and the single knob is:
 
 ```dotenv
-DIRECT_QA_THRESHOLD=0.70
-SYNTHESIS_THRESHOLD=0.30
+ANSWER_SIMILARITY_FLOOR=0.70
 ```
 
-`SYNTHESIS_THRESHOLD` remains `0.30` because this question set validates direct-answer selection and abstention, not a separate labeled synthesis boundary. Lowering it would turn weak or mismatched matches into generated answers, which is unsafe for this bot. Re-run this calibration after changing the embedding model, seed content, or the retrieval projection.
+`ANSWER_SIMILARITY_FLOOR` decides which retrieved Q&A items are handed to the generator; a question with nothing above it abstains. The table above is kept as the historical record of the echo-path calibration. Re-run the floor calibration (see [experiments.md](experiments.md)) after changing the embedding model, the seed content, or the retrieval projection.
 
 ## Retrieval and safety checks
 
