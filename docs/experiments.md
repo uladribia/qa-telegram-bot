@@ -106,11 +106,45 @@ while passing local metrics. The shipped policy avoids the problem by making
 every decision relative to the request, with one low absolute floor that only
 separates "has any support" from "no support".
 
-## Pairing
+## Pairing: learned head measured, not shipped
 
 The deterministic listener pairs a confident update or correction with exactly
 one plausible unresolved question inside a 5-minute window (max 5 candidates),
-never calls a model, and reaches pair precision 1.0 with recall 0.667 over 110
-scenarios. Explicit replies pair immediately. A learned pair scorer is the
-obvious next step for the recall gap, and the candidate vectors it needs are now
-available from the projection lifecycle.
+never calls a model, and reaches pair precision 1.0. Explicit replies pair
+immediately.
+
+A learned pair scorer was built and measured: 13 features (embedding cosine
+between the question and the answer, that cosine's margin over competing
+candidates, token and character overlap, age, candidate count, a correction cue,
+and classifier confidences), trained on pairs where the positive is the
+question and the answer that responds to it and the hard negatives are the same
+question with a shifted day or time, plus chitchat and unrelated questions.
+
+**Held-out synthetic test split:** pair precision **0.975** at the calibrated
+operating point (`tau=0.90`, `margin=0.0`), PR-AUC 0.978, recall 0.982 at the
+default cut. The gate (precision >= 0.95) passes.
+
+**Realistic scenarios** (`uv run python -m evals.pairing`, 24 scenarios with
+short human questions and plain club updates):
+
+| metric | deterministic rule | pairing head |
+|---|---:|---:|
+| pairs made | 7 | 4 |
+| precision | 1.0000 | 1.0000 |
+| recall | **0.4375** | 0.2500 |
+| scenario accuracy | 0.6250 | 0.5000 |
+
+The head does not transfer. Its training data is templated
+question/answer pairs that share explicit detail words, while real questions
+and updates are short and share almost nothing lexically, so the head scores
+real candidates below its floor and pairs less than the rule it was meant to
+improve. Precision is unchanged; recall is strictly worse.
+
+**Decision: not enabled.** The head ships disabled
+(`PAIRING_HEAD_ENABLED=false`). What is kept and ready: the persisted question
+embeddings (`intent_embedding`, migration 0022) that make the feature free at
+request time, the feature computation, the policy, the trainer, and the
+scenario eval. The missing ingredient is the same one the answer head lacked:
+real labelled pairs. The next step is to harvest them from the
+`message_pair_candidates` audit rows the listener has been recording, once a
+group has enough real traffic to label them.
