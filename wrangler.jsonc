@@ -20,6 +20,12 @@
   "ai": {
     "binding": "AI"
   },
+  "assets": {
+    "directory": "./public",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": false
+  },
   "triggers": {
     "crons": ["0 19 * * *"]
   },
