@@ -128,11 +128,29 @@ def _render_user(request: GenerationRequest) -> str:
 class WorkersAIGenerator:
     """Grounded generator backed by a Workers AI chat model."""
 
-    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 35.0) -> None:
-        """Create the generator with a hard adapter deadline."""
+    def __init__(
+        self,
+        ai: AiRunner,
+        model: str,
+        timeout_seconds: float = 35.0,
+        max_tokens: int = 1024,
+    ) -> None:
+        """Create the generator with a hard adapter deadline.
+
+        Args:
+            ai: The Workers AI binding.
+            model: The chat model to run.
+            timeout_seconds: Hard deadline for one call.
+            max_tokens: Output budget for one call. The model is a reasoning
+                model and spends most of its output thinking; on evidence that
+                does not contain the answer it can deliberate past 2600 tokens
+                and 50 seconds. The cap turns that into a truncated response
+                that becomes ``insufficient`` instead of a timeout.
+        """
         self._ai = ai
         self._model = model
         self._timeout_seconds = timeout_seconds
+        self._max_tokens = max_tokens
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
         """Run the chat model, raising a domain error on failure.
@@ -149,7 +167,10 @@ class WorkersAIGenerator:
                 sum(len(message["content"]) for message in messages),
             ):
                 return await asyncio.wait_for(
-                    self._ai.run(self._model, {"messages": messages}),
+                    self._ai.run(
+                        self._model,
+                        {"messages": messages, "max_tokens": self._max_tokens},
+                    ),
                     timeout=self._timeout_seconds,
                 )
         except Exception as error:

@@ -135,6 +135,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
         ai_embed_timeout_seconds=_text(env, "AI_EMBED_TIMEOUT_SECONDS", "10"),
         ai_generation_timeout_seconds=_text(env, "AI_GENERATION_TIMEOUT_SECONDS", "35"),
+        ai_generation_max_tokens=_text(env, "AI_GENERATION_MAX_TOKENS", "1024"),
     )
     database = env.DB
     answers = D1BotAnswerRepository(database)
@@ -159,7 +160,10 @@ def build_context(env: WorkerEnv) -> AppContext:
     )
     generator = MeteredGenerator(
         WorkersAIGenerator(
-            env.AI, settings.generation_model, settings.ai_generation_timeout_seconds
+            env.AI,
+            settings.generation_model,
+            settings.ai_generation_timeout_seconds,
+            settings.ai_generation_max_tokens,
         ),
         budget,
     )

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     generation_model: str = "@cf/zai-org/glm-4.7-flash"
     ai_embed_timeout_seconds: float = Field(default=10.0, gt=0, le=55)
     ai_generation_timeout_seconds: float = Field(default=35.0, gt=0, le=55)
+    ai_generation_max_tokens: int = Field(default=1024, gt=0)
 
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5

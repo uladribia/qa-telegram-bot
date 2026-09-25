@@ -26,10 +26,12 @@ class _Runner:
         self.result = result
         self.error = error
         self.delay = 0.0
+        self.inputs: dict[str, object] = {}
 
     async def run(self, model: str, inputs: dict[str, object]) -> object:
         """Return or raise the canned outcome."""
-        del model, inputs
+        del model
+        self.inputs = inputs
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.error is not None:
@@ -169,6 +171,17 @@ async def test_generator_reports_insufficient_on_unparseable_output() -> None:
     )
 
     assert output.status == "insufficient"
+
+
+async def test_generator_bounds_the_output_budget() -> None:
+    """The reasoning model gets a token cap, without a response_format."""
+    runner = _Runner({"choices": [{"message": {"content": "{}"}}]})
+    generator = WorkersAIGenerator(runner, "chat-model", 1.0, 1024)
+
+    await generator.generate(GenerationRequest(question="q", evidence=[]))
+
+    assert runner.inputs["max_tokens"] == 1024
+    assert "format" not in runner.inputs
 
 
 async def test_generator_raises_domain_error_on_failure() -> None:
