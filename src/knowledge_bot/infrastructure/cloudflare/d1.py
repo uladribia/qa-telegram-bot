@@ -9,6 +9,7 @@ defensively because bindings can return Pyodide proxies.
 import json
 import re
 from datetime import UTC, datetime
+from itertools import batched
 from typing import cast
 
 from knowledge_bot.domain.entities import (
@@ -59,6 +60,9 @@ D1Database = SqlDatabase
 
 _FTS_FILTER_COLUMNS = frozenset({"kind", "scope_key", "canonical_key"})
 _FTS_TOKEN = re.compile(r"[\w]+", flags=re.UNICODE)
+# D1 accepts a bounded number of statements per batch; lexical upsert writes two
+# per record, so every batch stays at or below 100 statements.
+_BATCH_CHUNK = 50
 
 
 def _fts_query(query: str) -> str:
@@ -1105,12 +1109,15 @@ class D1SearchProjectionRepository:
         return [str(row["vector_id"]) for row in _rows(result)]
 
     async def delete(self, vector_ids: list[str]) -> None:
-        """Remove deleted vector ids from the manifest."""
-        for vector_id in vector_ids:
-            await (
-                self._db.prepare("DELETE FROM search_projection WHERE vector_id = ?")
-                .bind(vector_id)
-                .run()
+        """Remove deleted vector ids from the manifest, in bounded batches."""
+        for chunk in batched(vector_ids, _BATCH_CHUNK, strict=False):
+            await self._db.batch(
+                [
+                    self._db.prepare(
+                        "DELETE FROM search_projection WHERE vector_id = ?"
+                    ).bind(vector_id)
+                    for vector_id in chunk
+                ]
             )
 
     async def clear(self) -> None:
@@ -2197,32 +2204,31 @@ class D1LexicalIndex:
 
     async def upsert(self, records: list[LexicalRecord]) -> None:
         """Replace the lexical row of every given vector id."""
-        if not records:
-            return
-        statements = []
-        for record in records:
-            statements.append(
-                self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
-                    record.id
+        for chunk in batched(records, _BATCH_CHUNK, strict=False):
+            statements = []
+            for record in chunk:
+                statements.append(
+                    self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
+                        record.id
+                    )
                 )
-            )
-            statements.append(
-                self._db.prepare(
-                    "INSERT INTO search_fts"
-                    " (vector_id, kind, scope_key, canonical_key, authority,"
-                    "  metadata_json, question_text)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?)"
-                ).bind(
-                    record.id,
-                    str(record.metadata.get("kind", "")),
-                    str(record.metadata.get("scope_key", "")),
-                    _opt_str(record.metadata.get("canonical_key")),
-                    _as_int_authority(record.metadata.get("authority")),
-                    _json_dumps(record.metadata),
-                    record.text,
+                statements.append(
+                    self._db.prepare(
+                        "INSERT INTO search_fts"
+                        " (vector_id, kind, scope_key, canonical_key, authority,"
+                        "  metadata_json, question_text)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    ).bind(
+                        record.id,
+                        str(record.metadata.get("kind", "")),
+                        str(record.metadata.get("scope_key", "")),
+                        _opt_str(record.metadata.get("canonical_key")),
+                        _as_int_authority(record.metadata.get("authority")),
+                        _json_dumps(record.metadata),
+                        record.text,
+                    )
                 )
-            )
-        await self._db.batch(statements)
+            await self._db.batch(statements)
 
     async def search(
         self,
@@ -2262,13 +2268,12 @@ class D1LexicalIndex:
 
     async def delete(self, ids: list[str]) -> None:
         """Delete lexical rows by their stable projection ids."""
-        if not ids:
-            return
-        await self._db.batch(
-            [
-                self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
-                    vector_id
-                )
-                for vector_id in ids
-            ]
-        )
+        for chunk in batched(ids, _BATCH_CHUNK, strict=False):
+            await self._db.batch(
+                [
+                    self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
+                        vector_id
+                    )
+                    for vector_id in chunk
+                ]
+            )
