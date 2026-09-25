@@ -89,6 +89,12 @@ INDEX_WARNING = (
 
 # Longest parent question text stored on a matched pair reply.
 _MAX_LISTENER_QUESTION_CHARS = 500
+# Live-eval protection: one request may carry at most this many queries, and an
+# isolate admits this many evaluation calls per minute. An unbounded burst of
+# evaluation traffic can wedge the Worker; the budget guard does not protect
+# against that.
+_MAX_EVAL_QUERIES = 20
+_EVAL_CALLS_PER_MINUTE = 60
 _EMPTY_EVAL_BODY = Body(default_factory=EvalAnswerRequest)
 _EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
 _EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
@@ -270,10 +276,36 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
     """
     app = FastAPI(title="knowledge-bot")
     app.include_router(build_api_router(resolve_context))
+    eval_calls: list[float] = []
+
+    def _admit_eval_call() -> None:
+        """Throttle live-eval calls per isolate.
+
+        Raises:
+            HTTPException: When the isolate already served its per-minute
+                allowance of evaluation calls.
+        """
+        now = time.monotonic()
+        cutoff = now - 60.0
+        eval_calls[:] = [stamp for stamp in eval_calls if stamp > cutoff]
+        if len(eval_calls) >= _EVAL_CALLS_PER_MINUTE:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "too many evaluation calls in this isolate; "
+                    "pace the live eval and retry shortly"
+                ),
+            )
+        eval_calls.append(now)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
-        """Report Worker liveness."""
+        """Report application liveness.
+
+        In production this path is served by the static asset layer, so edge
+        liveness does not depend on the Python interpreter starting. Use
+        ``/readyz`` to check that the application itself is up.
+        """
         return {"status": "ok"}
 
     @app.get("/readyz")
@@ -301,6 +333,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid key")
         if not body.question:
             raise HTTPException(status_code=422, detail="question required")
+        _admit_eval_call()
         await _require_evaluation_budget(context)
         question = body.question
         try:
@@ -421,9 +454,20 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
             raise HTTPException(status_code=401, detail="invalid key")
+        _admit_eval_call()
         await _require_evaluation_budget(context)
         payload = await request.json()
         queries = payload.get("queries", []) if isinstance(payload, dict) else []
+        if not isinstance(queries, list):
+            queries = []
+        if len(queries) > _MAX_EVAL_QUERIES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"at most {_MAX_EVAL_QUERIES} queries per request; "
+                    "split the live eval into chunks"
+                ),
+            )
         results: dict[str, list[str]] = {}
         for query in queries:
             retrieved = await context.answer.retrieval.retrieve(str(query))
