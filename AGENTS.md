@@ -4,7 +4,7 @@ Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
 The binding implementation plan for this hardening pass is
-[`instructions/qa-telegram-bot-one-pass-final-fix-plan.md`](instructions/qa-telegram-bot-one-pass-final-fix-plan.md).
+[`instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md`](instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md).
 Read it before starting any work. The other plans under `instructions/` are
 deprecated and must not be used as implementation contracts. If this file and
 the binding plan disagree, stop and ask; never silently pick one.
@@ -152,6 +152,7 @@ Pick the smallest command that covers the change:
 |---|---|
 | Pure logic, docs, config | `make test` |
 | Use case, flow, or adapter behaviour | `make test-integration` |
+| Classifier, retrieval, or listener behaviour | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
 | `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke` |
 | Before merging to `main` | `make lint` plus the smallest tier that covers the change |
 
