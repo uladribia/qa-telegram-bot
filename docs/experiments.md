@@ -33,11 +33,25 @@ answered question at the estimator's 0.020 neurons/char, plus 0.9 for the query
 embedding. With 3 evidence items it is ~76. The 10,000-neuron daily budget
 therefore supports roughly 95 questions/day at 5 items and 130 at 3.
 
-**Decision.** Always ground in the model. `ANSWER_SIMILARITY_FLOOR` (default
-0.70) is the single knob: Q&A above the floor are sent to the generator, and a
-question with nothing above it abstains. The floor curve is flat between 0.30
-and 0.70, so the knob costs almost no coverage; 0.70 was chosen because it
-trims the tail of the distribution for free.
+**Decision.** Always ground in the model. `ANSWER_SIMILARITY_FLOOR` is the
+single knob: Q&A above the floor are sent to the generator, and a question with
+nothing above it abstains. The local floor curve is flat between 0.30 and 0.70,
+so the knob barely affects safety there.
+
+**Production calibration.** The local curve did not transfer: short, real
+questions score lower than the generated paraphrases the curve was measured on.
+Tuned live on four known-answerable and three unknown questions:
+
+| floor | known answered | unknown answered |
+|---|---:|---:|
+| 0.70 | 1/4 | 0/3 |
+| **0.45** | **2-3/4** | **0/3** |
+
+0.45 is the deployed value: it restores coverage on short real questions while
+the unknown questions still abstain. Two responses in that run came back
+``unavailable`` - the transient model failure we already know about, now visible
+on a larger share of traffic because every question reaches the model. It is the
+main operational cost of this design and the reason to watch it after release.
 
 ## Learned answer-relevance head: measured and rejected
 

@@ -124,7 +124,7 @@ The questions above were run against the local Docker models (`embeddinggemma` a
 Those thresholds governed the removed verbatim-echo path. The bot now always grounds in the model and the single knob is:
 
 ```dotenv
-ANSWER_SIMILARITY_FLOOR=0.70
+ANSWER_SIMILARITY_FLOOR=0.45
 ```
 
 `ANSWER_SIMILARITY_FLOOR` decides which retrieved Q&A items are handed to the generator; a question with nothing above it abstains. The table above is kept as the historical record of the echo-path calibration. Re-run the floor calibration (see [experiments.md](experiments.md)) after changing the embedding model, the seed content, or the retrieval projection.

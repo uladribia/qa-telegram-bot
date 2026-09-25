@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     classifier_confidence_threshold: float = 0.60
     classifier_margin_threshold: float = 0.15
     classifier_model_path: str = "data/classifier/model.json"
-    answer_similarity_floor: float = 0.70
+    answer_similarity_floor: float = 0.45
     qa_top_k: int = 5
     message_top_k: int = 4
     ai_daily_neuron_budget: float = 10_000.0
