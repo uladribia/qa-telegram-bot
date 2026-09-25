@@ -53,6 +53,21 @@ Use a full rebuild only when SQL truth is known to be correct and the derived in
 
 Local logs are human-readable and debug-level. Cloudflare logs are structured JSON at info level. Logs contain ids, scope, decisions, counts, model names, durations, and state transitions. They never contain raw message text, answers, prompts, usernames, phone numbers, tokens, or secrets.
 
+Two log lines exist specifically to make otherwise-invisible failures diagnosable:
+
+- `workers_ai_call_completed` / `workers_ai_call_failed` — one per Workers AI call, from both adapters. Fields: `operation` (`embedding` or `generation`), `model`, `characters` (request size, a prompt-size proxy), `duration_ms`, and on failure `error` (the exception class, e.g. `TimeoutError`). A timed-out generation shows `workers_ai_call_failed` with `error: TimeoutError` at `duration_ms` equal to `AI_GENERATION_TIMEOUT_SECONDS`. Never log the payload, only its size.
+- `scheduled_started` / `scheduled_finished` / `scheduled_failed` — the Cron Trigger path. Fields: `use_case`, `trigger`, `sent`, `duration_ms`. A scheduled handler that raises leaves no trace in request logs, so this is the only signal that the daily report job ran.
+
+Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
+
 ## Daily report
 
 The deterministic daily report is sent by the scheduled Worker handler and can be run manually with `POST /internal/jobs/daily-report`. `dry_run=true` renders the same report without sending or updating the last-sent timestamp. Legacy recap and reviewer-report routes are retired.
+
+The `daily_report_state` table is the ground truth for whether the schedule works. It holds one row (`admin`) written only after a successful Telegram send, so an empty table means the job has never completed a send. Check it before suspecting Telegram:
+
+```bash
+uv run kb d1 ... # or: npx wrangler d1 execute knowledge-bot --remote --command "select * from daily_report_state"
+```
+
+`run()` skips when less than 24 h has passed since the last successful send, so sending the report by hand pushes the next automatic run out by a day. Use `force=true` to override the window but still send.

@@ -46,6 +46,24 @@ confidence policy. All plan acceptance gates pass.
 
 `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
 
+## Observability traps
+
+- A Worker path that raises outside a request handler is invisible. The Cron
+  Trigger (`Default.scheduled` in `src/entry.py`) logs `scheduled_started` and
+  either `scheduled_finished` or `scheduled_failed`; do not add a background
+  entrypoint without the same treatment.
+- `ModelUnavailableError` is raised in exactly two places, both in
+  `infrastructure/cloudflare/workers_ai.py`, and it is the only cause of the
+  `unavailable` answer mode. A request whose `duration_ms` is close to
+  `AI_GENERATION_TIMEOUT_SECONDS` timed out on generation, not on the database or
+  Telegram: those complete in milliseconds. The `workers_ai_call_*` lines give
+  the exact split per call.
+- Cold start is outside the request timer. `resolve_context` runs before
+  `_handle_telegram_update` starts its `perf_counter`, so a large
+  `duration_ms` on `telegram_webhook_processed` is real work, not interpreter
+  start-up.
+- There is no log history. See [operations.md](operations.md#logs).
+
 ## Required checks before handoff
 
 ```bash
