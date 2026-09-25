@@ -2,6 +2,7 @@
 """Integration tests for the Telegram webhook route (in-memory fakes)."""
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
@@ -17,8 +18,39 @@ from tests.fakes.support import InMemoryAiUsageRepository
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
 
 
+async def _awaited(processing: Awaitable[str]) -> str:
+    """Await one deferred update handler and return its result."""
+    return await processing
+
+
 def _client(context: AppContext) -> TestClient:
     return TestClient(create_app(lambda request: context))
+
+
+def test_update_is_acknowledged_before_it_is_processed() -> None:
+    """A deferred update is acknowledged at once and still processed fully.
+
+    Telegram retries a webhook whose response arrives late, so the Worker must
+    answer before the AI pipeline runs without dropping the update.
+    """
+    context, _ = build_test_context()
+    deferred: list[Awaitable[str]] = []
+
+    def defer(processing: Awaitable[str]) -> None:
+        deferred.append(processing)
+
+    client = TestClient(create_app(lambda request: context, defer))
+    response = client.post(
+        "/telegram/webhook", json=_update("/ask quan entrenen?"), headers=SECRET_HEADER
+    )
+
+    assert response.json() == {"status": "accepted"}
+    assert _stored(context) is None, "the pipeline ran before the response"
+    assert len(deferred) == 1
+    assert asyncio.run(_awaited(deferred[0])) == "answer"
+    stored = _stored(context)
+    assert stored is not None
+    assert stored.text == "/ask quan entrenen?"
 
 
 def _stored(context: AppContext, message_id: str = "-100:10") -> Message | None:

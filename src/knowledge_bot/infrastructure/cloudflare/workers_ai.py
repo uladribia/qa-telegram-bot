@@ -135,7 +135,13 @@ class WorkersAIGenerator:
         self._timeout_seconds = timeout_seconds
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
-        """Run the chat model, raising a domain error on failure."""
+        """Run the chat model, raising a domain error on failure.
+
+        The request deliberately carries no ``response_format``. The system
+        prompt already fixes the JSON shape and the output is parsed and
+        validated locally, so the structured-output mode only added a Workers
+        AI latency path that could hang past the deadline.
+        """
         try:
             with _timed(
                 "generation",
@@ -143,13 +149,7 @@ class WorkersAIGenerator:
                 sum(len(message["content"]) for message in messages),
             ):
                 return await asyncio.wait_for(
-                    self._ai.run(
-                        self._model,
-                        {
-                            "messages": messages,
-                            "format": GenerationOutput.model_json_schema(),
-                        },
-                    ),
+                    self._ai.run(self._model, {"messages": messages}),
                     timeout=self._timeout_seconds,
                 )
         except Exception as error:

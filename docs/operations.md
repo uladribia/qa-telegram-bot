@@ -26,12 +26,15 @@ Observed on the v1.1.0 release (2026-09-25); each one has bitten a real operatio
 - **Vectorize deletes cap at 100 ids per call** (`VECTOR_DELETE_ERROR`, code 40007). The projection cleanup removed 1423 ids at once and failed. `VectorizeStore.delete`, the lexical projection, and the manifest chunk their writes, so a cleanup of any size succeeds.
 - **The first request on a cold isolate can fail** with `1101`/`1102` (Python start-up plus the request's work exceeds the per-request budget). Retry the same idempotent request; the second attempt runs on a warm isolate. The `kb seed` and `kb reindex` CLIs already retry.
 - **Reindex in small batches.** A batch of 100 items means ~200 embedding calls in one request and trips the request limit. In practice use `--limit 20` and follow the printed cursors to the end.
+- **Model calls are not sent with `response_format`.** The structured-output `json_schema` mode made `@cf/zai-org/glm-4.7-flash` hang until the adapter deadline (35 000 ms, `error: TimeoutError`) on a 2.7k-character prompt, which surfaced to users as the "temporarily unavailable" reply. The system prompt already fixes the JSON shape and the output is parsed and validated locally, so the mode bought nothing. If a model ever needs it back, it must be measured with `workers_ai_call_completed` on a real request first.
 - **Some requests hit a Pyodide runtime bug** (`SystemError: Cannot enter a promising task from inside another running promising task`) and return `500` with no application traceback. It is intermittent: the same request usually succeeds on retry.
 - **Vectorize is eventually consistent.** Right after a batch, a write-then-query of the same id can return zero matches; the runtime smoke reporting `vector_matches: 0` immediately after its write is expected, not a failure.
 
 ## Answer delivery
 
 The inbound row and answer are persisted before Telegram delivery. A Telegram `ok=false` response is a delivery failure and produces a retryable webhook response. A delivery receipt prevents intentional duplicate sends after success; a crash after Telegram accepts a message but before receipt persistence can still produce a duplicate on retry.
+
+**The webhook is acknowledged before the AI pipeline runs.** Telegram drops a webhook request whose response arrives late (`Read timeout expired`) and retries the update, so the Worker answers `{"status": "accepted"}` immediately and processes the update in a `waitUntil` background task. Processing failures are therefore invisible to Telegram and surface only in the logs: `telegram_webhook_accepted` means the update was taken, `telegram_webhook_processed` or `telegram_webhook_failed` means it finished. An update that produced neither was lost — that is the failure mode to watch after a deploy. The local runtime has no `waitUntil`, so it processes inline and answers `{"status": "answer"}`; the difference is platform behaviour, not two code paths.
 
 ## Projection repair
 

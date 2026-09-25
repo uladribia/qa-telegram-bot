@@ -62,6 +62,11 @@ confidence policy. All plan acceptance gates pass.
   `_handle_telegram_update` starts its `perf_counter`, so a large
   `duration_ms` on `telegram_webhook_processed` is real work, not interpreter
   start-up.
+- The webhook must not await the AI pipeline. Telegram's read timeout is
+  shorter than one generation deadline, so the route acknowledges and hands the
+  work to `defer` (see `create_app` in `adapters/http/app.py`). Anything added
+  to the inbound path inherits that: it runs after the response, in a
+  `waitUntil` task that no upstream retry can rescue.
 - There is no log history. See [operations.md](operations.md#logs).
 
 ## Required checks before handoff
