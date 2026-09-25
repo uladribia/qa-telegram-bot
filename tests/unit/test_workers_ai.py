@@ -14,6 +14,7 @@ from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIEmbedder,
     WorkersAIGenerator,
+    WorkersAIReranker,
 )
 from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest
 
@@ -191,3 +192,54 @@ async def test_generator_raises_domain_error_on_failure() -> None:
 
     with pytest.raises(ModelUnavailableError):
         await generator.generate(GenerationRequest(question="q", evidence=[]))
+
+
+async def test_reranker_returns_scores_in_input_order() -> None:
+    """Scored pairs are returned aligned to the documents, not the response order."""
+    runner = _Runner(
+        {
+            "response": [
+                {"id": 2, "score": 0.03},
+                {"id": 0, "score": 0.9},
+                {"id": 1, "score": 0.2},
+            ]
+        }
+    )
+    reranker = WorkersAIReranker(runner, "rerank-model", timeout_seconds=1.0)
+
+    scores = await reranker.score("q", ["first", "second", "third"])
+
+    assert scores == [0.9, 0.2, 0.03]
+    assert runner.inputs["query"] == "q"
+    assert runner.inputs["contexts"] == [
+        {"text": "first"},
+        {"text": "second"},
+        {"text": "third"},
+    ]
+
+
+async def test_reranker_skips_the_model_for_no_documents() -> None:
+    """An empty candidate list costs no model call."""
+    runner = _Runner()
+    reranker = WorkersAIReranker(runner, "rerank-model", timeout_seconds=1.0)
+
+    assert await reranker.score("q", []) == []
+    assert runner.inputs == {}
+
+
+async def test_reranker_rejects_misaligned_scores() -> None:
+    """A score set that does not cover the documents is a model failure."""
+    runner = _Runner({"response": [{"id": 0, "score": 0.9}]})
+    reranker = WorkersAIReranker(runner, "rerank-model", timeout_seconds=1.0)
+
+    with pytest.raises(ModelUnavailableError):
+        await reranker.score("q", ["first", "second"])
+
+
+async def test_reranker_raises_domain_error_on_failure() -> None:
+    """A failing reranker call becomes ModelUnavailableError."""
+    runner = _Runner(error=RuntimeError("boom"))
+    reranker = WorkersAIReranker(runner, "rerank-model", timeout_seconds=1.0)
+
+    with pytest.raises(ModelUnavailableError):
+        await reranker.score("q", ["first"])

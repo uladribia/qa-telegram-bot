@@ -44,7 +44,13 @@ confidence policy. All plan acceptance gates pass.
 
 ## Boundaries
 
-`domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
+- `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
+
+## Models and the local/production gap
+
+The local runtime runs `gemma3:270m` through Ollama and has **no reranker**; production runs `@cf/mistralai/mistral-small-3.1-24b-instruct` plus `@cf/baai/bge-reranker-base`. `make eval-local` therefore measures neither. That gap is how a reasoning model that needed 53 s shipped unnoticed. Only `make eval-live` sees the production models, so run `answers` and `abstention` after any model change.
+
+Both heads (`scripts/train_classifier.py`, the pairing head) train on **local Ollama embeddings and local numpy/sklearn**, so retraining costs zero Workers AI neurons; serving them is plain matrix math in the isolate. Retraining is still not worth doing while `message_pair_candidates` and `feedback` are empty — the earlier failure was missing labels, not model capacity. Harvest those rows first.
 
 ## Observability traps
 

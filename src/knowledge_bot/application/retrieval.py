@@ -4,22 +4,26 @@
 One embedding call per user question. Semantic and lexical candidate lists are
 combined with Reciprocal Rank Fusion (never by mixing raw scores), local
 Q&A variants suppress global ones for the same canonical question, and
-authority breaks remaining ties before the semantic similarity does.
+authority breaks remaining ties before the semantic similarity does. When a
+reranker is configured, one cross-encoder call then orders the fused candidates
+by relevance, which is where the pool is wide enough to be worth reordering.
 """
 
 import re
 from dataclasses import dataclass, field
 
+from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.lexical import LexicalIndex
+from knowledge_bot.ports.reranker import Reranker
 from knowledge_bot.ports.vector_store import VectorMatch, VectorStore
 
 QA_KIND = "qa"
 MESSAGE_KIND = "message_evidence"
 
 _RRF_K = 60
-_CANDIDATE_POOL = 10
+_CANDIDATE_POOL = 15
 _TOKEN = re.compile(r"\w+", flags=re.UNICODE)
 
 
@@ -180,6 +184,7 @@ class RetrievalService:
     lexical: LexicalIndex
     qa_top_k: int = 5
     message_top_k: int = 4
+    reranker: Reranker | None = None
 
     async def retrieve(
         self,
@@ -235,7 +240,7 @@ class RetrievalService:
                         self.lexical, question, QA_KIND, local_scope
                     ),
                 ]
-        qa_matches = _select_qa(qa_lists, self.qa_top_k)
+        qa_matches = await self._order(question, _fuse_qa(qa_lists), self.qa_top_k)
         message_filters: dict[str, object] = {"kind": MESSAGE_KIND}
         if space_id is not None:
             message_scope: str | None = scope_for_space(space_id)
@@ -253,14 +258,42 @@ class RetrievalService:
                 self.lexical, question, MESSAGE_KIND, message_scope
             ),
         ]
-        message_matches = _rank(_rrf_fuse(message_lists), self.message_top_k)
+        message_matches = await self._order(
+            question, _rrf_fuse(message_lists), self.message_top_k
+        )
         return RetrievedEvidence(
             qa=[_to_evidence(match, QA_KIND) for match in qa_matches],
             messages=[_to_evidence(match, MESSAGE_KIND) for match in message_matches],
         )
 
+    async def _order(
+        self, question: str, fused: dict[str, _Fused], top_k: int
+    ) -> list[_Fused]:
+        """Order fused candidates, by cross-encoder score when one is available.
 
-def _select_qa(lists: list[list[VectorMatch]], top_k: int) -> list[_Fused]:
+        RRF order is kept for candidates the reranker does not cover and for
+        the whole selection when the reranker is absent or fails, so a reranker
+        outage degrades ranking rather than answering.
+        """
+        ranked = _rank(fused, len(fused))
+        if self.reranker is None or len(ranked) < 2:
+            return ranked[:top_k]
+        documents = [str(candidate.metadata.get("text", "")) for candidate in ranked]
+        try:
+            scores = await self.reranker.score(question, documents)
+        except ModelUnavailableError:
+            return ranked[:top_k]
+        if len(scores) != len(ranked):
+            return ranked[:top_k]
+        ordered = sorted(
+            zip(ranked, scores, strict=True),
+            key=lambda pair: (pair[1], pair[0].rrf, pair[0].authority),
+            reverse=True,
+        )
+        return [candidate for candidate, _ in ordered][:top_k]
+
+
+def _fuse_qa(lists: list[list[VectorMatch]]) -> dict[str, _Fused]:
     """Fuse scope lists, dropping global candidates overridden locally.
 
     Lists 0-1 are the global semantic/lexical space; lists 2+ are the asking
@@ -278,4 +311,4 @@ def _select_qa(lists: list[list[VectorMatch]], top_k: int) -> list[_Fused]:
             )
         else:
             filtered.append(ranked)
-    return _rank(_rrf_fuse(filtered), top_k)
+    return _rrf_fuse(filtered)

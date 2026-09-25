@@ -65,6 +65,21 @@ Two log lines exist specifically to make otherwise-invisible failures diagnosabl
 
 Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
 
+## Retrieval
+
+- **Candidate pool is 15 per list, fused with RRF, then reranked.** `@cf/baai/bge-reranker-base` scores the fused pool in one batched call and orders it by relevance, with RRF and authority as tie-breaks. It is optional: a reranker failure or a misaligned score set falls back to RRF order, so ranking degrades but the question never fails. The local runtime has no cross-encoder and runs without one.
+- **The reranker cannot fix recall.** It re-orders candidates it is handed; an anchor that `top_k` never retrieved stays invisible. Recall improvements have to come from the candidate pool or the embeddings.
+- **A reranker score is on a different scale from the answer floor.** The floor is cosine similarity over embeddings; the cross-encoder returns a sigmoid score with far sharper separation (measured ~1000:1 between on-topic and off-topic). Do not compare the two.
+- **The reranker is not metered.** The character-based estimator would overcharge it by two orders of magnitude; it costs ~0.3 neurons against ~27 for generation, so the daily total stays dominated by generation.
+
+## Answer selection
+
+- **The generation model is not a reasoning model, deliberately.** `@cf/zai-org/glm-4.7-flash` spent 10 551 characters of `reasoning_content` and 53.0 s on one real question, blowing the 35 s deadline into a user-visible "no info available". `@cf/mistralai/mistral-small-3.1-24b-instruct` answers the same question in 2.5 s and correctly returns `insufficient`.
+- **Grounding, not size, decides the model.** Measured on evidence that does not answer the question: `mistral-small-3.1-24b` abstained correctly, while `llama-3.1-8b-instruct-fp8`, `llama-3.3-70b-instruct-fp8-fast`, and `llama-3.2-3b-instruct` all invented a payment method that is in no document. Never swap in a smaller model on speed alone; run the live answer suite.
+- **Truncated output returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter degrades to `insufficient`. Safe direction, but a low cap silently increases abstentions. Measured: answerable questions need 675-851 completion tokens; the pathological case needed 2653. `AI_GENERATION_MAX_TOKENS=1024` is the compromise.
+- **The request carries no `response_format`.** The system prompt fixes the JSON shape and output is parsed and validated locally, so the structured-output mode only added a latency path.
+- **The generation model call is never sent with no deadline and no token cap**: `AI_GENERATION_TIMEOUT_SECONDS` (35) and `AI_GENERATION_MAX_TOKENS` (1024) both apply. Read `workers_ai_call_completed` before raising either.
+
 ## Daily report
 
 The deterministic daily report is sent by the scheduled Worker handler and can be run manually with `POST /internal/jobs/daily-report`. `dry_run=true` renders the same report without sending or updating the last-sent timestamp. Legacy recap and reviewer-report routes are retired.

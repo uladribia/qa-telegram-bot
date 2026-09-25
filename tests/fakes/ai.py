@@ -124,6 +124,20 @@ class FakeGenerator:
         )
 
 
+class FakeReranker:
+    """A reranker that scores documents by a fixed keyword lookup."""
+
+    def __init__(self, scores: dict[str, float] | None = None) -> None:
+        """Store per-text scores; texts without one score 0.0."""
+        self.scores = scores or {}
+        self.queries: list[str] = []
+
+    async def score(self, query: str, documents: list[str]) -> list[float]:
+        """Return the configured score for each document."""
+        self.queries.append(query)
+        return [self.scores.get(document, 0.0) for document in documents]
+
+
 def linear_head(dimensions: int = 4) -> ClassifierHead:
     """Build a test head where the i-th unit vector maps to the i-th label.
 
