@@ -746,13 +746,21 @@ def _internal_headers() -> dict[str, str]:
     return {"X-Internal-Key": Settings().internal_admin_key}
 
 
+_RETRIEVAL_CHUNK = 20
+# Pace chunks: back-to-back bursts get the Worker rejected (503) and can wedge
+# a deployment into a state where Python fails to initialize.
+_RETRIEVAL_PAUSE_SECONDS = 3.0
+
+
 def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
     """Measure retrieval recall against the deployed index.
 
     The eval asks the Worker to retrieve for each query and checks that the
-    expected anchor's version id comes back. Reindexing is opt-in: it re-embeds
-    every record, which is the largest single draw on the Workers AI quota and
-    is not what this eval measures.
+    expected anchor's version id comes back. Queries are sent in small chunks:
+    a single request with hundreds of embedding calls exceeds the Worker's
+    per-request budget. Reindexing is opt-in: it re-embeds every record, which
+    is the largest single draw on the Workers AI quota and is not what this
+    eval measures.
 
     Args:
         base_url: The deployed Worker base URL.
@@ -763,8 +771,8 @@ def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
     """
     report = EvalReport(name="retrieval/recall@5")
     cases = [*load_cases("retrieval.yaml"), *load_cases("retrieval_synthetic.yaml")]
-    try:
-        if reindex:
+    if reindex:
+        try:
             httpx.post(
                 f"{base_url}/internal/reindex",
                 headers=_internal_headers(),
@@ -772,18 +780,35 @@ def eval_live_retrieval(base_url: str, *, reindex: bool = False) -> EvalReport:
             )
             # Vectorize indexing is eventually consistent: let upserts settle.
             time.sleep(60)
-        probe = httpx.post(
-            f"{base_url}/internal/retrieve",
-            headers=_internal_headers(),
-            json={"queries": [case["query"] for case in cases]},
-            timeout=600.0,
-        )
-        probe.raise_for_status()
-    except httpx.HTTPError as error:
-        report.check(False, f"live retrieval probe failed: {_explain(error)}")
-        return report
-    payload = probe.json()
-    results = payload.get("results", {}) if isinstance(payload, dict) else {}
+        except httpx.HTTPError as error:
+            report.check(False, f"live reindex probe failed: {_explain(error)}")
+            return report
+    results: dict[str, list[str]] = {}
+    for start in range(0, len(cases), _RETRIEVAL_CHUNK):
+        chunk = cases[start : start + _RETRIEVAL_CHUNK]
+        queries = [str(case["query"]) for case in chunk]
+        try:
+            probe = httpx.post(
+                f"{base_url}/internal/retrieve",
+                headers=_internal_headers(),
+                json={"queries": queries},
+                timeout=600.0,
+            )
+            probe.raise_for_status()
+        except httpx.HTTPError as error:
+            reason = f"live retrieval probe failed: {_explain(error)}"
+            for _query in queries:
+                report.check(False, reason)
+            time.sleep(_RETRIEVAL_PAUSE_SECONDS)
+            continue
+        payload = probe.json()
+        chunk_results = payload.get("results", {}) if isinstance(payload, dict) else {}
+        for query in queries:
+            raw = chunk_results.get(query, [])
+            results[query] = (
+                [str(item) for item in raw] if isinstance(raw, list) else []
+            )
+        time.sleep(_RETRIEVAL_PAUSE_SECONDS)
     for case in cases:
         query = str(case["query"])
         accepted = {str(case["expected_anchor"])}
@@ -886,19 +911,38 @@ def eval_live_answers(base_url: str) -> EvalReport:
     return report
 
 
-def eval_live_abstention(base_url: str) -> EvalReport:
+def eval_live_abstention(base_url: str, *, gold_only: bool = False) -> EvalReport:
     """Check that unknown questions abstain instead of inventing (spec §41)."""
     report = EvalReport(name="abstention/live")
-    for case in [
-        *load_cases("abstention.yaml"),
-        *load_cases("abstention_synthetic.yaml"),
-    ]:
+    cases = list(load_cases("abstention.yaml"))
+    if not gold_only:
+        cases += load_cases("abstention_synthetic.yaml")
+    for case in cases:
         _eval_answer(base_url, {**case, "expected_mode": "abstention"}, report)
     return report
 
 
-def run_live(base_url: str, *, reindex: bool = False) -> list[EvalReport]:
-    """Run every live eval."""
+def run_live(
+    base_url: str, *, reindex: bool = False, suite: str = "all"
+) -> list[EvalReport]:
+    """Run the live evals, one suite at a time.
+
+    Args:
+        base_url: The deployed Worker base URL.
+        reindex: Rebuild the vector index before the retrieval eval.
+        suite: Which suite to run; ``all`` runs every suite.
+
+    Returns:
+        The eval reports for the selected suite.
+    """
+    if suite == "retrieval":
+        return [eval_live_retrieval(base_url, reindex=reindex)]
+    if suite == "answers":
+        return [eval_live_answers(base_url)]
+    if suite == "abstention":
+        return [eval_live_abstention(base_url)]
+    if suite == "abstention-gold":
+        return [eval_live_abstention(base_url, gold_only=True)]
     return [
         eval_live_retrieval(base_url, reindex=reindex),
         eval_live_answers(base_url),
@@ -919,6 +963,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("mode", choices=["offline", "live"])
     parser.add_argument("--base-url", default="")
     parser.add_argument(
+        "--suite",
+        choices=["all", "retrieval", "answers", "abstention", "abstention-gold"],
+        default="all",
+        help="Run one live suite at a time; each burns shared quota.",
+    )
+    parser.add_argument(
         "--reindex",
         action="store_true",
         help="Rebuild the vector index first (opt-in: burns the AI quota)",
@@ -932,7 +982,7 @@ def main(argv: list[str] | None = None) -> int:
     reports = (
         run_offline()
         if args.mode == "offline"
-        else run_live(args.base_url, reindex=args.reindex)
+        else run_live(args.base_url, reindex=args.reindex, suite=args.suite)
     )
     print(f"# {args.mode.capitalize()} evals\n")
     for report in reports:
