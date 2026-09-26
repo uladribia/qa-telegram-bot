@@ -77,7 +77,12 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
   work to `defer` (see `create_app` in `adapters/http/app.py`). Anything added
   to the inbound path inherits that: it runs after the response, in a
   `waitUntil` task that no upstream retry can rescue.
-- There is no log history. See [operations.md](operations.md#logs).
+- There is no log history. See [operations.md](operations.md#logs). What a log
+  line cannot answer is answered instead by `bot_answers.trace_json`, written by
+  `AnswerService._prepare` from the same values the decision branches used. When
+  you add a refusal branch, set a `refusal_reason` there; an answer mode alone
+  does not say why. Keep the trace text-free: it is queryable storage, and the
+  prompt and the model output are reconstructible from the ids it keeps.
 
 ## Required checks before handoff
 

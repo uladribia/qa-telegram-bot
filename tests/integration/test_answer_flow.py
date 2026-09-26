@@ -4,6 +4,7 @@
 import json
 from datetime import UTC, datetime
 
+from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import ABSTENTION_TEXT, AnswerService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
@@ -152,3 +153,124 @@ async def test_empty_question_is_not_answered() -> None:
     """A bare ask with no question produces no answer."""
     service, _, _ = await _service([])
     assert await service.answer_message(_message("/ask")) is None
+
+
+async def _trace(answers: InMemoryBotAnswerRepository) -> dict:
+    """Return the stored debug trace of the one persisted answer."""
+    stored = await answers.get("ans:m1")
+    assert stored is not None
+    trace: dict = json.loads(stored.trace_json)
+    return trace
+
+
+async def test_trace_records_why_a_model_refused() -> None:
+    """A model refusal is distinguishable from a floor refusal in the trace."""
+    service, answers, _ = await _service(
+        [_qa_record()], GenerationOutput(status="insufficient")
+    )
+    await service.answer_message(_message("/ask quan entrenen?"))
+    trace = await _trace(answers)
+    assert trace["refusal_reason"] == "insufficient"
+    assert trace["selected"] == ["qa:web-item"]
+    assert trace["candidates"] == {
+        "qa": [{"id": "qa:web-item", "similarity": 1.0}],
+        "message": [],
+    }
+    assert trace["generation"]["status"] == "insufficient"
+    assert trace["generation"]["source_ids"] == []
+    assert trace["generation"]["prompt_chars"] > 0
+    assert "cited" not in trace
+
+
+async def test_trace_records_an_uncited_source_as_unknown() -> None:
+    """A cited id outside the evidence is a distinct refusal reason."""
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Divendres.", source_ids=["qa:other"]
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.ABSTENTION
+    trace = await _trace(answers)
+    assert trace["refusal_reason"] == "unknown_source_id"
+    assert trace["generation"]["source_ids"] == ["qa:other"]
+
+
+async def test_model_echoing_a_prefixless_source_id_is_answered() -> None:
+    """Dropping the kind prefix must not discard a grounded answer.
+
+    This is the exact shape the model returned in production: evidence ids are
+    ``qa:<object id>``, and the model cited ``<object id>``.
+    """
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["web-item"]
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
+    assert response.answer == "Els dimarts."
+    assert [source.source_id for source in response.sources] == ["qa:web-item"]
+    stored = await answers.get("ans:m1")
+    assert stored is not None
+    assert json.loads(stored.sources_json) == ["qa:web-item"]
+    trace = await _trace(answers)
+    assert "refusal_reason" not in trace
+    assert trace["generation"]["source_ids"] == ["web-item"]
+    assert trace["cited"] == ["qa:web-item"]
+
+
+async def test_both_spellings_of_one_id_cite_the_item_once() -> None:
+    """A model citing one id twice, spelled two ways, yields one source."""
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered",
+            answer="Els dimarts.",
+            source_ids=["qa:web-item", "web-item"],
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
+    assert len(response.sources) == 1
+    stored = await answers.get("ans:m1")
+    assert stored is not None
+    assert json.loads(stored.sources_json) == ["qa:web-item"]
+
+
+async def test_trace_records_a_floor_refusal_without_a_model_call() -> None:
+    """No evidence above the floor leaves no generation entry at all."""
+    service, answers, generator = await _service([], None)
+    service = AnswerService(
+        retrieval=service.retrieval,
+        generator=service.generator,
+        answers=service.answers,
+        clock=service.clock,
+        policy=AnswerPolicy(floor=1.1),
+    )
+    await service.answer_message(_message("/ask quan entrenen?"))
+    trace = await _trace(answers)
+    assert generator.requests == []
+    assert trace["refusal_reason"] == "no_evidence"
+    assert trace["selected"] == []
+    assert "generation" not in trace
+
+
+async def test_trace_records_a_synthesis_without_its_text() -> None:
+    """A successful answer is traced by ids, never by its text."""
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+        ),
+    )
+    await service.answer_message(_message("/ask quan entrenen?"))
+    trace = await _trace(answers)
+    assert trace["cited"] == ["qa:web-item"]
+    assert "refusal_reason" not in trace
+    assert "Els dimarts." not in json.dumps(trace)

@@ -166,7 +166,11 @@ async def test_generator_reports_insufficient_on_unparseable_output() -> None:
     output = await generator.generate(
         GenerationRequest(
             question="q",
-            evidence=[EvidenceItem(source_id="s1", text="t", label="l", authority=1)],
+            evidence=[
+                EvidenceItem(
+                    source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                )
+            ],
         )
     )
 

@@ -53,6 +53,7 @@ async def test_local_ollama_embedding_endpoint() -> None:
                         text="The local verification marker is VERIFIED-LOCAL-42.",
                         label="Local E2E",
                         authority=50,
+                        similarity=0.5,
                     )
                 ],
             )

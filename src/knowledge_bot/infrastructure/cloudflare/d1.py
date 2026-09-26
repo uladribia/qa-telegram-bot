@@ -807,8 +807,8 @@ class D1BotAnswerRepository:
                 " (id, conversation_id, space_id, user_message_id,"
                 " telegram_bot_message_id, question, answer, answer_mode, confidence,"
                 " qa_version_id, sources_json, rendered_text, source_details_json,"
-                " created_at, request_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " created_at, request_id, trace_json)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 answer.id,
@@ -826,6 +826,7 @@ class D1BotAnswerRepository:
                 answer.source_details_json,
                 _iso(answer.created_at),
                 answer.request_id,
+                answer.trace_json,
             )
             .run()
         )
@@ -980,6 +981,7 @@ def _bot_answer(row: dict[str, object]) -> BotAnswer:
         sources_json=str(row["sources_json"]),
         rendered_text=str(row.get("rendered_text") or row["answer"]),
         source_details_json=str(row.get("source_details_json") or "[]"),
+        trace_json=str(row.get("trace_json") or "{}"),
     )
 
 

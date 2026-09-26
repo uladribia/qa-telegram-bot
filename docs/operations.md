@@ -65,6 +65,31 @@ Two log lines exist specifically to make otherwise-invisible failures diagnosabl
 
 Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
 
+## Answer traces
+
+Because there is no log history, every answer persists a `bot_answers.trace_json` debug trace. It is the durable record of one attempt and answers the question a log line cannot: *why* did this question abstain. It holds no text — no question, no evidence body, no prompt, no model output — only ids, counts, sizes, similarities, statuses, and durations.
+
+```bash
+npx wrangler d1 execute knowledge-bot --remote --command \
+  "select id, question, answer_mode, json_extract(trace_json,'\$.refusal_reason') as reason, trace_json from bot_answers order by created_at desc limit 5"
+```
+
+Keys: `floor`, `retrieval_ms`, `total_ms`, `candidates` (`qa` and `message`, each an id plus a 4-decimal similarity), `selected` (the ids that cleared the floor), `generation` (`prompt_chars`, `response_chars`, `status`, `source_ids`, `duration_ms`), `cited`, and `refusal_reason`.
+
+`refusal_reason` is the field to read first:
+
+| value | meaning |
+|---|---|
+| `no_evidence` | nothing cleared `ANSWER_SIMILARITY_FLOOR`; no generation call was made, so there is no `generation` key |
+| `insufficient` | the model returned `insufficient` |
+| `empty_answer` | the model claimed `answered` with blank text |
+| `unknown_source_id` | the model cited an id outside the evidence set; the whole answer was discarded |
+| `model_unavailable` | an AI call raised `ModelUnavailableError`; the user got the temporary-unavailable reply |
+
+An abstention is a `no_evidence` trace with an empty `selected`, or a `generation` block whose `status` is not `answered` — the two are otherwise identical in `bot_answers`, which is why this column exists. The adapter also coerces unparseable or schema-invalid model output to `insufficient`, and that coercion is deliberately invisible: the trace records the status the adapter returned, not the raw payload. A malformed response is therefore indistinguishable from a genuine `insufficient`, by design.
+
+**`generation.source_ids` is what the model said; `cited` is what was accepted.** They differ in spelling whenever the model dropped the `kind:` prefix, which `AnswerService._resolve` resolves against the evidence. A trace whose `generation.source_ids` are missing from `cited` after resolution is a genuine hallucination, not a formatting slip.
+
 ## Retrieval
 
 - **Candidate pool is 15 per list, fused with RRF.** No cross-encoder: a `bge-reranker-base` reranker was measured and removed. It promoted high-relevance, low-cosine items and pushed high-cosine items out of the top-5, thinning the generation prompt to 1047-1400 characters, and the model — told to return `insufficient` when evidence is insufficient — declined. It cost 1% of the neurons and bought nothing.
@@ -80,6 +105,7 @@ Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API to
 - **Grounding, not size, decides the model.** Measured on evidence that does not answer the question: `mistral-small-3.1-24b` abstained correctly, while `llama-3.1-8b-instruct-fp8`, `llama-3.3-70b-instruct-fp8-fast`, and `llama-3.2-3b-instruct` all invented a payment method that is in no document. Never swap in a smaller model on speed alone; run the live answer suite.
 - **Truncated output returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter degrades to `insufficient`. Safe direction, but a low cap silently increases abstentions. Measured: answerable questions need 675-851 completion tokens; the pathological case needed 2653. `AI_GENERATION_MAX_TOKENS=1024` is the compromise.
 - **The request carries no `response_format`.** The system prompt fixes the JSON shape and output is parsed and validated locally, so the structured-output mode only added a latency path.
+- **The prompt has one home, and the evidence lines carry a similarity score.** `infrastructure/prompt.py` holds the system prompt and the user rendering; the Workers AI and Ollama adapters import it. They each used to carry an identical private copy, which is how they drift — an architecture test now fails if a second copy appears. Each line reads `[id] (label, authority=N, similarity=0.48) text`, and rule 4 tells the model a low score is a weak match while forbidding a high score from excusing text that does not answer the question. The score is advice; `ANSWER_SIMILARITY_FLOOR` remains the only hard cutoff.
 - **The generation model call is never sent with no deadline and no token cap**: `AI_GENERATION_TIMEOUT_SECONDS` (35) and `AI_GENERATION_MAX_TOKENS` (1024) both apply. Read `workers_ai_call_completed` before raising either.
 
 ## Daily report

@@ -1,7 +1,18 @@
 # SPDX-License-Identifier: MIT
-"""Prepare and persist grounded answers; channel adapters deliver them."""
+"""Prepare and persist grounded answers; channel adapters deliver them.
+
+Every attempt persists a ``trace_json`` debug trace next to the answer: the
+floor, the retrieved candidates with their similarities, the ids the floor
+selected, the generation sizes and returned ids, the timings, and one
+``refusal_reason`` saying which branch refused. The worker keeps no log
+history, so this column is the only durable record of why a question was
+answered or refused. It deliberately holds no text: the prompt, the evidence
+bodies and the model output are reconstructible from the ids it stores, and
+stay out of storage per the logging rules.
+"""
 
 import json
+import time
 from dataclasses import dataclass, field
 
 from knowledge_bot.application.answer_policy import AnswerPolicy
@@ -62,6 +73,30 @@ class AnswerPreview:
 
     outcome: AnswerOutcome
     evidence: list[Evidence]
+    trace: dict[str, object] = field(default_factory=dict)
+
+
+def _candidates(items: list[Evidence]) -> list[dict[str, object]]:
+    """Describe retrieved candidates by id and similarity, never by text."""
+    return [
+        {"id": item.source_id, "similarity": round(item.similarity, 4)}
+        for item in items
+    ]
+
+
+def _elapsed(started: float) -> float:
+    """Return the milliseconds since ``started``."""
+    return round((time.perf_counter() - started) * 1000, 2)
+
+
+def _object_id(source_id: str) -> str:
+    """Return the object id behind a ``kind:``-namespaced vector id.
+
+    Evidence ids reach the model as ``qa:qa-<id>`` / ``msg-<id>``; it commonly
+    echoes the object id alone, dropping the kind prefix. Citation matching
+    resolves both spellings instead of discarding the answer over the prefix.
+    """
+    return source_id.split(":", 1)[-1]
 
 
 def render_source_line(source: Evidence) -> str:
@@ -153,18 +188,35 @@ class AnswerService:
         return await self.answers.get(answer_id)
 
     async def decide(
-        self, question: str, retrieved: RetrievedEvidence
+        self,
+        question: str,
+        retrieved: RetrievedEvidence,
+        trace: dict[str, object] | None = None,
     ) -> AnswerOutcome:
         """Answer from the selected evidence, or abstain without it.
 
         Every answered question goes to the generator: a verbatim echo cannot
         decline, and the model returns ``insufficient`` for unknown questions
         instead of quoting an unrelated document.
+
+        Args:
+            question: The user question.
+            retrieved: The candidates retrieval returned.
+            trace: Optional debug trace to record the decision in.
+
+        Returns:
+            The answer or abstention, with ``refusal_reason`` set in the trace
+            whenever the answer is not a synthesis.
         """
         selection = self.policy.select(retrieved.qa, retrieved.messages)
+        if trace is not None:
+            trace["selected"] = [item.source_id for item in selection.evidence]
         if selection.abstain:
+            if trace is not None:
+                trace["refusal_reason"] = "no_evidence"
             return _abstain()
         evidence = list(selection.evidence)
+        started = time.perf_counter()
         result = await self.generator.generate(
             GenerationRequest(
                 question=question,
@@ -174,23 +226,66 @@ class AnswerService:
                         text=item.text,
                         label=item.label,
                         authority=item.authority,
+                        similarity=item.similarity,
                     )
                     for item in evidence
                 ],
             )
         )
-        allowed = {item.source_id for item in evidence}
+        resolved = self._resolve(evidence, result.source_ids)
+        if trace is not None:
+            trace["generation"] = {
+                "prompt_chars": len(question)
+                + sum(len(item.text) for item in evidence),
+                "response_chars": len(result.answer),
+                "status": result.status,
+                "source_ids": list(result.source_ids),
+                "duration_ms": _elapsed(started),
+            }
         if result.status != "answered" or not result.answer.strip():
+            if trace is not None:
+                trace["refusal_reason"] = (
+                    "insufficient" if result.status != "answered" else "empty_answer"
+                )
             return _abstain()
-        if any(source_id not in allowed for source_id in result.source_ids):
+        if any(item is None for item in resolved):
+            if trace is not None:
+                trace["refusal_reason"] = "unknown_source_id"
             return _abstain()
-        cited = [item for item in evidence if item.source_id in result.source_ids]
+        cited = [item for item in resolved if item is not None]
+        if trace is not None:
+            trace["cited"] = [item.source_id for item in cited]
         return AnswerOutcome(
             answer=result.answer,
             mode=AnswerMode.SYNTHESIS,
-            source_ids=result.source_ids,
+            source_ids=[item.source_id for item in cited],
             text=_render(result.answer, cited),
         )
+
+    @staticmethod
+    def _resolve(
+        evidence: list[Evidence], source_ids: list[str]
+    ) -> list[Evidence | None]:
+        """Match the model's returned ids to evidence, in canonical form.
+
+        Both the exact vector id and the bare object id resolve to the same
+        evidence item; an id matching neither stays ``None`` so the caller can
+        refuse, while a repeated citation is dropped rather than refused. Exact
+        spellings are registered first, so a bare id can never shadow a real one.
+        """
+        by_id: dict[str, Evidence] = {item.source_id: item for item in evidence}
+        for item in evidence:
+            by_id.setdefault(_object_id(item.source_id), item)
+        cited: list[Evidence | None] = []
+        seen: set[str] = set()
+        for source_id in source_ids:
+            item = by_id.get(source_id) or by_id.get(_object_id(source_id))
+            if item is None:
+                cited.append(None)
+            elif item.source_id not in seen:
+                seen.add(item.source_id)
+                cited.append(item)
+        return cited
 
     async def answer_request(self, request: AskQuestionRequest) -> AskQuestionResponse:
         """Answer an idempotent API request and replay its stored response."""
@@ -238,18 +333,28 @@ class AnswerService:
     ) -> AskQuestionResponse:
         """Retrieve, decide, persist, and return one answer."""
         question = question.strip()
+        started = time.perf_counter()
+        trace: dict[str, object] = {"floor": self.policy.floor}
         try:
             retrieved = await self.retrieval.retrieve(question, space_id)
+            trace["retrieval_ms"] = _elapsed(started)
+            trace["candidates"] = {
+                "qa": _candidates(retrieved.qa),
+                "message": _candidates(retrieved.messages),
+            }
             preview = AnswerPreview(
-                await self.decide(question, retrieved), retrieved.all()
+                await self.decide(question, retrieved, trace), retrieved.all(), trace
             )
         except ModelUnavailableError:
+            trace["refusal_reason"] = "model_unavailable"
             preview = AnswerPreview(
                 AnswerOutcome(
                     UNAVAILABLE_TEXT, AnswerMode.UNAVAILABLE, [], UNAVAILABLE_TEXT
                 ),
                 [],
+                trace,
             )
+        trace["total_ms"] = _elapsed(started)
         details = _source_details(preview.outcome.source_ids, preview.evidence)
         record = BotAnswer(
             id=answer_id,
@@ -267,6 +372,7 @@ class AnswerService:
                 [item.model_dump(mode="json") for item in details]
             ),
             request_id=request_id,
+            trace_json=json.dumps(preview.trace, separators=(",", ":")),
         )
         if request_id is not None:
             await self._ensure_api_conversation(space_id)
@@ -301,4 +407,7 @@ class AnswerService:
         """Decide an answer without persisting it."""
         cleaned = clean_question(question)
         retrieved = await self.retrieval.retrieve(cleaned, all_scopes=True)
-        return AnswerPreview(await self.decide(cleaned, retrieved), retrieved.all())
+        trace: dict[str, object] = {"floor": self.policy.floor}
+        return AnswerPreview(
+            await self.decide(cleaned, retrieved, trace), retrieved.all(), trace
+        )
