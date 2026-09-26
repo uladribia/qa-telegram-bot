@@ -88,6 +88,8 @@ Keys: `floor`, `retrieval_ms`, `total_ms`, `candidates` (`qa` and `message`, eac
 
 An abstention is a `no_evidence` trace with an empty `selected`, or a `generation` block whose `status` is not `answered` — the two are otherwise identical in `bot_answers`, which is why this column exists. The adapter also coerces unparseable or schema-invalid model output to `insufficient`, and that coercion is deliberately invisible: the trace records the status the adapter returned, not the raw payload. A malformed response is therefore indistinguishable from a genuine `insufficient`, by design.
 
+**`generation.source_ids` is what the model said; `cited` is what was accepted.** They differ in spelling whenever the model dropped the `kind:` prefix, which `AnswerService._resolve` resolves against the evidence. A trace whose `generation.source_ids` are missing from `cited` after resolution is a genuine hallucination, not a formatting slip.
+
 ## Retrieval
 
 - **Candidate pool is 15 per list, fused with RRF.** No cross-encoder: a `bge-reranker-base` reranker was measured and removed. It promoted high-relevance, low-cosine items and pushed high-cosine items out of the top-5, thinning the generation prompt to 1047-1400 characters, and the model — told to return `insufficient` when evidence is insufficient — declined. It cost 1% of the neurons and bought nothing.

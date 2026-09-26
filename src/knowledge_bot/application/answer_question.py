@@ -89,6 +89,16 @@ def _elapsed(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 2)
 
 
+def _object_id(source_id: str) -> str:
+    """Return the object id behind a ``kind:``-namespaced vector id.
+
+    Evidence ids reach the model as ``qa:qa-<id>`` / ``msg-<id>``; it commonly
+    echoes the object id alone, dropping the kind prefix. Citation matching
+    resolves both spellings instead of discarding the answer over the prefix.
+    """
+    return source_id.split(":", 1)[-1]
+
+
 def render_source_line(source: Evidence) -> str:
     """Render one citation line."""
     parts = [source.label]
@@ -221,7 +231,7 @@ class AnswerService:
                 ],
             )
         )
-        allowed = {item.source_id for item in evidence}
+        resolved = self._resolve(evidence, result.source_ids)
         if trace is not None:
             trace["generation"] = {
                 "prompt_chars": len(question)
@@ -237,19 +247,44 @@ class AnswerService:
                     "insufficient" if result.status != "answered" else "empty_answer"
                 )
             return _abstain()
-        if any(source_id not in allowed for source_id in result.source_ids):
+        if any(item is None for item in resolved):
             if trace is not None:
                 trace["refusal_reason"] = "unknown_source_id"
             return _abstain()
-        cited = [item for item in evidence if item.source_id in result.source_ids]
+        cited = [item for item in resolved if item is not None]
         if trace is not None:
             trace["cited"] = [item.source_id for item in cited]
         return AnswerOutcome(
             answer=result.answer,
             mode=AnswerMode.SYNTHESIS,
-            source_ids=result.source_ids,
+            source_ids=[item.source_id for item in cited],
             text=_render(result.answer, cited),
         )
+
+    @staticmethod
+    def _resolve(
+        evidence: list[Evidence], source_ids: list[str]
+    ) -> list[Evidence | None]:
+        """Match the model's returned ids to evidence, in canonical form.
+
+        Both the exact vector id and the bare object id resolve to the same
+        evidence item; an id matching neither stays ``None`` so the caller can
+        refuse, while a repeated citation is dropped rather than refused. Exact
+        spellings are registered first, so a bare id can never shadow a real one.
+        """
+        by_id: dict[str, Evidence] = {item.source_id: item for item in evidence}
+        for item in evidence:
+            by_id.setdefault(_object_id(item.source_id), item)
+        cited: list[Evidence | None] = []
+        seen: set[str] = set()
+        for source_id in source_ids:
+            item = by_id.get(source_id) or by_id.get(_object_id(source_id))
+            if item is None:
+                cited.append(None)
+            elif item.source_id not in seen:
+                seen.add(item.source_id)
+                cited.append(item)
+        return cited
 
     async def answer_request(self, request: AskQuestionRequest) -> AskQuestionResponse:
         """Answer an idempotent API request and replay its stored response."""

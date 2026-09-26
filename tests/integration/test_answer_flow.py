@@ -198,6 +198,51 @@ async def test_trace_records_an_uncited_source_as_unknown() -> None:
     assert trace["generation"]["source_ids"] == ["qa:other"]
 
 
+async def test_model_echoing_a_prefixless_source_id_is_answered() -> None:
+    """Dropping the kind prefix must not discard a grounded answer.
+
+    This is the exact shape the model returned in production: evidence ids are
+    ``qa:<object id>``, and the model cited ``<object id>``.
+    """
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["web-item"]
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
+    assert response.answer == "Els dimarts."
+    assert [source.source_id for source in response.sources] == ["qa:web-item"]
+    stored = await answers.get("ans:m1")
+    assert stored is not None
+    assert json.loads(stored.sources_json) == ["qa:web-item"]
+    trace = await _trace(answers)
+    assert "refusal_reason" not in trace
+    assert trace["generation"]["source_ids"] == ["web-item"]
+    assert trace["cited"] == ["qa:web-item"]
+
+
+async def test_both_spellings_of_one_id_cite_the_item_once() -> None:
+    """A model citing one id twice, spelled two ways, yields one source."""
+    service, answers, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered",
+            answer="Els dimarts.",
+            source_ids=["qa:web-item", "web-item"],
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
+    assert len(response.sources) == 1
+    stored = await answers.get("ans:m1")
+    assert stored is not None
+    assert json.loads(stored.sources_json) == ["qa:web-item"]
+
+
 async def test_trace_records_a_floor_refusal_without_a_model_call() -> None:
     """No evidence above the floor leaves no generation entry at all."""
     service, answers, generator = await _service([], None)
