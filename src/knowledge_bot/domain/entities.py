@@ -238,6 +238,7 @@ class BotAnswer:
     sources_json: str = "[]"
     rendered_text: str = ""
     source_details_json: str = "[]"
+    trace_json: str = "{}"
 
 
 @dataclass(frozen=True, slots=True)
