@@ -124,10 +124,10 @@ The questions above were run against the local Docker models (`embeddinggemma` a
 Those thresholds governed the removed verbatim-echo path. The bot now always grounds in the model and the single knob is:
 
 ```dotenv
-ANSWER_SIMILARITY_FLOOR=0.45
+ANSWER_SIMILARITY_FLOOR=0.35
 ```
 
-`ANSWER_SIMILARITY_FLOOR` decides which retrieved Q&A items are handed to the generator; a question with nothing above it abstains. The table above is kept as the historical record of the echo-path calibration. Re-run the floor calibration (see [experiments.md](experiments.md)) after changing the embedding model, the seed content, or the retrieval projection.
+`ANSWER_SIMILARITY_FLOOR` decides which retrieved Q&A items are handed to the generator; a question with nothing above it abstains. The table above is the historical record of the echo-path calibration and no longer governs anything. The deployed 0.35 was calibrated in production, not locally: it is the lowest top-1 cosine among the 43 answerable questions in [`answers.yaml`](../evals/answers.yaml), and it is what gives every one of them a full five-item evidence set. It is **not** a precision device — at 0.45 ten of the twenty unanswerable questions already cleared it. Re-derive it (see [experiments.md](experiments.md)) after changing the embedding model, the seed content, or the retrieval projection.
 
 ## Retrieval and safety checks
 

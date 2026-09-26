@@ -37,8 +37,10 @@ The admin is notified when a reviewer cannot be reached. The review remains pend
 
 ## Daily report
 
-The deterministic daily report is sent by the scheduled Worker handler. It includes addressed outcomes, background questions, indexed evidence, corrections, seed divergence, projection repair counts, and estimated AI usage. Manual preview and delivery use `POST /internal/jobs/daily-report`; `dry_run=true` does not send or update report state.
+The deterministic daily report covers a completed day: addressed outcomes, background questions, indexed evidence, corrections, seed divergence, projection repair counts, and estimated AI usage.
+
+**It is delivered by an external scheduler, not by the Worker.** The `0 19 * * *` Cron Trigger is registered but cannot run on the Workers Free plan, which allots a cron invocation 10 ms of CPU against a 3.4 s Python interpreter start-up, so `Default.scheduled` never reaches its first statement. The route itself is fine and sends whenever it is called. Point a scheduler (GitHub Actions or equivalent) at `POST /internal/jobs/daily-report` with the admin key. `dry_run=true` renders the same text without sending or updating report state, and the job skips when less than 24 h has passed since the last successful send. `daily_report_state` is the ground truth: an empty table means the scheduler has never delivered one. See [operations.md](operations.md#daily-report).
 
 ## Media and limits
 
-Attachments are metadata-only in v1; media is never processed. Workers AI quota exhaustion produces a temporary unavailable answer. See [operations.md](operations.md).
+Attachments are metadata-only in v1; media is never processed. Every answered question is grounded in the retrieved Q&A and group evidence; when the evidence does not support an answer, or the quota is exhausted, the bot says so instead of guessing. On a given question the model may decline an answer that a previous identical question received, so repeated asks of the same question are not guaranteed to agree. See [operations.md](operations.md).
