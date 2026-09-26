@@ -3,9 +3,8 @@
 
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
-from knowledge_bot.ports.lexical import LexicalRecord
 from knowledge_bot.ports.vector_store import VectorRecord
-from tests.fakes.ai import FakeEmbedder, FakeLexicalIndex, FakeVectorStore
+from tests.fakes.ai import FakeEmbedder, FakeVectorStore
 
 SPACE_A = "sp_" + "1" * 32
 SPACE_B = "sp_" + "2" * 32
@@ -69,7 +68,6 @@ async def test_retrieval_filters_status_and_ranks_by_similarity() -> None:
     service = RetrievalService(
         embedder=FakeEmbedder([1.0, 0.0]),
         vectors=store,
-        lexical=FakeLexicalIndex(),
         qa_top_k=5,
         message_top_k=5,
     )
@@ -121,7 +119,6 @@ async def test_scoped_retrieval_sees_global_and_own_group_only() -> None:
     service = RetrievalService(
         embedder=FakeEmbedder(vector),
         vectors=store,
-        lexical=FakeLexicalIndex(),
         qa_top_k=5,
         message_top_k=5,
     )
@@ -162,9 +159,7 @@ async def test_group_variant_beats_the_global_answer() -> None:
             ),
         ]
     )
-    service = RetrievalService(
-        embedder=FakeEmbedder(vector), vectors=store, lexical=FakeLexicalIndex()
-    )
+    service = RetrievalService(embedder=FakeEmbedder(vector), vectors=store)
     retrieved = await service.retrieve("pregunta", SPACE_A)
     # The same canonical question: the group variant replaces the global one.
     assert [item.source_id for item in retrieved.qa] == ["qa-group"]
@@ -203,55 +198,10 @@ async def test_unrelated_global_survives_weak_local_candidates() -> None:
     service = RetrievalService(
         embedder=FakeEmbedder([1.0, 0.0]),
         vectors=store,
-        lexical=FakeLexicalIndex(),
         qa_top_k=5,
     )
     retrieved = await service.retrieve("pregunta", SPACE_A)
     assert "global" in [item.source_id for item in retrieved.qa]
-
-
-async def test_authority_breaks_equal_rrf_ties() -> None:
-    """Authority breaks an exact RRF tie deterministically."""
-    store = FakeVectorStore()
-    lexical = FakeLexicalIndex()
-    await store.upsert(
-        [
-            VectorRecord(
-                id="low",
-                values=[1.0, 0.0],
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "authority": 40,
-                    "question": "Quan?",
-                    "text": "text low",
-                },
-            ),
-        ]
-    )
-    await lexical.upsert(
-        [
-            LexicalRecord(
-                id="high",
-                text="quan entrenament",
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "authority": 90,
-                    "question": "Quan?",
-                    "text": "text high",
-                },
-            )
-        ]
-    )
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]), vectors=store, lexical=lexical, qa_top_k=5
-    )
-    retrieved = await service.retrieve("quan")
-    # Rank 1 in each list: identical RRF; authority decides.
-    assert [item.source_id for item in retrieved.qa[:2]] == ["high", "low"]
 
 
 async def test_group_variant_suppresses_a_better_scoring_global_match() -> None:
@@ -281,57 +231,46 @@ async def test_group_variant_suppresses_a_better_scoring_global_match() -> None:
             ),
         ]
     )
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]), vectors=store, lexical=FakeLexicalIndex()
-    )
+    service = RetrievalService(embedder=FakeEmbedder([1.0, 0.0]), vectors=store)
     retrieved = await service.retrieve("pregunta", SPACE_A)
     assert [item.source_id for item in retrieved.qa] == ["qa-group"]
 
 
-async def test_lexical_only_match_ranks_by_bm25_recency() -> None:
-    """A BM25 hit absent from the semantic list still reaches the results."""
+async def test_default_width_is_three_qa_and_two_context_candidates() -> None:
+    """Retrieval returns at most three Q&A and two group candidates."""
     store = FakeVectorStore()
-    lexical = FakeLexicalIndex()
-    await lexical.upsert(
-        [
-            LexicalRecord(
-                id="qa-lexical",
-                text="certificat medic caducitat",
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "canonical_key": "certificat",
-                    "authority": 90,
-                    "question": "Quan caduca el certificat?",
-                    "text": "Es consulta al web.",
-                },
-            )
-        ]
-    )
     await store.upsert(
         [
             VectorRecord(
-                id="qa-other",
+                id=f"qa{index}",
                 values=[1.0, 0.0],
                 metadata={
                     "kind": "qa",
                     "status": "active",
                     "scope_key": GLOBAL_SCOPE,
-                    "canonical_key": "other",
-                    "authority": 90,
-                    "question": "Altre tema",
-                    "text": "Altre text",
+                    "authority": 50,
+                    "text": f"text {index}",
                 },
             )
+            for index in range(6)
+        ]
+        + [
+            VectorRecord(
+                id=f"m{index}",
+                values=[1.0, 0.0],
+                metadata={
+                    "kind": "message_evidence",
+                    "scope_key": GLOBAL_SCOPE,
+                    "authority": 40,
+                    "text": f"context {index}",
+                },
+            )
+            for index in range(5)
         ]
     )
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]), vectors=store, lexical=lexical, qa_top_k=5
-    )
-    retrieved = await service.retrieve("caducitat del certificat medic")
-    ids = [item.source_id for item in retrieved.qa]
-    assert "qa-lexical" in ids
-    # Lexical-only matches carry no cosine similarity.
-    lexical_hit = next(item for item in retrieved.qa if item.source_id == "qa-lexical")
-    assert lexical_hit.similarity == 0.0
+    service = RetrievalService(embedder=FakeEmbedder([1.0, 0.0]), vectors=store)
+
+    retrieved = await service.retrieve("pregunta")
+
+    assert len(retrieved.qa) == 3
+    assert len(retrieved.messages) == 2

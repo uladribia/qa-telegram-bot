@@ -7,7 +7,7 @@ This is an explicit production/staging procedure. Commands that call Workers AI 
 3. Create Vectorize metadata indexes for `kind`, `status`, and `scope_key`.
 4. Configure the D1, Vectorize, and AI bindings in `wrangler.jsonc`. The Worker loads the linear classifier head from the generated module `src/knowledge_bot/infrastructure/classifier_head_data.py` (a Python Worker isolate cannot read repository-relative data files); that module is regenerated from `data/classifier/model.json` by `uv run python scripts/train_classifier.py`.
 5. Set secrets with `wrangler secret put`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_TELEGRAM_USER_ID`, and `INTERNAL_ADMIN_KEY`.
-6. Apply shared migrations in lexical order, including `0021_search_fts.sql` (the derived BM25/FTS5 lexical projection).
+6. Apply shared migrations in numeric order. The derived FTS5 projection is created by `0021_search_fts.sql` and dropped again by `0022_drop_search_fts.sql`; applying both is a no-op on the table.
 7. Deploy the Worker.
 8. Check `/healthz` and `/readyz` where applicable. `/healthz` is served by the static asset layer (`public/healthz`, deployed with `run_worker_first: false`) and answers from the edge even if the Python interpreter cannot start; `/readyz` runs inside Python and is the application-side probe. Monitor both.
 9. Seed committed data and register logical spaces/channel bindings.

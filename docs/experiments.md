@@ -2,7 +2,7 @@
 
 Measured experiments behind design decisions, with the numbers that justified
 them and the state of each. Everything here was measured locally (Ollama
-`embeddinggemma`, SQLite FTS5) unless marked as a live production run; live runs
+`embeddinggemma`) unless marked as a live production run; live runs
 state their neuron cost.
 
 ## Answer selection: always ground in the model
@@ -90,9 +90,11 @@ the abstention set, and train on those - not on generated paraphrases.
 
 ## Retrieval: the real ceiling
 
-Question-focused embeddings plus BM25/RRF reach Recall@1 0.964, Recall@3 0.984,
-Recall@5 0.986 and MRR 0.973 locally, against a question+answer embedding
-baseline of 0.308 / 0.540 / 0.690 and 0.455. On the 47 labelled *human* answer
+Question-focused embeddings alone reach Recall@1 0.940, Recall@3 0.962 and
+MRR 0.953 locally, against a question+answer embedding baseline of 0.308 /
+0.540 / 0.690 and 0.455. Those were originally measured with a BM25/RRF leg
+added on top (0.964 / 0.984 / 0.986 / 0.973); that leg is now removed as dead
+code, see "The lexical leg" below. On the 47 labelled *human* answer
 questions the gold anchor is retrieved for 27: short, conversational questions
 remain the dominant retrieval miss, and no answer policy can repair that. The
 next retrieval effort should target terse questions.
@@ -229,10 +231,44 @@ the top-1 rerank score spans 0.9997 down to 0.0000 for answerable questions and
 | 0.005 | 34/43 | 7/21 |
 | 0.05 | 28/43 | 3/21 |
 
-Every threshold loses more answers than it saves. Removed. BM25/FTS5 stays: the
-only measured retrieval numbers here are hybrid MRR 0.973 / Recall@5 0.986
-against a semantic-only baseline of 0.455, and the corpus turns on rare proper
-nouns (*Pau Negre*, *Cluber*, *Minis*, *FCB*) where dense embeddings are weakest.
+Every threshold loses more answers than it saves. Removed.
+
+## The lexical leg: measured dead, and measured cheap
+
+**Question.** The pipeline was described as hybrid retrieval. Was it?
+
+No. `_fts_query` quoted every token and joined them with spaces, which FTS5
+reads as AND, so *"Com puc demanar la roba de l'equip?"* became
+`"com" "puc" "demanar" "la" "roba" "de" "l" "equip"` — eight required terms,
+five of them stopwords. Against 55 indexed QA rows that returns **0 hits**; the
+same tokens with OR return 15. Across **91 eval questions the production query
+returned rows for 2**. A second fault compounded it: the FTS table indexed only
+`question_text`, never the answer, so content words that live in answers
+(`roba`) were unsearchable — `roba` alone returned 0.
+
+So the "hybrid" was fusing one list, and RRF was ranking a single list.
+
+**What a working lexical leg would have been worth.** Same 43 answerable
+questions, gold `source_anchor`, OR-of-content-tokens query:
+
+| strategy | Recall@5 | Recall@15 | MRR@5 |
+|---|---:|---:|---:|
+| semantic only (what shipped) | 0.907 | 0.977 | 0.752 |
+| lexical only, fixed query | 0.791 | 0.907 | 0.703 |
+| RRF fused, fixed query | 0.930 | 0.977 | 0.781 |
+
+**+2 questions in 43 at Recall@5, +0 at Recall@15, and 0 questions where the
+lexical leg was the only source of the anchor.** Locally the leg was worth more
+(Recall@3 0.984, Recall@5 0.986, MRR 0.973 against 0.962 / 0.970 / 0.953), but
+the local set is synthetic and the shipped width is three candidates, where
+Recall@3 is the metric that describes the system.
+
+Removed: the `LexicalIndex` port, `D1LexicalIndex`, the FTS query builder, the
+RRF fuser, the lexical half of the search projection, `search_fts` and
+migration `0021` paired with `0022_drop_search_fts.sql`. Retrieval is now one
+embedding, one cosine ranking, one threshold. The honest summary is that the
+lexical leg was a lot of machinery contributing two questions in 43, one of
+which the model then declined to answer anyway.
 
 ## Answer floor: 0.45 to 0.35, and what it is for
 

@@ -54,7 +54,6 @@ from knowledge_bot.infrastructure.sql.repositories import (
     SqlDailyReportStateRepository,
     SqlDeliveryReceiptRepository,
     SqlFeedbackRepository,
-    SqlLexicalIndex,
     SqlMessagePairCandidateRepository,
     SqlMessageRepository,
     SqlQAItemRepository,
@@ -79,7 +78,6 @@ D1DailyReportSource = SqlDailyReportSource
 D1DailyReportStateRepository = SqlDailyReportStateRepository
 D1DeliveryReceiptRepository = SqlDeliveryReceiptRepository
 D1FeedbackRepository = SqlFeedbackRepository
-D1LexicalIndex = SqlLexicalIndex
 D1MessagePairCandidateRepository = SqlMessagePairCandidateRepository
 D1MessageRepository = SqlMessageRepository
 D1QAItemRepository = SqlQAItemRepository
@@ -200,12 +198,10 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
-    lexical = D1LexicalIndex(binding)
     projector = SearchProjectionService(
         source=D1SearchIndexSource(binding),
         embedder=embedder,
         vectors=vectors,
-        lexical=lexical,
         manifest=manifest,
         clock=clock,
         budget=budget,
@@ -248,7 +244,6 @@ async def build_context(
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
-                lexical=lexical,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),

@@ -287,46 +287,6 @@ async def test_correction_commit_rolls_back_every_sql_write() -> None:
     assert stored_feedback.status is FeedbackStatus.PENDING_REVIEW
 
 
-async def test_lexical_fts_projection_round_trip() -> None:
-    """The FTS5 projection indexes, ranks, and deletes by vector id."""
-    from knowledge_bot.infrastructure.cloudflare.d1 import D1LexicalIndex
-    from knowledge_bot.ports.lexical import LexicalIndex, LexicalRecord
-
-    database = FakeD1Database()
-    lexical = D1LexicalIndex(database)
-    assert isinstance(lexical, LexicalIndex)
-    metadata: dict[str, object] = {
-        "kind": "qa",
-        "scope_key": "global",
-        "canonical_key": "entrenament",
-        "authority": 90,
-        "question": "Quan entrenem?",
-        "text": "Dimarts a les sis.",
-    }
-    await lexical.upsert(
-        [
-            LexicalRecord(id="qa:q1", text="Quan entrenem demà?", metadata=metadata),
-            LexicalRecord(
-                id="qa:q2",
-                text="On es compra l'equipament?",
-                metadata={**metadata, "canonical_key": "equipament", "question": "x"},
-            ),
-        ]
-    )
-    hits = await lexical.search(
-        "entrenem demà", top_k=5, filters={"kind": "qa", "scope_key": "global"}
-    )
-    assert [hit.id for hit in hits] == ["qa:q1"]
-    assert hits[0].metadata["canonical_key"] == "entrenament"
-    await lexical.upsert(
-        [LexicalRecord(id="qa:q1", text="Quan entrenem dimecres?", metadata=metadata)]
-    )
-    stale = await lexical.search("entrenem demà", top_k=5)
-    assert stale == []
-    await lexical.delete(["qa:q1"])
-    assert await lexical.search("entrenem", top_k=5) == []
-
-
 async def test_search_projection_manifest_round_trip() -> None:
     """The SQL manifest follows successful vector projection changes."""
     from knowledge_bot.ports.index import SearchProjectionRepository

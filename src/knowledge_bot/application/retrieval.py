@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: MIT
-"""Hybrid retrieval: semantic vectors + BM25/FTS5 fused with RRF.
+"""Retrieval: one embedding per question, one cosine threshold.
 
-One embedding call per user question. Semantic and lexical candidate lists are
-combined with Reciprocal Rank Fusion (never by mixing raw scores), local
-Q&A variants suppress global ones for the same canonical question, and
-authority breaks remaining ties before the semantic similarity does.
+The question is embedded once and the vector index returns its nearest Q&A and
+group-evidence candidates. A single cosine threshold decides what evidence
+exists at all, and the nearest few above it are what the model is given. Local
+Q&A variants suppress global ones for the same canonical question.
+
+There is deliberately no lexical (BM25/FTS5) leg and no cross-encoder. As
+written the lexical leg fired for 2 of 91 eval questions, and a fixed
+OR-of-tokens query was worth +2 questions in 43 at Recall@5; the cross-encoder
+thinned the prompt enough to make the bot worse. See
+[docs/experiments.md](docs/experiments.md).
 """
 
 import re
@@ -12,13 +18,11 @@ from dataclasses import dataclass, field
 
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.embedder import Embedder
-from knowledge_bot.ports.lexical import LexicalIndex
 from knowledge_bot.ports.vector_store import VectorMatch, VectorStore
 
 QA_KIND = "qa"
 MESSAGE_KIND = "message_evidence"
 
-_RRF_K = 60
 _CANDIDATE_POOL = 15
 _TOKEN = re.compile(r"\w+", flags=re.UNICODE)
 
@@ -53,15 +57,17 @@ class RetrievedEvidence:
         return [*self.qa, *self.messages]
 
 
-@dataclass(frozen=True, slots=True)
-class _Fused:
-    """One hybrid candidate ranked by RRF, authority, then similarity."""
-
-    id: str
-    rrf: float
-    similarity: float
-    authority: int
-    metadata: dict[str, object]
+def _rank(matches: list[VectorMatch], top_k: int) -> list[VectorMatch]:
+    """Order candidates by cosine similarity, then authority, best first."""
+    ranked = sorted(
+        matches,
+        key=lambda match: (
+            match.score,
+            _as_int(match.metadata.get("authority")),
+        ),
+        reverse=True,
+    )
+    return ranked[:top_k]
 
 
 def _as_int(value: object) -> int:
@@ -85,15 +91,15 @@ def _question_key(match: VectorMatch) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
-def _to_evidence(match: _Fused, kind: str) -> Evidence:
+def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
     metadata = match.metadata
     question = metadata.get("question")
     return Evidence(
         source_id=match.id,
         label="Q&A" if kind == QA_KIND else "Grup",
         text=str(metadata.get("text", "")),
-        authority=match.authority,
-        similarity=match.similarity,
+        authority=_as_int(metadata.get("authority")),
+        similarity=match.score,
         question=question if isinstance(question, str) else None,
         qa_item_id=_opt_text(metadata.get("object_id")),
         qa_version_id=_opt_text(metadata.get("version_id")),
@@ -105,81 +111,14 @@ def _to_evidence(match: _Fused, kind: str) -> Evidence:
     )
 
 
-def _rrf_fuse(ranked_lists: list[list[VectorMatch]]) -> dict[str, _Fused]:
-    """Fuse ranked candidate lists with Reciprocal Rank Fusion.
-
-    Each list contributes ``1 / (60 + rank)`` per candidate. A semantic list
-    also contributes its cosine similarity as the final tie-break; lexical
-    matches contribute rank only. The first occurrence of an id carries its
-    metadata.
-    """
-    fused: dict[str, _Fused] = {}
-    for ranked in ranked_lists:
-        for rank, match in enumerate(ranked, start=1):
-            contribution = 1.0 / (_RRF_K + rank)
-            existing = fused.get(match.id)
-            if existing is None:
-                fused[match.id] = _Fused(
-                    id=match.id,
-                    rrf=contribution,
-                    similarity=match.score,
-                    authority=_as_int(match.metadata.get("authority")),
-                    metadata=match.metadata,
-                )
-            else:
-                fused[match.id] = _Fused(
-                    id=match.id,
-                    rrf=existing.rrf + contribution,
-                    similarity=max(existing.similarity, match.score),
-                    authority=existing.authority,
-                    metadata=existing.metadata,
-                )
-    return fused
-
-
-def _rank(fused: dict[str, _Fused], top_k: int) -> list[_Fused]:
-    """Order candidates by RRF, authority, then semantic similarity."""
-    ranked = sorted(
-        fused.values(),
-        key=lambda candidate: (
-            candidate.rrf,
-            candidate.authority,
-            candidate.similarity,
-        ),
-        reverse=True,
-    )
-    return ranked[:top_k]
-
-
-async def _lexical_as_semantic(
-    index: LexicalIndex,
-    query: str,
-    kind: str,
-    scope_key: str | None,
-) -> list[VectorMatch]:
-    """Run one BM25 search and normalize it to vector-match shape."""
-    filters: dict[str, object] = {"kind": kind}
-    if scope_key is not None:
-        filters["scope_key"] = scope_key
-    tokens = " ".join(f'"{token}"' for token in _TOKEN.findall(query))
-    if not tokens:
-        return []
-    matches = await index.search(tokens, top_k=_CANDIDATE_POOL, filters=filters)
-    return [
-        VectorMatch(id=item.id, score=0.0, metadata=dict(item.metadata))
-        for item in matches
-    ]
-
-
 @dataclass(frozen=True, slots=True)
 class RetrievalService:
-    """Retrieve evidence from the hybrid vector + lexical projections."""
+    """Retrieve evidence from the vector projection by cosine similarity."""
 
     embedder: Embedder
     vectors: VectorStore
-    lexical: LexicalIndex
-    qa_top_k: int = 5
-    message_top_k: int = 4
+    qa_top_k: int = 3
+    message_top_k: int = 2
 
     async def retrieve(
         self,
@@ -209,8 +148,7 @@ class RetrievalService:
             qa_lists: list[list[VectorMatch]] = [
                 await self.vectors.query(
                     vector, top_k=_CANDIDATE_POOL, filters=base_filters
-                ),
-                await _lexical_as_semantic(self.lexical, question, QA_KIND, None),
+                )
             ]
         else:
             qa_lists = [
@@ -218,23 +156,17 @@ class RetrievalService:
                     vector,
                     top_k=_CANDIDATE_POOL,
                     filters={**base_filters, "scope_key": GLOBAL_SCOPE},
-                ),
-                await _lexical_as_semantic(
-                    self.lexical, question, QA_KIND, GLOBAL_SCOPE
-                ),
+                )
             ]
             if space_id is not None:
                 local_scope = scope_for_space(space_id)
-                qa_lists += [
+                qa_lists.append(
                     await self.vectors.query(
                         vector,
                         top_k=_CANDIDATE_POOL,
                         filters={**base_filters, "scope_key": local_scope},
-                    ),
-                    await _lexical_as_semantic(
-                        self.lexical, question, QA_KIND, local_scope
-                    ),
-                ]
+                    )
+                )
         qa_matches = _select_qa(qa_lists, self.qa_top_k)
         message_filters: dict[str, object] = {"kind": MESSAGE_KIND}
         if space_id is not None:
@@ -245,37 +177,36 @@ class RetrievalService:
             message_scope = GLOBAL_SCOPE
         if message_scope is not None:
             message_filters["scope_key"] = message_scope
-        message_lists = [
+        message_matches = _rank(
             await self.vectors.query(
                 vector, top_k=_CANDIDATE_POOL, filters=message_filters
             ),
-            await _lexical_as_semantic(
-                self.lexical, question, MESSAGE_KIND, message_scope
-            ),
-        ]
-        message_matches = _rank(_rrf_fuse(message_lists), self.message_top_k)
+            self.message_top_k,
+        )
         return RetrievedEvidence(
             qa=[_to_evidence(match, QA_KIND) for match in qa_matches],
             messages=[_to_evidence(match, MESSAGE_KIND) for match in message_matches],
         )
 
 
-def _select_qa(lists: list[list[VectorMatch]], top_k: int) -> list[_Fused]:
-    """Fuse scope lists, dropping global candidates overridden locally.
+def _select_qa(lists: list[list[VectorMatch]], top_k: int) -> list[VectorMatch]:
+    """Return the best Q&A candidates, dropping global ones overridden locally.
 
-    Lists 0-1 are the global semantic/lexical space; lists 2+ are the asking
-    space's local semantic/lexical matches. A local candidate suppresses the
-    global candidate of the same canonical question before fusion.
+    List 0 is the global semantic list; lists 1+ are the asking space's local
+    list. A local candidate suppresses the global candidate of the same
+    canonical question before ranking.
     """
-    local_keys = {_question_key(match) for ranked in lists[2:] for match in ranked} - {
+    local_keys = {_question_key(match) for ranked in lists[1:] for match in ranked} - {
         None
     }
-    filtered: list[list[VectorMatch]] = []
+    kept: list[VectorMatch] = []
+    seen: set[str] = set()
     for index, ranked in enumerate(lists):
-        if index < 2 and local_keys:
-            filtered.append(
-                [match for match in ranked if _question_key(match) not in local_keys]
-            )
-        else:
-            filtered.append(ranked)
-    return _rank(_rrf_fuse(filtered), top_k)
+        for match in ranked:
+            if index == 0 and local_keys and _question_key(match) in local_keys:
+                continue
+            if match.id in seen:
+                continue
+            seen.add(match.id)
+            kept.append(match)
+    return _rank(kept, top_k)

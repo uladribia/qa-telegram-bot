@@ -6,8 +6,6 @@ The D1 binding is asynchronous: ``db.prepare(sql).bind(...)`` then
 defensively because bindings can return Pyodide proxies.
 """
 
-import json
-import re
 from datetime import UTC, datetime
 from itertools import batched
 from typing import cast
@@ -49,7 +47,6 @@ from knowledge_bot.infrastructure.sql.protocol import (
     SqlStatement,
 )
 from knowledge_bot.ports.index import IndexableMessage, IndexableQA
-from knowledge_bot.ports.lexical import LexicalMatch, LexicalRecord
 from knowledge_bot.ports.repositories import DailyReportSnapshot
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.transactions import ApproveCorrectionCommand
@@ -58,32 +55,9 @@ D1Result = SqlResult
 D1Statement = SqlStatement
 D1Database = SqlDatabase
 
-_FTS_FILTER_COLUMNS = frozenset({"kind", "scope_key", "canonical_key"})
-_FTS_TOKEN = re.compile(r"[\w]+", flags=re.UNICODE)
-# D1 accepts a bounded number of statements per batch; lexical upsert writes two
-# per record, so every batch stays at or below 100 statements.
+# D1 accepts a bounded number of statements per batch, so every chunk of a
+# bulk delete stays at or below the limit.
 _BATCH_CHUNK = 50
-
-
-def _fts_query(query: str) -> str:
-    """Turn free text into a safe FTS5 MATCH expression."""
-    return " ".join(f'"{token}"' for token in _FTS_TOKEN.findall(query))
-
-
-def _json_dumps(metadata: dict[str, object]) -> str:
-    """Serialize lexical row metadata."""
-    return json.dumps(metadata, separators=(",", ":"), default=str)
-
-
-def _json_loads(value: object) -> dict[str, object]:
-    """Deserialize lexical row metadata defensively."""
-    if not isinstance(value, str):
-        return {}
-    try:
-        payload = json.loads(value)
-    except ValueError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _as_int_authority(value: object) -> int:
@@ -2189,91 +2163,3 @@ class D1ReportStateRepository:
             .bind(_iso(sent_at))
             .run()
         )
-
-
-class D1LexicalIndex:
-    """D1/SQLite FTS5 projection of searchable question texts.
-
-    Rows are keyed by the stable vector id so the lexical projection stays in
-    lockstep with the vector projection lifecycle.
-    """
-
-    def __init__(self, database: D1Database) -> None:
-        """Wrap a D1 database binding."""
-        self._db = database
-
-    async def upsert(self, records: list[LexicalRecord]) -> None:
-        """Replace the lexical row of every given vector id."""
-        for chunk in batched(records, _BATCH_CHUNK, strict=False):
-            statements = []
-            for record in chunk:
-                statements.append(
-                    self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
-                        record.id
-                    )
-                )
-                statements.append(
-                    self._db.prepare(
-                        "INSERT INTO search_fts"
-                        " (vector_id, kind, scope_key, canonical_key, authority,"
-                        "  metadata_json, question_text)"
-                        " VALUES (?, ?, ?, ?, ?, ?, ?)"
-                    ).bind(
-                        record.id,
-                        str(record.metadata.get("kind", "")),
-                        str(record.metadata.get("scope_key", "")),
-                        _opt_str(record.metadata.get("canonical_key")),
-                        _as_int_authority(record.metadata.get("authority")),
-                        _json_dumps(record.metadata),
-                        record.text,
-                    )
-                )
-            await self._db.batch(statements)
-
-    async def search(
-        self,
-        query: str,
-        *,
-        top_k: int,
-        filters: dict[str, object] | None = None,
-    ) -> list[LexicalMatch]:
-        """Return BM25-ranked matches, optionally filtered by metadata."""
-        match_query = _fts_query(query)
-        if not match_query:
-            return []
-        clauses = ["search_fts MATCH ?"]
-        parameters: list[object] = [match_query]
-        for key, value in (filters or {}).items():
-            if key not in _FTS_FILTER_COLUMNS:
-                raise ValueError(f"unsupported lexical filter: {key}")  # noqa: TRY003
-            clauses.append(f"{key} = ?")
-            parameters.append(value)
-        parameters.append(top_k)
-        result = await (
-            self._db.prepare(
-                "SELECT vector_id, metadata_json FROM search_fts"
-                f" WHERE {' AND '.join(clauses)}"
-                " ORDER BY bm25(search_fts) LIMIT ?"
-            )
-            .bind(*parameters)
-            .run()
-        )
-        return [
-            LexicalMatch(
-                id=str(row["vector_id"]),
-                metadata=_json_loads(row["metadata_json"]),
-            )
-            for row in _rows(result)
-        ]
-
-    async def delete(self, ids: list[str]) -> None:
-        """Delete lexical rows by their stable projection ids."""
-        for chunk in batched(ids, _BATCH_CHUNK, strict=False):
-            await self._db.batch(
-                [
-                    self._db.prepare("DELETE FROM search_fts WHERE vector_id = ?").bind(
-                        vector_id
-                    )
-                    for vector_id in chunk
-                ]
-            )

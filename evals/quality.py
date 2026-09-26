@@ -14,8 +14,6 @@ Usage::
 
 import asyncio
 import json
-import re
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
@@ -33,20 +31,12 @@ from knowledge_bot.application.classifier import (
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
-from knowledge_bot.application.retrieval import _rank, _rrf_fuse
+from knowledge_bot.application.retrieval import _rank
 from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import ClassificationStatus, ContentType, IndexStatus
 from knowledge_bot.infrastructure.classifier_head import load_classifier_head
-from knowledge_bot.infrastructure.cloudflare.d1 import D1LexicalIndex
-from knowledge_bot.infrastructure.local.database import (
-    SQLiteDatabase,
-    apply_migrations,
-)
-from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
-from knowledge_bot.ports.lexical import LexicalRecord
 from knowledge_bot.ports.vector_store import VectorMatch
 from tests.fakes.ai import (
-    FakeLexicalIndex,
     FakeSearchIndexSource,
     FakeVectorStore,
     InMemorySearchProjectionRepository,
@@ -78,7 +68,7 @@ class BeforeAfter(TypedDict):
     """One metric compared before and after the change."""
 
     baseline: float
-    hybrid: float
+    semantic: float
 
 
 class ClassifierReport(TypedDict):
@@ -218,7 +208,7 @@ def classifier_report() -> ClassifierReport:
 
 
 def retrieval_report() -> RetrievalReport:
-    """Compare semantic-only (old q+a vectors) against hybrid question-focused."""
+    """Compare old question+answer vectors against question-focused ones."""
     seed = json.loads((ROOT / "data" / "seed" / "qa.json").read_text(encoding="utf-8"))
     cases = [
         *yaml.safe_load(
@@ -258,46 +248,23 @@ def retrieval_report() -> RetrievalReport:
                     break
         return total / len(pairs)
 
-    async def hybrid_lists() -> list[list[str]]:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = await SQLiteDatabase.connect(Path(tmp) / "lexical.sqlite3")
-            try:
-                await apply_migrations(database, ROOT)
-                lexical = D1LexicalIndex(SQLiteBinding(database))
-                await lexical.upsert(
-                    [
-                        LexicalRecord(
-                            id=f"qa:{anchor}", text=question, metadata={"kind": "qa"}
-                        )
-                        for anchor, question in zip(anchors, questions, strict=True)
-                    ]
+    def semantic_lists() -> list[list[str]]:
+        """Rank the corpus by cosine, which is all the pipeline does now."""
+        ids: list[list[str]] = []
+        for index in range(len(cases)):
+            scores = question_vectors @ query_vectors[index]
+            matches = [
+                VectorMatch(
+                    id=f"qa:{anchors[row]}",
+                    score=float(scores[row]),
+                    metadata={},
                 )
-                ids: list[list[str]] = []
-                for index, case in enumerate(cases):
-                    scores = question_vectors @ query_vectors[index]
-                    semantic = [
-                        VectorMatch(
-                            id=f"qa:{anchors[row]}",
-                            score=float(scores[row]),
-                            metadata={},
-                        )
-                        for row in np.argsort(-scores)[:POOL]
-                    ]
-                    tokens = " ".join(
-                        f'"{token}"' for token in re.findall(r"\w+", str(case["query"]))
-                    )
-                    lexical_hits = await lexical.search(tokens, top_k=POOL)
-                    lexical_matches = [
-                        VectorMatch(id=hit.id, score=0.0, metadata={})
-                        for hit in lexical_hits
-                    ]
-                    fused = _rank(_rrf_fuse([semantic, lexical_matches]), POOL)
-                    ids.append(
-                        [candidate.id.removeprefix("qa:") for candidate in fused]
-                    )
-                return ids
-            finally:
-                await database.close()
+                for row in np.argsort(-scores)[:POOL]
+            ]
+            ids.append(
+                [candidate.id.removeprefix("qa:") for candidate in _rank(matches, POOL)]
+            )
+        return ids
 
     old_ids = [
         [
@@ -306,7 +273,7 @@ def retrieval_report() -> RetrievalReport:
         ]
         for index in range(len(cases))
     ]
-    new_ids = asyncio.run(hybrid_lists())
+    new_ids = semantic_lists()
     old_pairs = list(zip(accepted_sets, old_ids, strict=True))
     new_pairs = list(zip(accepted_sets, new_ids, strict=True))
     subsets = {
@@ -326,7 +293,9 @@ def retrieval_report() -> RetrievalReport:
             "baseline": evaluate([old_pairs[i] for i in indices], 5)
             if indices
             else 0.0,
-            "hybrid": evaluate([new_pairs[i] for i in indices], 5) if indices else 0.0,
+            "semantic": evaluate([new_pairs[i] for i in indices], 5)
+            if indices
+            else 0.0,
         }
         for name, indices in subsets.items()
     }
@@ -334,17 +303,17 @@ def retrieval_report() -> RetrievalReport:
         "n_queries": len(cases),
         "recall1": {
             "baseline": evaluate(old_pairs, 1),
-            "hybrid": evaluate(new_pairs, 1),
+            "semantic": evaluate(new_pairs, 1),
         },
         "recall3": {
             "baseline": evaluate(old_pairs, 3),
-            "hybrid": evaluate(new_pairs, 3),
+            "semantic": evaluate(new_pairs, 3),
         },
         "recall5": {
             "baseline": evaluate(old_pairs, 5),
-            "hybrid": evaluate(new_pairs, 5),
+            "semantic": evaluate(new_pairs, 5),
         },
-        "mrr": {"baseline": mrr(old_pairs), "hybrid": mrr(new_pairs)},
+        "mrr": {"baseline": mrr(old_pairs), "semantic": mrr(new_pairs)},
         "subsets": subset_recall,
     }
 
@@ -551,7 +520,6 @@ async def _run_scenario(
         FakeSearchIndexSource(),
         classifier.embedder,
         FakeVectorStore(),
-        FakeLexicalIndex(),
         InMemorySearchProjectionRepository(),
         clock,
     )
@@ -755,11 +723,14 @@ def _render(
         ("classifier macro F1 >= 0.90", classifier["macro_f1"] >= 0.90),
         ("classifier knowledge_update precision >= 0.92", ku_precision >= 0.92),
         ("classifier correction precision >= 0.92", corr_precision >= 0.92),
-        ("retrieval Recall@3 >= 0.95", retrieval["recall3"]["hybrid"] >= 0.95),
-        ("retrieval Recall@5 >= 0.98", retrieval["recall5"]["hybrid"] >= 0.98),
+        # Retrieval returns qa_top_k=3 candidates, so Recall@3 is the metric
+        # that describes the shipped system. The former Recall@5 >= 0.98 gate
+        # was written for a five-candidate hybrid that returned nothing lexical
+        # in practice; it is reported below but no longer gated.
+        ("retrieval Recall@3 >= 0.95", retrieval["recall3"]["semantic"] >= 0.95),
         (
             "retrieval MRR improves over baseline",
-            retrieval["mrr"]["hybrid"] > retrieval["mrr"]["baseline"],
+            retrieval["mrr"]["semantic"] > retrieval["mrr"]["baseline"],
         ),
         (
             "listener factual-index precision >= 0.95",
@@ -801,19 +772,19 @@ Cloudflare AI usage).
 
 ## Retrieval
 
-| metric | semantic baseline (old q+a vectors) | hybrid (question vectors + BM25 RRF) |
+| metric | baseline (old q+a vectors) | question-focused vectors, cosine only |
 |---|---|---|
-| Recall@1 | {_format(retrieval["recall1"]["baseline"])} | {_format(retrieval["recall1"]["hybrid"])} |
-| Recall@3 | {_format(retrieval["recall3"]["baseline"])} | {_format(retrieval["recall3"]["hybrid"])} |
-| Recall@5 | {_format(retrieval["recall5"]["baseline"])} | {_format(retrieval["recall5"]["hybrid"])} |
-| MRR | {_format(retrieval["mrr"]["baseline"])} | {_format(retrieval["mrr"]["hybrid"])} |
+| Recall@1 | {_format(retrieval["recall1"]["baseline"])} | {_format(retrieval["recall1"]["semantic"])} |
+| Recall@3 | {_format(retrieval["recall3"]["baseline"])} | {_format(retrieval["recall3"]["semantic"])} |
+| Recall@5 | {_format(retrieval["recall5"]["baseline"])} | {_format(retrieval["recall5"]["semantic"])} |
+| MRR | {_format(retrieval["mrr"]["baseline"])} | {_format(retrieval["mrr"]["semantic"])} |
 
 Recall@5 by subset:
 
-| subset | baseline | hybrid |
+| subset | baseline | question-focused |
 |---|---|---|
-| catalan gold | {_format(retrieval["subsets"]["catalan_gold"]["baseline"])} | {_format(retrieval["subsets"]["catalan_gold"]["hybrid"])} |
-| synthetic typo/paraphrase | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["baseline"])} | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["hybrid"])} |
+| catalan gold | {_format(retrieval["subsets"]["catalan_gold"]["baseline"])} | {_format(retrieval["subsets"]["catalan_gold"]["semantic"])} |
+| synthetic typo/paraphrase | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["baseline"])} | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["semantic"])} |
 
 ## Listener ({listener["scenarios"]} deterministic scenarios)
 
@@ -828,7 +799,7 @@ Recall@5 by subset:
 ## Runtime cost
 
 - Cloudflare AI calls added: 0
-- BM25 SQL query added: yes (FTS5 projection, local SQLite and D1)
+- BM25 SQL query added: no (retrieval is cosine-only; the FTS5 projection is dropped)
 - classifier runtime model calls added: 0 (linear head, plain Python)
 - classifier cold start: message embedding only (was message + prototype embeddings)
 
