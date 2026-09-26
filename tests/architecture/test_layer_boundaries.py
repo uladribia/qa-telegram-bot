@@ -78,3 +78,19 @@ def test_core_has_no_connector_source_literals(layer: str) -> None:
     forbidden = {"telegram", "whatsapp", "whatsapp_import", "web_seed"}
     for module_path in _iter_modules(layer):
         assert not _string_constants(module_path) & forbidden, module_path
+
+
+def test_the_grounded_answer_prompt_has_one_home() -> None:
+    """Generator adapters import the prompt instead of copying it.
+
+    The Workers AI and Ollama adapters each carried a private copy of the same
+    system prompt, so a rule change had to be made twice and the local adapter
+    could silently test something production never sends.
+    """
+    marker = "You answer questions using ONLY the evidence below."
+    owners = sorted(
+        str(path.relative_to(SRC))
+        for path in SRC.rglob("*.py")
+        if any(marker in value for value in _string_constants(path))
+    )
+    assert owners == ["infrastructure/prompt.py"]

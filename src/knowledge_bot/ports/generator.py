@@ -19,6 +19,7 @@ class EvidenceItem:
     text: str
     label: str
     authority: int
+    similarity: float
 
 
 @dataclass(frozen=True, slots=True)

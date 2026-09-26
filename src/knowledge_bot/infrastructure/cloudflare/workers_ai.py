@@ -11,21 +11,8 @@ from typing import Protocol, cast
 from loguru import logger
 
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.infrastructure.prompt import SYSTEM_PROMPT, render_user
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
-
-_SYSTEM_PROMPT = """You answer questions using ONLY the evidence below.
-
-Rules:
-1. Do not add facts not supported by evidence.
-2. If evidence is insufficient or materially contradictory, return insufficient.
-3. Prefer higher-authority evidence when sources conflict.
-4. Never guess or extrapolate.
-5. Return only JSON matching the schema.
-6. source_ids must contain only supplied evidence ids.
-7. Answer in the language of the user's question.
-
-Return JSON:
-{"status": "answered" | "insufficient", "answer": "...", "source_ids": ["..."]}"""
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -116,15 +103,6 @@ def _extract_content(result: object) -> str:
     return response if isinstance(response, str) else ""
 
 
-def _render_user(request: GenerationRequest) -> str:
-    evidence_lines = [
-        f"[{item.source_id}] ({item.label}, authority={item.authority}) {item.text}"
-        for item in request.evidence
-    ]
-    evidence = "\n".join(evidence_lines) if evidence_lines else "(no evidence)"
-    return f"QUESTION:\n{request.question}\n\nEVIDENCE:\n{evidence}"
-
-
 class WorkersAIGenerator:
     """Grounded generator backed by a Workers AI chat model."""
 
@@ -191,8 +169,8 @@ class WorkersAIGenerator:
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
         """Generate one grounded answer; malformed output becomes insufficient."""
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": _render_user(request)},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": render_user(request)},
         ]
         output = await self._attempt(messages)
         return output or GenerationOutput(status="insufficient")

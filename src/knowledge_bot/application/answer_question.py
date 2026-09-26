@@ -226,6 +226,7 @@ class AnswerService:
                         text=item.text,
                         label=item.label,
                         authority=item.authority,
+                        similarity=item.similarity,
                     )
                     for item in evidence
                 ],
