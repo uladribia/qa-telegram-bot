@@ -38,67 +38,6 @@ class AiRunner(Protocol):
         ...
 
 
-class WorkersAIReranker:
-    """Reranker backed by a Workers AI cross-encoder.
-
-    One call scores the whole candidate list, so a rerank costs a single
-    subrequest and a fraction of a neuron.
-    """
-
-    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 5.0) -> None:
-        """Create the reranker with a hard adapter deadline."""
-        self._ai = ai
-        self._model = model
-        self._timeout_seconds = timeout_seconds
-
-    async def score(self, query: str, documents: list[str]) -> list[float]:
-        """Score documents against the query in one batched call.
-
-        Raises:
-            ModelUnavailableError: When the reranker call fails or returns a
-                score set that does not line up with the input.
-        """
-        if not documents:
-            return []
-        try:
-            with _timed("reranking", self._model, sum(len(d) for d in documents)):
-                result = await asyncio.wait_for(
-                    self._ai.run(
-                        self._model,
-                        {
-                            "query": query,
-                            "contexts": [{"text": document} for document in documents],
-                        },
-                    ),
-                    timeout=self._timeout_seconds,
-                )
-        except Exception as error:
-            raise ModelUnavailableError("reranking") from error
-        scored = _field(result, "response")
-        if not isinstance(scored, list) or len(scored) != len(documents):
-            raise ModelUnavailableError("reranking")
-        by_id: dict[int, float] = {}
-        for entry in scored:
-            index = _as_int(_field(entry, "id"))
-            value = _field(entry, "score")
-            if index in by_id or not isinstance(value, (int, float)):
-                raise ModelUnavailableError("reranking")
-            by_id[index] = float(value)
-        if len(by_id) != len(documents) or set(by_id) != set(range(len(documents))):
-            raise ModelUnavailableError("reranking")
-        return [by_id[index] for index in range(len(documents))]
-
-
-def _as_int(value: object) -> int:
-    """Return a reranker index as an int, or -1 when it is not one."""
-    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        return -1
-    try:
-        return int(value)
-    except ValueError:
-        return -1
-
-
 def _field(value: object, key: str) -> object:
     if isinstance(value, dict):
         return value.get(key)

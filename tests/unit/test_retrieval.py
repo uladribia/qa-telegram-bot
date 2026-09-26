@@ -2,16 +2,10 @@
 """Tests for the retrieval service (fakes with real cosine similarity)."""
 
 from knowledge_bot.application.retrieval import RetrievalService
-from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.lexical import LexicalRecord
 from knowledge_bot.ports.vector_store import VectorRecord
-from tests.fakes.ai import (
-    FakeEmbedder,
-    FakeLexicalIndex,
-    FakeReranker,
-    FakeVectorStore,
-)
+from tests.fakes.ai import FakeEmbedder, FakeLexicalIndex, FakeVectorStore
 
 SPACE_A = "sp_" + "1" * 32
 SPACE_B = "sp_" + "2" * 32
@@ -341,107 +335,3 @@ async def test_lexical_only_match_ranks_by_bm25_recency() -> None:
     # Lexical-only matches carry no cosine similarity.
     lexical_hit = next(item for item in retrieved.qa if item.source_id == "qa-lexical")
     assert lexical_hit.similarity == 0.0
-
-
-async def _seed_three_qa(store: FakeVectorStore) -> None:
-    """Index three active Q&A items, two of them equally similar."""
-    await store.upsert(
-        [
-            VectorRecord(
-                id="qa-close",
-                values=[1.0, 0.0],
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "text": "resposta pertinent",
-                    "authority": 50,
-                },
-            ),
-            VectorRecord(
-                id="qa-offtarget",
-                values=[1.0, 0.0],
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "text": "una altra cosa",
-                    "authority": 90,
-                },
-            ),
-            VectorRecord(
-                id="qa-third",
-                values=[1.0, 0.0],
-                metadata={
-                    "kind": "qa",
-                    "status": "active",
-                    "scope_key": GLOBAL_SCOPE,
-                    "text": "tercer document",
-                    "authority": 10,
-                },
-            ),
-        ]
-    )
-
-
-async def test_reranker_orders_fused_candidates_by_relevance() -> None:
-    """A reranker promotes the relevant candidate over a higher-authority one."""
-    store = FakeVectorStore()
-    await _seed_three_qa(store)
-    reranker = FakeReranker({"una altra cosa": 0.9})
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]),
-        vectors=store,
-        lexical=FakeLexicalIndex(),
-        qa_top_k=2,
-        reranker=reranker,
-    )
-
-    retrieved = await service.retrieve("pregunta")
-
-    assert reranker.queries == ["pregunta"]
-    assert [item.source_id for item in retrieved.qa] == ["qa-offtarget", "qa-close"]
-
-
-async def test_reranker_outage_falls_back_to_rrf_order() -> None:
-    """A reranker failure degrades ranking instead of failing the question."""
-    store = FakeVectorStore()
-    await _seed_three_qa(store)
-
-    class BrokenReranker:
-        async def score(self, query: str, documents: list[str]) -> list[float]:
-            raise ModelUnavailableError("reranking")
-
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]),
-        vectors=store,
-        lexical=FakeLexicalIndex(),
-        qa_top_k=2,
-        reranker=BrokenReranker(),
-    )
-
-    retrieved = await service.retrieve("pregunta")
-
-    assert [item.source_id for item in retrieved.qa] == ["qa-close", "qa-offtarget"]
-
-
-async def test_reranker_score_count_must_match_candidates() -> None:
-    """A reranker returning the wrong number of scores falls back to RRF."""
-
-    class ShortReranker:
-        async def score(self, query: str, documents: list[str]) -> list[float]:
-            return [0.5]
-
-    store = FakeVectorStore()
-    await _seed_three_qa(store)
-    service = RetrievalService(
-        embedder=FakeEmbedder([1.0, 0.0]),
-        vectors=store,
-        lexical=FakeLexicalIndex(),
-        qa_top_k=2,
-        reranker=ShortReranker(),
-    )
-
-    retrieved = await service.retrieve("pregunta")
-
-    assert [item.source_id for item in retrieved.qa] == ["qa-close", "qa-offtarget"]

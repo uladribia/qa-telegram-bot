@@ -12,9 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ALLOWED_AI_MODELS = frozenset(
     {
         "@cf/google/embeddinggemma-300m",
-        "@cf/zai-org/glm-4.7-flash",
         "@cf/mistralai/mistral-small-3.1-24b-instruct",
-        "@cf/baai/bge-reranker-base",
     }
 )
 LOCAL_ALLOWED_AI_MODELS = frozenset({"embeddinggemma", "gemma3:270m"})
@@ -56,7 +54,6 @@ class Settings(BaseSettings):
 
     embedding_model: str = "@cf/google/embeddinggemma-300m"
     generation_model: str = "@cf/mistralai/mistral-small-3.1-24b-instruct"
-    reranker_model: str = "@cf/baai/bge-reranker-base"
     ai_embed_timeout_seconds: float = Field(default=10.0, gt=0, le=55)
     ai_generation_timeout_seconds: float = Field(default=35.0, gt=0, le=55)
     ai_generation_max_tokens: int = Field(default=1024, gt=0)
@@ -81,14 +78,12 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_allowed_models(self) -> "Settings":
         """Reject models outside the active runtime allowlist."""
-        local = self.runtime is RuntimeMode.LOCAL
-        allowed = LOCAL_ALLOWED_AI_MODELS if local else ALLOWED_AI_MODELS
-        # The local runtime has no cross-encoder, so the reranker is unset
-        # there and retrieval falls back to RRF order.
-        checked = [self.embedding_model, self.generation_model]
-        if not local:
-            checked.append(self.reranker_model)
-        for model in checked:
+        allowed = (
+            LOCAL_ALLOWED_AI_MODELS
+            if self.runtime is RuntimeMode.LOCAL
+            else ALLOWED_AI_MODELS
+        )
+        for model in (self.embedding_model, self.generation_model):
             if model not in allowed:
                 raise ValueError(
                     f"Model not allowed under the zero-cost policy: {model}"

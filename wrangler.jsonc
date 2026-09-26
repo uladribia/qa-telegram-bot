@@ -32,9 +32,8 @@
   "vars": {
     "EMBEDDING_MODEL": "@cf/google/embeddinggemma-300m",
     "GENERATION_MODEL": "@cf/mistralai/mistral-small-3.1-24b-instruct",
-    "RERANKER_MODEL": "@cf/baai/bge-reranker-base",
+    "ANSWER_SIMILARITY_FLOOR": "0.35",
     "BACKGROUND_LISTENER_ENABLED": "true",
-    "ANSWER_SIMILARITY_FLOOR": "0.45",
     "AI_EMBED_TIMEOUT_SECONDS": "10",
     "AI_GENERATION_TIMEOUT_SECONDS": "35"
   }
