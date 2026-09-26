@@ -44,7 +44,40 @@ confidence policy. All plan acceptance gates pass.
 
 ## Boundaries
 
-`domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
+- `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
+
+## Models and the local/production gap
+
+The local runtime runs `gemma3:270m` through Ollama; production runs `@cf/mistralai/mistral-small-3.1-24b-instruct`. `make eval-local` therefore measures neither. That gap is how a reasoning model that needed 53 s shipped unnoticed. Only `make eval-live` sees the production models, so run `answers` and `abstention` after any model or floor change.
+
+The production answer floor is calibrated against the live answer suite, not locally: `0.35` is the lowest top-1 cosine among the 43 answerable eval questions. Re-derive it the same way before changing it, and record the distribution rather than the threshold alone.
+
+Both heads (`scripts/train_classifier.py`, the pairing head) train on **local Ollama embeddings and local numpy/sklearn**, so retraining costs zero Workers AI neurons; serving them is plain matrix math in the isolate. Retraining is still not worth doing while `message_pair_candidates` and `feedback` are empty — the earlier failure was missing labels, not model capacity. Harvest those rows first.
+
+Two eval-fixture traps that have already cost time: `expected_mode` values must be runtime modes (`synthesis`, `abstention`) — the old `direct_qa` and `abstain` labels were never updated after the always-grounded change, so every mode check failed while `render()` truncated the output to eight lines. `evals/run.py` also keys one dataset-validity exemption on `abstention`; a dataset check that looks unrelated to your change can be downstream of a label rename.
+
+## Observability traps
+
+- A Worker path that raises outside a request handler is invisible. The Cron
+  Trigger (`Default.scheduled` in `src/entry.py`) logs `scheduled_started` and
+  either `scheduled_finished` or `scheduled_failed`; do not add a background
+  entrypoint without the same treatment.
+- `ModelUnavailableError` is raised in exactly two places, both in
+  `infrastructure/cloudflare/workers_ai.py`, and it is the only cause of the
+  `unavailable` answer mode. A request whose `duration_ms` is close to
+  `AI_GENERATION_TIMEOUT_SECONDS` timed out on generation, not on the database or
+  Telegram: those complete in milliseconds. The `workers_ai_call_*` lines give
+  the exact split per call.
+- Cold start is outside the request timer. `resolve_context` runs before
+  `_handle_telegram_update` starts its `perf_counter`, so a large
+  `duration_ms` on `telegram_webhook_processed` is real work, not interpreter
+  start-up.
+- The webhook must not await the AI pipeline. Telegram's read timeout is
+  shorter than one generation deadline, so the route acknowledges and hands the
+  work to `defer` (see `create_app` in `adapters/http/app.py`). Anything added
+  to the inbound path inherits that: it runs after the response, in a
+  `waitUntil` task that no upstream retry can rescue.
+- There is no log history. See [operations.md](operations.md#logs).
 
 ## Required checks before handoff
 

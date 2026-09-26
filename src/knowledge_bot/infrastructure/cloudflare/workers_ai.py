@@ -3,7 +3,12 @@
 
 import asyncio
 import re
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Protocol, cast
+
+from loguru import logger
 
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
@@ -39,6 +44,35 @@ def _field(value: object, key: str) -> object:
     return getattr(value, key, None)
 
 
+@contextmanager
+def _timed(operation: str, model: str, characters: int) -> Iterator[None]:
+    """Log one Workers AI call's duration and size, never its payload.
+
+    Args:
+        operation: ``embedding`` or ``generation``.
+        model: The Workers AI model identifier.
+        characters: Request size in characters, a size proxy for the prompt.
+    """
+    started = time.perf_counter()
+    try:
+        yield
+    except Exception as error:
+        logger.bind(
+            operation=operation,
+            model=model,
+            characters=characters,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            error=type(error).__name__,
+        ).warning("workers_ai_call_failed")
+        raise
+    logger.bind(
+        operation=operation,
+        model=model,
+        characters=characters,
+        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+    ).info("workers_ai_call_completed")
+
+
 class WorkersAIEmbedder:
     """Embedder backed by a Workers AI model."""
 
@@ -55,10 +89,11 @@ class WorkersAIEmbedder:
             ModelUnavailableError: When the embedding model call fails.
         """
         try:
-            result = await asyncio.wait_for(
-                self._ai.run(self._model, {"text": texts}),
-                timeout=self._timeout_seconds,
-            )
+            with _timed("embedding", self._model, sum(len(text) for text in texts)):
+                result = await asyncio.wait_for(
+                    self._ai.run(self._model, {"text": texts}),
+                    timeout=self._timeout_seconds,
+                )
         except Exception as error:
             raise ModelUnavailableError("embedding") from error
         data = cast("list[list[float]]", _field(result, "data"))
@@ -93,25 +128,51 @@ def _render_user(request: GenerationRequest) -> str:
 class WorkersAIGenerator:
     """Grounded generator backed by a Workers AI chat model."""
 
-    def __init__(self, ai: AiRunner, model: str, timeout_seconds: float = 35.0) -> None:
-        """Create the generator with a hard adapter deadline."""
+    def __init__(
+        self,
+        ai: AiRunner,
+        model: str,
+        timeout_seconds: float = 35.0,
+        max_tokens: int = 1024,
+    ) -> None:
+        """Create the generator with a hard adapter deadline.
+
+        Args:
+            ai: The Workers AI binding.
+            model: The chat model to run.
+            timeout_seconds: Hard deadline for one call.
+            max_tokens: Output budget for one call. The model is a reasoning
+                model and spends most of its output thinking; on evidence that
+                does not contain the answer it can deliberate past 2600 tokens
+                and 50 seconds. The cap turns that into a truncated response
+                that becomes ``insufficient`` instead of a timeout.
+        """
         self._ai = ai
         self._model = model
         self._timeout_seconds = timeout_seconds
+        self._max_tokens = max_tokens
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
-        """Run the chat model, raising a domain error on failure."""
+        """Run the chat model, raising a domain error on failure.
+
+        The request deliberately carries no ``response_format``. The system
+        prompt already fixes the JSON shape and the output is parsed and
+        validated locally, so the structured-output mode only added a Workers
+        AI latency path that could hang past the deadline.
+        """
         try:
-            return await asyncio.wait_for(
-                self._ai.run(
-                    self._model,
-                    {
-                        "messages": messages,
-                        "format": GenerationOutput.model_json_schema(),
-                    },
-                ),
-                timeout=self._timeout_seconds,
-            )
+            with _timed(
+                "generation",
+                self._model,
+                sum(len(message["content"]) for message in messages),
+            ):
+                return await asyncio.wait_for(
+                    self._ai.run(
+                        self._model,
+                        {"messages": messages, "max_tokens": self._max_tokens},
+                    ),
+                    timeout=self._timeout_seconds,
+                )
         except Exception as error:
             raise ModelUnavailableError("generation") from error
 

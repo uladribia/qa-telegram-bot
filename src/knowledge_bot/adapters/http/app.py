@@ -21,7 +21,10 @@ from knowledge_bot.adapters.inbound.telegram import (
     normalize_message,
 )
 from knowledge_bot.adapters.telegram.flow import TelegramFlow
-from knowledge_bot.adapters.telegram.routes import register_telegram_routes
+from knowledge_bot.adapters.telegram.routes import (
+    Deferrer,
+    register_telegram_routes,
+)
 from knowledge_bot.application.classifier import (
     QUESTION,
     Classification,
@@ -265,11 +268,16 @@ async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -
     return result
 
 
-def create_app(resolve_context: ContextResolver) -> FastAPI:
+def create_app(
+    resolve_context: ContextResolver, defer: Deferrer | None = None
+) -> FastAPI:
     """Build the FastAPI application.
 
     Args:
         resolve_context: Returns the application context for a request.
+        defer: Hands Telegram update processing to the platform after the
+            response, so the webhook is acknowledged before the AI pipeline
+            runs. The Worker passes one; the local runtime processes inline.
 
     Returns:
         The configured FastAPI app.
@@ -314,7 +322,7 @@ def create_app(resolve_context: ContextResolver) -> FastAPI:
         return {"status": "ok"}
 
     telegram_flow = TelegramFlow(_handle_telegram_update)
-    register_telegram_routes(app, resolve_context, telegram_flow.handle)
+    register_telegram_routes(app, resolve_context, telegram_flow.handle, defer)
 
     @app.post("/internal/eval/answer")
     async def internal_eval_answer(

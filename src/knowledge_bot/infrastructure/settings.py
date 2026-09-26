@@ -10,7 +10,10 @@ from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_AI_MODELS = frozenset(
-    {"@cf/google/embeddinggemma-300m", "@cf/zai-org/glm-4.7-flash"}
+    {
+        "@cf/google/embeddinggemma-300m",
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+    }
 )
 LOCAL_ALLOWED_AI_MODELS = frozenset({"embeddinggemma", "gemma3:270m"})
 
@@ -50,9 +53,10 @@ class Settings(BaseSettings):
     internal_admin_key: str = ""
 
     embedding_model: str = "@cf/google/embeddinggemma-300m"
-    generation_model: str = "@cf/zai-org/glm-4.7-flash"
+    generation_model: str = "@cf/mistralai/mistral-small-3.1-24b-instruct"
     ai_embed_timeout_seconds: float = Field(default=10.0, gt=0, le=55)
     ai_generation_timeout_seconds: float = Field(default=35.0, gt=0, le=55)
+    ai_generation_max_tokens: int = Field(default=1024, gt=0)
 
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5

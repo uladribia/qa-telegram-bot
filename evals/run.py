@@ -335,7 +335,7 @@ def eval_answer_dataset() -> EvalReport:
     for case in cases:
         report.check(bool(case.get("id")), f"answer case lacks id: {case}")
         report.check(
-            bool(case.get("question")) or case.get("expected_mode") == "abstain",
+            bool(case.get("question")) or case.get("expected_mode") == "abstention",
             f"answer case lacks question: {case}",
         )
         report.check(

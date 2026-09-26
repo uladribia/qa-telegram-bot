@@ -23,15 +23,20 @@ Observed on the v1.1.0 release (2026-09-25); each one has bitten a real operatio
 - **Liveness and readiness are different probes.** `/healthz` is served by the static asset layer (`public/healthz`, deployed with `run_worker_first: false`), so it answers from the edge even when the Python interpreter cannot start — which is exactly the failure that wedged the deployment twice. `/readyz` runs inside Python, so a `500` there means the application is down while the edge is fine. Monitor both.
 - **An unbounded eval request can take the bot down.** Live-eval bursts wedged the Worker twice (all requests failing with the Pyodide `Cannot enter a promising task` bug at interpreter init). The evaluation endpoints are now protected: `/internal/retrieve` refuses more than 20 queries per request, and each isolate admits 60 evaluation calls per minute before answering `429`. The AI budget guard does not protect against load, only quota.
 - **A wedged deployment recovers with a redeploy.** Identical code, `npx wrangler deploy`, restored service both times. If `/healthz` is green but `/readyz` and authenticated endpoints return `500`/`1101`, redeploy before debugging the code.
+- **A Cron Trigger gets 10 ms of CPU on the Workers Free plan** (30 s on paid), against a 3.4 s Python interpreter start-up. The daily report's `scheduled` handler never reaches its first log line, so no code change makes it appear in the tail; `daily_report_state` stays empty. The report route itself is fine — `POST /internal/jobs/daily-report` sends and persists state when called over HTTP. Scheduling it from outside the Worker is the workaround; the alternative is a paid plan.
 - **Vectorize deletes cap at 100 ids per call** (`VECTOR_DELETE_ERROR`, code 40007). The projection cleanup removed 1423 ids at once and failed. `VectorizeStore.delete`, the lexical projection, and the manifest chunk their writes, so a cleanup of any size succeeds.
 - **The first request on a cold isolate can fail** with `1101`/`1102` (Python start-up plus the request's work exceeds the per-request budget). Retry the same idempotent request; the second attempt runs on a warm isolate. The `kb seed` and `kb reindex` CLIs already retry.
 - **Reindex in small batches.** A batch of 100 items means ~200 embedding calls in one request and trips the request limit. In practice use `--limit 20` and follow the printed cursors to the end.
+- **The generation model is a reasoning model, and it deliberates.** `@cf/zai-org/glm-4.7-flash` spends most of its output budget on chain-of-thought before answering. Measured on the real production payload (825 prompt tokens, five near-miss Q&A items that do not contain the asked-for amount): **53.0 s, 2653 completion tokens, 10 551 characters of `reasoning_content`, 101 neurons**, returning `insufficient` after all of it. The same call with `AI_GENERATION_MAX_TOKENS=1024` returns in **18.9 s and 42 neurons**. An answerable question needs 675-851 completion tokens, so 1024 keeps real answers and only truncates the pathological ones into an abstention. Never raise this cap or drop it without measuring: uncapped, a single question costs a minute of wall time and 100 neurons.
+- **Truncated reasoning returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter already degrades to `insufficient`. That is the intended safe direction, but it means a low cap silently increases abstentions rather than producing wrong answers. Watch the abstention count when changing it.
 - **Some requests hit a Pyodide runtime bug** (`SystemError: Cannot enter a promising task from inside another running promising task`) and return `500` with no application traceback. It is intermittent: the same request usually succeeds on retry.
 - **Vectorize is eventually consistent.** Right after a batch, a write-then-query of the same id can return zero matches; the runtime smoke reporting `vector_matches: 0` immediately after its write is expected, not a failure.
 
 ## Answer delivery
 
 The inbound row and answer are persisted before Telegram delivery. A Telegram `ok=false` response is a delivery failure and produces a retryable webhook response. A delivery receipt prevents intentional duplicate sends after success; a crash after Telegram accepts a message but before receipt persistence can still produce a duplicate on retry.
+
+**The webhook is acknowledged before the AI pipeline runs.** Telegram drops a webhook request whose response arrives late (`Read timeout expired`) and retries the update, so the Worker answers `{"status": "accepted"}` immediately and processes the update in a `waitUntil` background task. Processing failures are therefore invisible to Telegram and surface only in the logs: `telegram_webhook_accepted` means the update was taken, `telegram_webhook_processed` or `telegram_webhook_failed` means it finished. An update that produced neither was lost — that is the failure mode to watch after a deploy. The local runtime has no `waitUntil`, so it processes inline and answers `{"status": "answer"}`; the difference is platform behaviour, not two code paths.
 
 ## Projection repair
 
@@ -53,6 +58,37 @@ Use a full rebuild only when SQL truth is known to be correct and the derived in
 
 Local logs are human-readable and debug-level. Cloudflare logs are structured JSON at info level. Logs contain ids, scope, decisions, counts, model names, durations, and state transitions. They never contain raw message text, answers, prompts, usernames, phone numbers, tokens, or secrets.
 
+Two log lines exist specifically to make otherwise-invisible failures diagnosable:
+
+- `workers_ai_call_completed` / `workers_ai_call_failed` — one per Workers AI call, from both adapters. Fields: `operation` (`embedding` or `generation`), `model`, `characters` (request size, a prompt-size proxy), `duration_ms`, and on failure `error` (the exception class, e.g. `TimeoutError`). A timed-out generation shows `workers_ai_call_failed` with `error: TimeoutError` at `duration_ms` equal to `AI_GENERATION_TIMEOUT_SECONDS`. Never log the payload, only its size.
+- `scheduled_started` / `scheduled_finished` / `scheduled_failed` — the Cron Trigger path. Fields: `use_case`, `trigger`, `sent`, `duration_ms`. A scheduled handler that raises leaves no trace in request logs, so this is the only signal that the daily report job ran.
+
+Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
+
+## Retrieval
+
+- **Candidate pool is 15 per list, fused with RRF.** No cross-encoder: a `bge-reranker-base` reranker was measured and removed. It promoted high-relevance, low-cosine items and pushed high-cosine items out of the top-5, thinning the generation prompt to 1047-1400 characters, and the model — told to return `insufficient` when evidence is insufficient — declined. It cost 1% of the neurons and bought nothing.
+- **BM25/FTS5 stays.** The only measured retrieval numbers here are hybrid MRR 0.973 / Recall@5 0.986 against a semantic-only baseline of 0.455, and the corpus turns on rare proper nouns (*Pau Negre*, *Cluber*, *Minis*, *FCB*) where dense embeddings are weakest. `make eval-local` is the free check if that is ever revisited.
+- **The rerank score does not separate answerable from unanswerable questions.** Measured across all 76 eval questions: both distributions span 0.9997 down to 0.0000 and overlap almost completely. Any floor on a cross-encoder score loses more answers than it saves. Do not reintroduce one without a better separating signal.
+- **`ANSWER_SIMILARITY_FLOOR` is a thickness knob, not a precision device.** At 0.45 ten of twenty unanswerable eval questions already cleared it, while the answerable ones bottom out at cosine 0.357. At 0.35 — the lowest top-1 cosine any of the 43 answerable questions has — all 43 receive their full five-item evidence set. Most unanswerable questions also clear it, so abstention is the model's job, which is the design the always-grounded change adopted. Lowering it further costs nothing in precision and only adds prompt tokens.
+
+## Answer selection
+
+- **The generation model is not a reasoning model, deliberately.** `@cf/zai-org/glm-4.7-flash` spent 10 551 characters of `reasoning_content` and 53.0 s on one real question, blowing the 35 s deadline into a user-visible "no info available". `@cf/mistralai/mistral-small-3.1-24b-instruct` answers the same question in 2.5 s and correctly returns `insufficient`.
+- **Screen a generator on completeness, not just grounding.** Mistral was chosen because it was the only candidate that refused when the evidence did not support an answer — the three Llamas invented a payment method in no document. It was never screened on how many answerable questions it *declines*, and that turned out to be the axis that fails. Any future model comparison needs both numbers.
+- **Grounding, not size, decides the model.** Measured on evidence that does not answer the question: `mistral-small-3.1-24b` abstained correctly, while `llama-3.1-8b-instruct-fp8`, `llama-3.3-70b-instruct-fp8-fast`, and `llama-3.2-3b-instruct` all invented a payment method that is in no document. Never swap in a smaller model on speed alone; run the live answer suite.
+- **Truncated output returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter degrades to `insufficient`. Safe direction, but a low cap silently increases abstentions. Measured: answerable questions need 675-851 completion tokens; the pathological case needed 2653. `AI_GENERATION_MAX_TOKENS=1024` is the compromise.
+- **The request carries no `response_format`.** The system prompt fixes the JSON shape and output is parsed and validated locally, so the structured-output mode only added a latency path.
+- **The generation model call is never sent with no deadline and no token cap**: `AI_GENERATION_TIMEOUT_SECONDS` (35) and `AI_GENERATION_MAX_TOKENS` (1024) both apply. Read `workers_ai_call_completed` before raising either.
+
 ## Daily report
 
 The deterministic daily report is sent by the scheduled Worker handler and can be run manually with `POST /internal/jobs/daily-report`. `dry_run=true` renders the same report without sending or updating the last-sent timestamp. Legacy recap and reviewer-report routes are retired.
+
+The `daily_report_state` table is the ground truth for whether the schedule works. It holds one row (`admin`) written only after a successful Telegram send, so an empty table means the job has never completed a send. Check it before suspecting Telegram:
+
+```bash
+uv run kb d1 ... # or: npx wrangler d1 execute knowledge-bot --remote --command "select * from daily_report_state"
+```
+
+`run()` skips when less than 24 h has passed since the last successful send, so sending the report by hand pushes the next automatic run out by a day. Use `force=true` to override the window but still send.

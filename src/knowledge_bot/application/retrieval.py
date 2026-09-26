@@ -19,7 +19,7 @@ QA_KIND = "qa"
 MESSAGE_KIND = "message_evidence"
 
 _RRF_K = 60
-_CANDIDATE_POOL = 10
+_CANDIDATE_POOL = 15
 _TOKEN = re.compile(r"\w+", flags=re.UNICODE)
 
 

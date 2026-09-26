@@ -166,5 +166,13 @@
     "answer": "L'aparellament és completament determinista i no fa cap trucada al model. Si un missatge és una resposta explícita (resposta de Telegram) a una pregunta clara, s'aparella a l'instant. Si és una actualització o correcció clara, es parella només quan hi ha exactament una pregunta recent (dins dels últims 5 minuts) sense resoldre a la conversa; amb cap o més d'una pregunta recent, no aparella automàticament i el missatge es tracta com a informació independent. La identitat del remitent no serveix mai com a prova de resposta. Cada parella es desa com a evidència de missatges amb id estable (repetir el procés no duplica res). No crea automàticament un Q&A canònic: el Q&A només creix amb seeds/imports o correccions aprovades.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
+    "section": "Resum diari",
+    "question": "Cada dia reps un resum?",
+    "answer": "El resum diari existeix i arriba una vegada al dia, pero no l'envia el bot per si sol: un planificador extern el crida cada dia. Si no hi ha cap planificador configurat, no rebràs cap resum, i això no vol dir que el botigui avariat. L'administr pot revisar-lo i enviar-lo manualment quan vulgui.",
+    "status": "published",
+    "retrieved_at": "2026-09-26T00:00:00Z"
   }
 ]
