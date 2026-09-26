@@ -14,7 +14,6 @@ from knowledge_bot.ports.index import (
     SearchIndexSource,
     SearchProjectionRepository,
 )
-from knowledge_bot.ports.lexical import LexicalIndex, LexicalRecord
 from knowledge_bot.ports.vector_store import VectorRecord, VectorStore
 
 
@@ -30,12 +29,11 @@ class ProjectionRepairReport:
 
 @dataclass(frozen=True, slots=True)
 class SearchProjectionService:
-    """Own the only vector, lexical, and manifest ordering used by the app."""
+    """Own the only vector and manifest ordering used by the app."""
 
     source: SearchIndexSource
     embedder: Embedder
     vectors: VectorStore
-    lexical: LexicalIndex
     manifest: SearchProjectionRepository
     clock: Clock
     budget: AiBudget | None = None
@@ -72,10 +70,6 @@ class SearchProjectionService:
             await self.manifest.mark_active(
                 vector_id, item.version_id, self.clock.now()
             )
-            # Keep the lexical projection synchronized under the same vector id.
-            await self.lexical.upsert(
-                [LexicalRecord(id=vector_id, text=item.question, metadata=metadata)]
-            )
         except ModelUnavailableError:
             await self.manifest.mark_failed(
                 vector_id, item.version_id, "model_unavailable", self.clock.now()
@@ -105,7 +99,6 @@ class SearchProjectionService:
             if not values:
                 text = message.question or message.text
                 values = (await self.embedder.embed([text]))[0]
-            lexical_text = message.question or message.text
             metadata: dict[str, object] = {
                 "kind": "message_evidence",
                 "object_id": message.message_id,
@@ -121,11 +114,6 @@ class SearchProjectionService:
                 [VectorRecord(id=vector_id, values=values, metadata=metadata)]
             )
             await self.manifest.mark_active(vector_id, None, self.clock.now())
-            # Keep the lexical projection synchronized: paired evidence indexes
-            # the context question; a standalone update indexes its own text.
-            await self.lexical.upsert(
-                [LexicalRecord(id=vector_id, text=lexical_text, metadata=metadata)]
-            )
         except ModelUnavailableError:
             await self.manifest.mark_failed(
                 vector_id, None, "model_unavailable", self.clock.now()
@@ -138,10 +126,9 @@ class SearchProjectionService:
             raise ProjectionError("vector_write_failed") from None
 
     async def remove(self, vector_ids: list[str]) -> None:
-        """Delete vectors, lexical rows, and their manifest entries."""
+        """Delete vectors and their manifest entries."""
         if vector_ids:
             await self.vectors.delete(vector_ids)
-            await self.lexical.delete(vector_ids)
             await self.manifest.delete(vector_ids)
 
     async def repair(self, limit: int = 100) -> ProjectionRepairReport:

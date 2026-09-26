@@ -32,9 +32,6 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1FeedbackRepository as SqlFeedbackRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
-    D1LexicalIndex as SqlLexicalIndex,
-)
-from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1MessagePairCandidateRepository as SqlMessagePairCandidateRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -79,7 +76,6 @@ __all__ = [
     "SqlDailyReportStateRepository",
     "SqlDeliveryReceiptRepository",
     "SqlFeedbackRepository",
-    "SqlLexicalIndex",
     "SqlMessagePairCandidateRepository",
     "SqlMessageRepository",
     "SqlQAItemRepository",

@@ -41,7 +41,6 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1Database,
     D1DeliveryReceiptRepository,
     D1FeedbackRepository,
-    D1LexicalIndex,
     D1MessagePairCandidateRepository,
     D1MessageRepository,
     D1QAItemRepository,
@@ -120,9 +119,9 @@ def build_context(env: WorkerEnv) -> AppContext:
         classifier_model_path=_text(
             env, "CLASSIFIER_MODEL_PATH", "data/classifier/model.json"
         ),
-        answer_similarity_floor=_text(env, "ANSWER_SIMILARITY_FLOOR", "0.70"),
-        qa_top_k=_text(env, "QA_TOP_K", "5"),
-        message_top_k=_text(env, "MESSAGE_TOP_K", "4"),
+        answer_similarity_floor=_text(env, "ANSWER_SIMILARITY_FLOOR", "0.35"),
+        qa_top_k=_text(env, "QA_TOP_K", "3"),
+        message_top_k=_text(env, "MESSAGE_TOP_K", "2"),
         ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
         ai_neuron_reserve_fraction=_text(env, "AI_NEURON_RESERVE_FRACTION", "0.25"),
         ai_background_budget_fraction=_text(
@@ -168,7 +167,6 @@ def build_context(env: WorkerEnv) -> AppContext:
         budget,
     )
     vectors = VectorizeStore(env.VECTORIZE)
-    lexical = D1LexicalIndex(database)
     listener_messages = D1MessageRepository(database)
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
@@ -177,7 +175,6 @@ def build_context(env: WorkerEnv) -> AppContext:
         source=D1SearchIndexSource(database),
         embedder=embedder,
         vectors=vectors,
-        lexical=lexical,
         manifest=projection_manifest,
         clock=clock,
         budget=budget,
@@ -224,7 +221,6 @@ def build_context(env: WorkerEnv) -> AppContext:
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
-                lexical=lexical,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
             ),

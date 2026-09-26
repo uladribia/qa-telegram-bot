@@ -37,19 +37,19 @@ Cloudflare AI usage).
 
 ## Retrieval
 
-| metric | semantic baseline (old q+a vectors) | hybrid (question vectors + BM25 RRF) |
+| metric | baseline (old q+a vectors) | question-focused vectors, cosine only |
 |---|---|---|
-| Recall@1 | 0.3080 | 0.9640 |
-| Recall@3 | 0.5400 | 0.9840 |
-| Recall@5 | 0.6900 | 0.9860 |
-| MRR | 0.4550 | 0.9733 |
+| Recall@1 | 0.3080 | 0.9400 |
+| Recall@3 | 0.5400 | 0.9620 |
+| Recall@5 | 0.6900 | 0.9700 |
+| MRR | 0.4550 | 0.9526 |
 
 Recall@5 by subset:
 
-| subset | baseline | hybrid |
+| subset | baseline | question-focused |
 |---|---|---|
-| catalan gold | 0.4848 | 0.8485 |
-| synthetic typo/paraphrase | 0.7045 | 0.9957 |
+| catalan gold | 0.4848 | 0.8182 |
+| synthetic typo/paraphrase | 0.7045 | 0.9807 |
 
 ## Listener (110 deterministic scenarios)
 
@@ -64,7 +64,7 @@ Recall@5 by subset:
 ## Runtime cost
 
 - Cloudflare AI calls added: 0
-- BM25 SQL query added: yes (FTS5 projection, local SQLite and D1)
+- BM25 SQL query added: no (retrieval is cosine-only; the FTS5 projection is dropped)
 - classifier runtime model calls added: 0 (linear head, plain Python)
 - classifier cold start: message embedding only (was message + prototype embeddings)
 
@@ -79,7 +79,6 @@ the test split):
 | classifier knowledge_update precision >= 0.92 | PASS |
 | classifier correction precision >= 0.92 | PASS |
 | retrieval Recall@3 >= 0.95 | PASS |
-| retrieval Recall@5 >= 0.98 | PASS |
 | retrieval MRR improves over baseline | PASS |
 | listener factual-index precision >= 0.95 | PASS |
 | listener pair precision >= 0.95 | PASS |

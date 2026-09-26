@@ -11,6 +11,9 @@ answer-floor recalibration._
   after it is not in that plan.
 - One branch is deliberately **not merged**: `feat/pairing-head` (learned
   pairing head, disabled). See [experiments.md](experiments.md).
+- The lexical projection is still present in production D1 (95 rows in
+  `search_fts`). `migrations/0022_drop_search_fts.sql` drops it but has **not
+  been applied**; that is a live DDL write and needs explicit authorization.
 
 ## The deployed configuration
 
@@ -18,14 +21,16 @@ answer-floor recalibration._
 |---|---|
 | Embeddings | `@cf/google/embeddinggemma-300m` |
 | Generation | `@cf/mistralai/mistral-small-3.1-24b-instruct` |
-| Retrieval | semantic top-15 + BM25/FTS5 top-15, RRF fused (k=60) |
-| Selection | Q&A top 5, messages top 4, `ANSWER_SIMILARITY_FLOOR=0.35` |
+| Retrieval | one embedding, one cosine ranking, candidate pool 15 |
+| Selection | top **3** Q&A + top **2** group candidates at or above the floor |
+| Floor | `ANSWER_SIMILARITY_FLOOR=0.35` |
 | Caps | 35 s deadline, 1024 max tokens, no `response_format` |
 | Delivery | webhook acks `accepted` immediately, work runs in `waitUntil` |
 | Cost | ~2.6-8 s and ~30 neurons per question, two model calls |
 
 `ALLOWED_AI_MODELS` holds exactly these two models. Anything outside it is a
-configuration error at startup.
+configuration error at startup. There is no lexical (BM25/FTS5) ranking and no
+cross-encoder reranker; both were measured and removed.
 
 ## What shipped in this pass
 
@@ -61,24 +66,52 @@ guess: one log line per Workers AI call (`operation`, `model`, `characters`,
 - **The Cron Trigger cannot work on the Free plan** and never did: 10 ms of CPU
   per cron invocation against a 3451 ms interpreter start-up. The report is
   delivered by an external scheduler calling `POST /internal/jobs/daily-report`.
-- **Two stale eval labels were fixed.** `evals/answers.yaml` still expected
-  `direct_qa` and `abstain`, both removed when answering became always
-  grounded, so all 64 mode checks failed while `render()` truncated the output
-  to eight lines. A dataset-validity exemption in `evals/run.py` was keyed on
-  the same dead label.
+- **The lexical leg was dead and was removed.** `_fts_query` AND-ed every query
+  token including stopwords, so it returned rows for **2 of 91** eval questions
+  and the "hybrid" was fusing one list. A fixed OR-of-content-tokens query was
+  worth +2 questions in 43 at Recall@5. Gone with it: the `LexicalIndex` port,
+  `D1LexicalIndex`, the RRF fuser, the lexical half of the search projection,
+  and `search_fts` (migration `0022_drop_search_fts.sql`).
+- **The evidence width is 3 + 2.** `QA_TOP_K` and `MESSAGE_TOP_K` are exposed
+  next to the floor in `wrangler.jsonc` so the deployed width is readable in
+  one place.
+
+## What the width costs, measured on the 43 answerable eval questions
+
+Gold `source_anchor` present in the Q&A handed to the model:
+
+| | Recall@3 | Recall@5 | Recall@15 |
+|---|---:|---:|---:|
+| semantic only (shipped) | **0.860** (37/43) | 0.907 | 0.977 |
+| with a *fixed* BM25 leg | 0.907 (39/43) | 0.930 | 0.977 |
+
+One question (*"Com puc triar la meva talla de samarreta?"*) is not in the
+pool at all. The five the top-3 cut loses are two at rank 4, two at rank 7 and
+one at rank 11; a working lexical leg rescued two of those. **So the two
+removals compound: no BM25 costs 2 questions, top-3 costs 2 more, and the
+resulting recall is 0.860 rather than the 0.907 a working hybrid would have
+given at the same width.** The gated local metric is Recall@3 (0.962 on the
+synthetic set) because three is what ships; the former `Recall@5 >= 0.98` gate
+described a five-candidate system and is reported but not gated. Restore it if
+`QA_TOP_K` is raised.
 
 ## Verification
 
 ```text
 make lint
-make test              # 140 unit + architecture
-make test-integration  # 127
+make test              # 139 unit + architecture
+make test-integration  # 126
 uv run python -m evals.run offline   # 11/11
+make eval-local        # all gates PASS, regenerates the report
 ```
 
+Local retrieval with the leg removed: Recall@1 0.940, Recall@3 0.962,
+Recall@5 0.970, MRR 0.953, against 0.984 / 0.986 / 0.973 with it and an
+old-vector baseline MRR of 0.455.
+
 **The live answer suite has not been run against this configuration.** The last
-measured figure, 38/86, was at floor 0.45 *with* the reranker. One run is
-~1900 neurons.
+measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
+width. One run is ~1900 neurons.
 
 ## Open issues, in the order they will bite
 
@@ -88,15 +121,19 @@ measured figure, 38/86, was at floor 0.45 *with* the reranker. One run is
    therefore noisy in both directions, and any single measurement of it is weak
    evidence. The fix is a model whose willingness to answer is stable, which has
    not been searched for.
-2. **Completeness was never screened.** Mistral was chosen on grounding and
-   declined 22 of 43 answerable questions at 0.45. A completeness screen means a
-   rate over repeats, not a single call: 10 questions x 3 repeats x 3 models is
-   ~2700 neurons, one day. `llama-4-scout-17b-16e-instruct` is the untested
-   candidate (3/3 grounded, 2.9 s, 31 neurons).
-3. **No daily report arrives** until an external scheduler is wired to the
+2. **Retrieval recall is now the binding constraint, and it just got worse.**
+   0.860 of answerable questions have their answer in the three candidates the
+   model sees. The ceiling was already known; the width cut lowered it. The
+   cheapest recovery is not a reranker — it is putting the question text *and*
+   the answer text into whatever retrieval exists, or raising `QA_TOP_K` back
+   and measuring what the extra candidates do to abstention.
+3. **Completeness was never screened.** Mistral was chosen on grounding and
+   declined 22 of 43 answerable questions at floor 0.45. A completeness screen
+   means a rate over repeats, not a single call: 10 questions x 3 repeats x 3
+   models is ~2700 neurons, one day. `llama-4-scout-17b-16e-instruct` is the
+   untested candidate (3/3 grounded, 2.9 s, 31 neurons).
+4. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
-4. **Retrieval recall is still the ceiling.** Short, conversational questions
-   miss their gold anchor; no answer policy repairs that.
 
 ## Things that are not problems
 
@@ -117,10 +154,14 @@ measured figure, 38/86, was at floor 0.45 *with* the reranker. One run is
 
 ## The pattern to remember
 
-Three attempts at learned selection (answer relevance, pairing, cross-encoder
-reranking) passed their gates in isolation and failed in the pipeline. The
-reranker is the clearest: 0.33 neurons and 0.49 s, a 1000:1 separation between
-relevant and irrelevant, and it made the bot worse because it optimised ranking
-while the generator was starved of evidence. Measure the signal in the position
-it will actually be used, and measure the axis that is failing, not the one that
-is easy to plot.
+Four attempts at learned selection (answer relevance, pairing, cross-encoder
+reranking, lexical fusion) passed their gates in isolation and failed in the
+pipeline. The reranker is the clearest: 0.33 neurons and 0.49 s, a 1000:1
+separation between relevant and irrelevant, and it made the bot worse because
+it optimised ranking while the generator was starved of evidence. The lexical
+leg is the second: a full port, adapter, projection and migration, returning
+rows for 2 of 91 questions. Measure the signal in the position it will
+actually be used, and measure the axis that is failing, not the one that is
+easy to plot. Also: the *documentation* was the last thing to become true —
+"hybrid retrieval, MRR 0.973" was repeated across four files and in a merge
+commit hours after the leg was measured dead.

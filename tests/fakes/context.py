@@ -29,7 +29,6 @@ from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
-    FakeLexicalIndex,
     FakeReviewSource,
     FakeSearchIndexSource,
     FakeVectorStore,
@@ -94,7 +93,6 @@ def build_test_context(
     clock = FrozenClock(DEFAULT_NOW)
     embedder = FakeEmbedder()
     vectors = FakeVectorStore()
-    lexical = FakeLexicalIndex()
     manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
     ingestor = MessageIngestor(
@@ -104,7 +102,7 @@ def build_test_context(
         embedder=embedder, head=linear_head(len(embedder.vector))
     )
     projector = SearchProjectionService(
-        FakeSearchIndexSource(), embedder, vectors, lexical, manifest, clock, budget
+        FakeSearchIndexSource(), embedder, vectors, manifest, clock, budget
     )
     settings = Settings(
         _env_file=None,
@@ -143,7 +141,7 @@ def build_test_context(
             budget,
         ),
         answer=AnswerService(
-            RetrievalService(embedder, vectors, lexical),
+            RetrievalService(embedder, vectors),
             FakeGenerator(),
             backend.answers,
             clock,

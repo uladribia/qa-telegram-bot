@@ -18,7 +18,6 @@ from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
-    FakeLexicalIndex,
     FakeVectorStore,
 )
 from tests.fakes.repositories import InMemoryBotAnswerRepository
@@ -35,7 +34,6 @@ def _service(
         retrieval=RetrievalService(
             embedder=FakeEmbedder(),
             vectors=FakeVectorStore(),
-            lexical=FakeLexicalIndex(),
         ),
         generator=generator,
         answers=InMemoryBotAnswerRepository(),
@@ -95,7 +93,7 @@ async def test_evidence_above_the_floor_is_sent_to_the_model() -> None:
 async def test_evidence_below_the_floor_abstains() -> None:
     """Nothing clears the floor, so the model is never called."""
     service, generator = _service()
-    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.4)]))
+    outcome = await service.decide("pregunta", RetrievedEvidence(qa=[_qa(0.2)]))
     assert outcome.mode is AnswerMode.ABSTENTION
     assert generator.requests == []
 
@@ -118,13 +116,13 @@ async def test_no_evidence_abstains_without_generator() -> None:
     assert generator.requests == []
 
 
-async def test_synthesis_caps_qa_and_message_evidence() -> None:
-    """The generator receives at most five Q&A and three message records."""
+async def test_synthesis_passes_every_candidate_retrieval_returned() -> None:
+    """The policy only filters by floor; the width is retrieval's decision."""
     qa = [
         Evidence(f"qa{index}", "Q&A", "text", 90, 0.9, question="Quan?")
-        for index in range(7)
+        for index in range(3)
     ]
-    messages = [_message_evidence(0.75) for _ in range(4)]
+    messages = [_message_evidence(0.75) for _ in range(2)]
     service, generator = _service(
         GenerationOutput(status="answered", answer="resposta", source_ids=["qa1", "m1"])
     )
@@ -132,7 +130,7 @@ async def test_synthesis_caps_qa_and_message_evidence() -> None:
         "pregunta", RetrievedEvidence(qa=qa, messages=messages)
     )
     assert outcome.mode is AnswerMode.SYNTHESIS
-    assert len(generator.requests[0].evidence) == 8
+    assert len(generator.requests[0].evidence) == 5
 
 
 def test_generation_output_rejects_invalid_citation_shapes() -> None:
@@ -173,7 +171,7 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
     embedder = FakeEmbedder()
     embedder.fail = True
     service = AnswerService(
-        RetrievalService(embedder, FakeVectorStore(), FakeLexicalIndex()),
+        RetrievalService(embedder, FakeVectorStore()),
         service.generator,
         service.answers,
         FrozenClock(NOW),

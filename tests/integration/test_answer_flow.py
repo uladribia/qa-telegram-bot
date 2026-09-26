@@ -13,7 +13,6 @@ from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
-    FakeLexicalIndex,
     FakeVectorStore,
 )
 from tests.fakes.repositories import InMemoryBotAnswerRepository
@@ -52,7 +51,6 @@ async def _service(
         retrieval=RetrievalService(
             embedder=FakeEmbedder([1.0, 0.0]),
             vectors=store,
-            lexical=FakeLexicalIndex(),
             qa_top_k=5,
             message_top_k=5,
         ),

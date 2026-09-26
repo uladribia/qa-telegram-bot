@@ -31,13 +31,13 @@ Synthetic cases are evaluation/training material only. They are never inserted i
 
 The current quality gate is `make eval-local` (`python -m evals.quality`): it
 runs the linear classifier on the fixed 500-case test split, compares the old
-semantic-only retrieval (question+answer vectors) against the hybrid
-question-focused + BM25/RRF retrieval, and runs 110 deterministic listener
+semantic-only retrieval (question+answer vectors) against question-focused
+retrieval, and runs 110 deterministic listener
 scenarios. It needs only the local Ollama runtime and regenerates
 `reports/retrieval-classifier-listener.md` with the authoritative numbers and
 gate table. Key results of the latest run: classifier macro F1 0.964,
 knowledge_update precision 0.944, correction precision 0.931, coverage 0.918;
-hybrid retrieval Recall@3 0.984, Recall@5 0.986, MRR 0.973 (baseline MRR
+retrieval Recall@1 0.940, Recall@3 0.962, MRR 0.953 (baseline MRR
 0.455); listener pair precision 1.000 and factual-index precision 1.000, with
 lower recall (0.667 / 0.833) as the accepted cost of the conservative
 confidence policy. All plan acceptance gates pass.

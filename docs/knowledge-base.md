@@ -44,21 +44,25 @@ instance without adding a branch to ingestion or space management.
 
 ### How retrieval works
 
-When you ask a question, the bot makes exactly one embedding call and then
-fuses two rankings:
+When you ask a question, the bot makes exactly one embedding call and reads one
+ranking:
 
 - **Semantic search** over the derived vector projection. Vectors are
   question-focused: Q&A embeds the canonical question only (the answer stays
   in metadata), a paired message embeds its context question, and a standalone
   factual update embeds its own text.
-- **Lexical BM25 search** over an FTS5 projection (`search_fts`) of the same
-  question texts. It is a derived index, rebuilt from SQL truth, adding only
-  SQL work and no AI quota.
 
-The two ranked lists are combined with Reciprocal Rank Fusion, a group's own
-variant suppresses the global answer for the same canonical question, and
-authority breaks remaining ties. The answer model (GLM) and correction
-workflow are unchanged.
+A single cosine threshold decides what evidence exists: candidates at or above
+`ANSWER_SIMILARITY_FLOOR` (0.35) are kept, the best `QA_TOP_K` (3) Q&A and
+`MESSAGE_TOP_K` (2) group candidates go to the model, a group's own variant
+suppresses the global answer for the same canonical question, and authority
+breaks remaining ties. The answer model (Mistral) and correction workflow are
+unchanged.
+
+There is no lexical (BM25/FTS5) ranking. It was measured, found to be returning
+rows for 2 of 91 eval questions as written, and removed; the `search_fts`
+projection and its migration pair are gone. See
+[experiments.md](experiments.md).
 
 ---
 
