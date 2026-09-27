@@ -54,6 +54,14 @@ When new behavior supersedes old behavior:
 
 Do not preserve compatibility with internal prototype APIs/config that are not used.
 
+### Exception, 2026-09-27 (owner decision)
+
+A production model comparison was explicitly requested: run the gold and frozen
+suites against `@cf/qwen/qwen3-30b-a3b-fp8` with `/no_think`, and compare it
+with the mistral baseline. This overrides "do not change models" and "no model
+comparison" for that one experiment, on a branch, with the deployed Worker
+restored to mistral afterwards and the allowlist entry removed.
+
 ## 3. Keep scope narrow
 
 Do **not**:
