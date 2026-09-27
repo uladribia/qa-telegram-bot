@@ -65,6 +65,24 @@ Two log lines exist specifically to make otherwise-invisible failures diagnosabl
 
 Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
 
+## Traces (Logfire)
+
+The local runtime exports OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes.
+
+```bash
+# fresh spans for the service, in the exact project
+logfire --region eu --org oleguer-sagarra mcp query run \
+  "SELECT start_timestamp, trace_id, span_name, attributes->>'http.route' AS route FROM records WHERE service_name = 'qa-telegram' ORDER BY start_timestamp DESC LIMIT 20" \
+  --project qa-telegram
+```
+
+- **Local credentials:** `.logfire/logfire_credentials.json`, gitignored, created by `logfire init use --name qa-telegram --permission send`. It is a send-only token. Never commit it, never print it, and never widen its permissions. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container (Docker, Cloudflare) needs `LOGFIRE_TOKEN` in its environment instead, and a runtime without one logs `logfire_send_unavailable` and keeps its spans local.
+- **Settings:** `KB_LOGFIRE_SERVICE_NAME` (default `qa-telegram`), `KB_LOGFIRE_ENVIRONMENT` (empty means the runtime name), `KB_LOGFIRE_SEND_TO_LOGFIRE` (set to `false` to keep spans local).
+- **Privacy:** endpoint arguments are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, answers, prompts, and sender identity are never captured, exactly as in the logs. Read a span's `attributes` before concluding that a field is safe to send.
+- **Tests never send.** `tests/conftest.py` sets `KB_LOGFIRE_SEND_TO_LOGFIRE=false` before any entrypoint is imported, so test spans stay local while the instrumentation is still exercised.
+- **Not wired yet:** the Cloudflare Worker (`src/entry.py`) is not instrumented, and Loguru records are not forwarded — only request spans, httpx client calls, and standard-library records are exported.
+
+
 ## Answer traces
 
 Because there is no log history, every answer persists a `bot_answers.trace_json` debug trace. It is the durable record of one attempt and answers the question a log line cannot: *why* did this question abstain. It holds no text — no question, no evidence body, no prompt, no model output — only ids, counts, sizes, similarities, statuses, and durations.

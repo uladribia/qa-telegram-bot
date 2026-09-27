@@ -45,6 +45,7 @@ confidence policy. All plan acceptance gates pass.
 ## Boundaries
 
 - `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
+- `logfire` is imported only from `infrastructure/observability.py`, the one module that configures the exporter. It is a deliberate exception to the locked stack: request traces were the missing observability surface, and the SDK is an application dependency, not a service.
 
 ## Models and the local/production gap
 
@@ -83,6 +84,14 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
   you add a refusal branch, set a `refusal_reason` there; an answer mode alone
   does not say why. Keep the trace text-free: it is queryable storage, and the
   prompt and the model output are reconstructible from the ids it keeps.
+- `configure_observability` is idempotent per process and runs at import time in
+  the entrypoints, so a test that imports one has already configured the SDK. The
+  test kill switch is `KB_LOGFIRE_SEND_TO_LOGFIRE=false`, set in
+  `tests/conftest.py`; a new test entrypoint that bypasses conftest would send
+  test spans to the production project.
+- A span is evidence only after a query returns it. A clean exporter log and a
+  successful process exit are not ingestion proof: query the exact project for
+  the exercised span before calling instrumentation done.
 
 ## Required checks before handoff
 

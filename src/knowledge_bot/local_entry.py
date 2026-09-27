@@ -9,6 +9,7 @@ from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.composition import build_context
 from knowledge_bot.infrastructure.logging import configure_logging
+from knowledge_bot.infrastructure.observability import configure_observability
 from knowledge_bot.infrastructure.settings import Settings
 
 _cached_context: AppContext | None = None
@@ -31,7 +32,9 @@ async def _resolve_context(_request: Request) -> AppContext:
 
 
 configure_logging(json_logs=False)
+_settings = Settings()
 app = create_app(_resolve_context)
+configure_observability(app, _settings)
 
 
 @app.get("/readyz")
