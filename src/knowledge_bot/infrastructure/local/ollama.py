@@ -7,6 +7,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.infrastructure.prompt import SYSTEM_PROMPT, render_user
 from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.generator import (
@@ -59,6 +60,7 @@ class OllamaEmbedder(Embedder):
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed one batch and validate count and dimensions."""
+        log_content("ai_embedding_input", model=self._model, texts=texts)
         try:
             response = await self._client.post(
                 self._url,
@@ -95,6 +97,7 @@ class OllamaGenerator:
 
     async def _attempt(self, messages: list[dict[str, str]]) -> GenerationOutput | None:
         """Run one request and parse its structured response."""
+        log_content("ai_generation_prompt", model=self._model, messages=messages)
         try:
             response = await self._client.post(
                 self._url,
@@ -111,6 +114,9 @@ class OllamaGenerator:
             payload = _OllamaChatResponse.model_validate(response.json())
         except (httpx.HTTPError, ValueError, ValidationError) as error:
             raise ModelUnavailableError("generation") from error
+        log_content(
+            "ai_generation_response", model=self._model, content=payload.message.content
+        )
         match = _JSON_OBJECT.search(payload.message.content)
         if match is None:
             return None

@@ -52,6 +52,14 @@ class Settings(BaseSettings):
             "KB_LOGFIRE_SEND_TO_LOGFIRE",
         ),
     )
+    # Export message text, sender identity, prompts, and answers. On while
+    # testing so a flow can be reconstructed; credentials stay scrubbed.
+    logfire_capture_content: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "KB_LOGFIRE_CAPTURE_CONTENT",
+        ),
+    )
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
     telegram_bot_id: str = ""

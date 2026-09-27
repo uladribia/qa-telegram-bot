@@ -11,6 +11,7 @@ from typing import Protocol, cast
 from loguru import logger
 
 from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.infrastructure.prompt import SYSTEM_PROMPT, render_user
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 
@@ -76,6 +77,7 @@ class WorkersAIEmbedder:
             ModelUnavailableError: When the embedding model call fails.
         """
         try:
+            log_content("ai_embedding_input", model=self._model, texts=texts)
             with _timed("embedding", self._model, sum(len(text) for text in texts)):
                 result = await asyncio.wait_for(
                     self._ai.run(self._model, {"text": texts}),
@@ -139,6 +141,7 @@ class WorkersAIGenerator:
         AI latency path that could hang past the deadline.
         """
         try:
+            log_content("ai_generation_prompt", model=self._model, messages=messages)
             with _timed(
                 "generation",
                 self._model,
@@ -158,6 +161,7 @@ class WorkersAIGenerator:
         """Run the model once and parse its JSON output, or return ``None``."""
         result = await self._run(messages)
         content = _extract_content(result)
+        log_content("ai_generation_response", model=self._model, content=content)
         match = _JSON_OBJECT.search(content)
         if match is None:
             return None

@@ -2,6 +2,7 @@
 """Telegram outbound transport."""
 
 from knowledge_bot.domain.identity import split_principal_id
+from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.ports.http import HttpClient
 
 # Inline button shown under every answer (spec §21).
@@ -103,6 +104,22 @@ class TelegramTransport:
         self._api_base = api_base
 
     async def _post(self, method: str, payload: dict[str, object]) -> dict[str, object]:
+        """Call one Bot API method and record what was said and where.
+
+        Args:
+            method: The Bot API method name.
+            payload: The method payload; the conversation and text are
+                recorded so every outbound message can be reconstructed.
+
+        Returns:
+            The decoded API response.
+        """
+        log_content(
+            "telegram_outbound",
+            method=method,
+            conversation_id=payload.get("chat_id"),
+            text=payload.get("text"),
+        )
         return await self._http.post_json(
             f"{self._api_base}/bot{self._token}/{method}", payload
         )

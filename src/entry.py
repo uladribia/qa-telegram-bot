@@ -31,7 +31,7 @@ from knowledge_bot.infrastructure.logging import (
     configure_logging,
     configure_observability,
 )
-from knowledge_bot.infrastructure.settings import RuntimeMode
+from knowledge_bot.infrastructure.settings import RuntimeMode, Settings
 
 _context: AppContext | None = None
 _scheduled_context: AppContext | None = None
@@ -43,11 +43,11 @@ def _resolve_context(request: Request) -> AppContext:
     if _context is None:
         env = cast("WorkerEnv", request.scope["env"])
         _context = build_context(env)
-        _configure_observability(env)
+        _configure_observability(env, _context.settings)
     return _context
 
 
-def _configure_observability(env: WorkerEnv) -> None:
+def _configure_observability(env: WorkerEnv, settings: Settings) -> None:
     """Start telemetry with the token bound to this Worker.
 
     Worker bindings are unavailable at module import, so the exporter is
@@ -58,6 +58,8 @@ def _configure_observability(env: WorkerEnv) -> None:
         app,
         environment=RuntimeMode.CLOUDFLARE.value,
         token=str(getattr(env, "LOGFIRE_TOKEN", "") or "") or None,
+        send_to_logfire=settings.logfire_send_to_logfire,
+        capture_content=settings.logfire_capture_content,
     )
 
 
@@ -100,7 +102,7 @@ class Default(WorkerEntrypoint):
             if _scheduled_context is None:
                 scheduled_env = cast("WorkerEnv", env)
                 _scheduled_context = build_context(scheduled_env)
-                _configure_observability(scheduled_env)
+                _configure_observability(scheduled_env, _scheduled_context.settings)
             sent = await _scheduled_context.daily_report.run()
         except Exception:
             logger.bind(

@@ -41,6 +41,7 @@ configure_observability(
     environment=RuntimeMode.LOCAL.value,
     send_to_logfire=_settings.logfire_send_to_logfire,
     instrument_client=True,
+    capture_content=_settings.logfire_capture_content,
 )
 
 

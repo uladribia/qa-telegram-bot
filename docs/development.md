@@ -45,7 +45,8 @@ confidence policy. All plan acceptance gates pass.
 ## Boundaries
 
 - `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
-- `logfire` is imported only from `infrastructure/logging.py`, the one module that configures the exporter and the Loguru sink. It is a deliberate exception to the locked stack: request traces were the missing observability surface, and the SDK is an application dependency, not a service.
+- `logfire` is imported only from `infrastructure/logging.py`, the one module that configures the exporter and the Loguru sink. It is a deliberate exception to the locked stack: request traces and a reconstructable debugging trail were the missing observability surface, and the SDK is an application dependency, not a service. Content events reach it through `log_content` from the adapters; `application/` still never imports it.
+- Content capture is a testing posture, not a product decision. `KB_LOGFIRE_CAPTURE_CONTENT` defaults to `true` so a flow can be reconstructed end to end, and credentials are scrubbed regardless. Turning it off is the change to make before anything outside a private test group is connected; do not "fix" a redacted trace by assuming the redaction is the bug.
 
 ## Models and the local/production gap
 
@@ -88,7 +89,9 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
 - Two Worker traps cost real debugging time, and both are documented in [operations.md](operations.md#traces-logfire): the SDK must be imported lazily (`entry.py` also sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import), and `instrument_httpx()` raises in the Worker because httpx is not in the bundle. `make smoke` only asserts `/healthz`, which resolves no context, so it does **not** cover this path: after any change to observability, probe a context-resolving route (`POST /telegram/webhook`) against a booted Worker and read the logs. `/healthz` answering 200 says nothing about the request path.
 - A span is evidence only after a query returns it. A clean exporter log and a
   successful process exit are not ingestion proof: query the exact project for
-  the exercised span before calling instrumentation done.
+  the exercised span before calling instrumentation done. For content work, query
+  the `attributes` of the event you just added — that is the only place a leaked
+  credential shows up, since scrubbing hides it from the code path that wrote it.
 
 ## Required checks before handoff
 
