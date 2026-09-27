@@ -152,6 +152,38 @@ old-vector baseline MRR of 0.455.
 measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
 width. One run is ~1900 neurons.
 
+## The gold set, run on both runtimes
+
+The suite that measures this knowledge base, run 2026-09-27 on both runtimes:
+
+| | local | production |
+|---|---|---|
+| assertions | 15/26 (58%) | 75/80 (94%) |
+| **cases earned** | **0 / 26** | **20 / 26** |
+
+Local earns nothing, for the same reason as the frozen suite: unreadable
+replies, not decisions. Production's five failures are three distinct
+problems, and the distinctions matter more than the count:
+
+- **3 false abstentions** (`equipment_when`, `equipment_size`, `medical_expiry`):
+  evidence was retrieved above the floor and the model declined anyway. Cheap to
+  re-measure, worth a look at whether the floor is too generous for the
+  generator's willingness to answer.
+- **1 retrieval miss answered confidently** (`training_where`): "On entrenen?"
+  retrieved the rain policy and the model answered *that*, fluently. This is the
+  most serious finding in the batch, and it is retrieval-side: the previous
+  recall work optimised for the right document appearing at all, not for the
+  right document being the one the model uses.
+- **1 wrong-entity answer** (`gold_abstention_07`): asked for a delegate's
+  phone, answered with the club's published general line. Not a leak, the number
+  is public in `qa-contacte-club`; wrong because it answers about a different
+  entity. Whether the bot should instead offer the published contact is a
+  product question nobody has answered yet, and the case keeps failing until
+  someone does.
+
+Production also produced one unreadable reply in this run (one accidental pass),
+confirming it is not only the local model.
+
 ## The frozen suite, run on both runtimes
 
 Same dataset, same code, same runner, one generation call per case, run on

@@ -196,6 +196,53 @@ concluding anything about one case.
 mode, the reason, and the failure kinds, for anything consuming the suite
 programmatically.
 
+### The gold set, measured on both runtimes
+
+`evals/gold.yaml` is the only suite that measures *this* knowledge base: 11
+answerable cases and 15 abstentions, retrieval included, one embedding plus one
+generation per answerable question.
+
+| | local | production |
+|---|---|---|
+| model | `gemma3:270m` (Ollama) | `@cf/mistralai/mistral-small-3.1-24b-instruct` |
+| assertions | 15/26 (58%) | **75/80 (94%)** |
+| cases earned | **0 / 26** | **20 / 26** |
+| passed by accident | 15 | 1 |
+| failed | 11 | 5 |
+
+Local earns nothing: 15 abstention cases match their expected mode only because
+the reply was unreadable, and 11 answerable cases abstain. Production's five
+failures are worth reading individually, because they are three different
+problems:
+
+| case | shape | what happened |
+|---|---|---|
+| `equipment_when`, `equipment_size`, `medical_expiry` | answerable | **false abstentions**: evidence was retrieved above the floor (0.60-0.72) and the model declined anyway |
+| `training_where` | answerable | **retrieval miss, answered confidently**: "On entrenen?" retrieved the rain policy and the model answered that faithfully. The answer is about the wrong subject |
+| `gold_abstention_07` | personal data | asked for the delegate's phone, answered with the **club's published general line** |
+
+`training_where` is the one to worry about: it is not a generator weakness but a
+retrieval failure that produces a fluent, confident, wrong answer. The other
+three abstentions are the model declining evidence it was given.
+
+`gold_abstention_07` is a wrong-entity answer, not a leak. The corpus row
+`qa-contacte-club` publishes the club's own phone and email, so the number the
+bot returned is public; what is wrong is answering a question about one named
+delegate with the organisation's general line. Whether the bot should instead
+say "I do not have your delegate's line; the club publishes this general
+contact" is an open product question, so the case keeps expecting an abstention
+and keeps failing until that is decided.
+
+Production also emitted one unreadable reply in this run, which is why one
+abstention case is counted as accidental rather than earned. The generator is
+not perfect at emitting valid JSON in production either; it is rare.
+
+One case was a brittle assertion rather than a bot failure: `home_matches`
+required the word "local" and the bot answered "els partits de casa es juguen
+al Pau Negre", which is correct and never says the word. It now requires the
+place. The offline grounding gate is what should catch that class, and it now
+does.
+
 ### Runtime
 
 The local runtime exports to Logfire, project `oleguer-sagarra/qa-telegram` in

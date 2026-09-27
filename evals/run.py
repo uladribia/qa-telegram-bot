@@ -1087,8 +1087,28 @@ def _terms(value: object) -> list[str]:
 
 
 def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> None:
-    """Ask one question live and assert deterministic answer and citation rules."""
+    """Ask one question live and assert deterministic answer and citation rules.
+
+    Records the case outcome the way the frozen suite does, so a gold run says
+    which question failed and why rather than only how many.
+
+    Args:
+        base_url: The target base URL.
+        case: One gold case.
+        report: The suite report to record into.
+    """
     question = str(case["question"])
+    expected_mode = str(case.get("expected_mode", ""))
+    outcome = CaseOutcome(
+        case_id=str(case.get("id", question[:24])),
+        category=str(case.get("category", "uncategorised")),
+        expected_mode=expected_mode,
+        actual_mode="unavailable",
+        reason="unknown",
+    )
+    # Sliced by the length of the failure list, not by the assertion counter:
+    # the counter includes passes, the list does not.
+    failures_before = len(report.failures)
     try:
         response = httpx.post(
             f"{base_url}/internal/eval/answer",
@@ -1099,63 +1119,113 @@ def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> 
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as error:
-        report.check(False, f"{question!r}: {_explain(error)}")
+        report.check(False, f"{outcome.case_id}: {_explain(error)}")
+        outcome.failures = report.failures[failures_before:]
+        outcome.kinds = ["model_unavailable"]
+        report.record(outcome)
         return
     if not isinstance(payload, dict):
-        report.check(False, f"{question!r}: malformed response")
+        report.check(False, f"{outcome.case_id}: malformed response")
+        outcome.failures = report.failures[failures_before:]
+        outcome.kinds = ["unexpected_answer"]
+        report.record(outcome)
         return
     mode = str(payload.get("mode"))
+    reason = str(payload.get("reason", "unknown"))
     answer = str(payload.get("answer", ""))
-    expected_mode = case.get("expected_mode")
-    if expected_mode is not None:
-        matched = mode == str(expected_mode)
-        report.check(matched, f"{question!r}: mode {mode!r} != {expected_mode!r}")
-        if not matched:
-            report.attribute(
+    outcome.actual_mode = mode
+    outcome.reason = reason
+    if expected_mode:
+        matched = mode == expected_mode
+        report.check(matched, f"{outcome.case_id}: mode {mode!r} != {expected_mode!r}")
+        if (
+            matched
+            and expected_mode == "abstention"
+            and reason
+            not in {
+                "model_insufficient",
+                "no_evidence",
+            }
+        ):
+            # The mode matched, but for a reason this case did not test for.
+            outcome.kinds.append("unearned_pass")
+        elif not matched:
+            outcome.kinds.append(
                 "model_false_abstention"
                 if mode == "abstention"
                 else "unexpected_answer"
             )
+        if reason == "invalid_model_output":
+            outcome.kinds.append("invalid_model_output")
+        elif reason == "no_evidence" and expected_mode == "synthesis":
+            outcome.kinds.append("retrieval_miss")
+        elif reason == "invalid_source_ids":
+            outcome.kinds.append("invalid_source_ids")
     citations = [
         item for item in payload.get("citations") or [] if isinstance(item, dict)
     ]
     if mode != "abstention":
         ids = _terms(payload.get("source_ids"))
         stray = [sid for sid in ids if sid not in _terms(payload.get("evidence_ids"))]
-        report.check(not stray, f"{question!r}: unsupported sources cited: {stray}")
-        report.check(bool(ids), f"{question!r}: an answer must cite a source")
+        report.check(
+            not stray, f"{outcome.case_id}: unsupported sources cited: {stray}"
+        )
+        report.check(bool(ids), f"{outcome.case_id}: an answer must cite a source")
         for citation in citations:
             url = str(citation.get("url") or "")
             author = citation.get("author")
             if url:
                 report.check(
-                    "#" in url, f"{question!r}: web citation lacks an anchor: {url!r}"
+                    "#" in url,
+                    f"{outcome.case_id}: web citation lacks an anchor: {url!r}",
                 )
                 report.check(
                     bool(citation.get("date")),
-                    f"{question!r}: web citation lacks a date",
+                    f"{outcome.case_id}: web citation lacks a date",
                 )
             else:
                 report.check(
                     bool(author and citation.get("date")),
-                    f"{question!r}: citation lacks a URL and an author+date",
+                    f"{outcome.case_id}: citation lacks a URL and an author+date",
                 )
         for term in _terms(case.get("must_include")):
             missing = term.lower() not in answer.lower()
-            report.check(not missing, f"{question!r}: answer is missing {term!r}")
+            report.check(not missing, f"{outcome.case_id}: answer is missing {term!r}")
             if missing:
-                report.attribute("answer_content_failure")
+                outcome.kinds.append("answer_content_failure")
         for claim in _terms(case.get("must_not_claim")):
             present = claim.lower() in answer.lower()
-            report.check(not present, f"{question!r}: answer claims {claim!r}")
+            report.check(not present, f"{outcome.case_id}: answer claims {claim!r}")
             if present:
-                report.attribute("answer_content_failure")
+                outcome.kinds.append("answer_content_failure")
+    outcome.failures = report.failures[failures_before:]
+    report.record(outcome)
 
 
 def eval_live_answers(base_url: str) -> EvalReport:
     """Check that live answers are correct, sourced, and grounded (spec §46)."""
     report = EvalReport(name="answers/live")
     for case in load_gold()["answers"]:
+        _eval_answer(base_url, case, report)
+    return report
+
+
+def eval_live_gold(base_url: str) -> EvalReport:
+    """Run the whole human gold set: answerable cases and abstentions together.
+
+    One report, because the two halves are one judgement: a set where the bot
+    abstains on everything looks identical whether it is ignorant or broken,
+    and only the reasons tell them apart.
+
+    Args:
+        base_url: The target base URL.
+
+    Returns:
+        The combined report.
+    """
+    report = EvalReport(name="gold/live")
+    gold = load_gold()
+    for case in [*gold["answers"], *gold["abstentions"]]:
         _eval_answer(base_url, case, report)
     return report
 
@@ -1334,6 +1404,8 @@ def run_live(
         return [eval_live_abstention(base_url, gold_only=True)]
     if suite == "frozen":
         return [eval_live_frozen(base_url)]
+    if suite == "gold":
+        return [eval_live_gold(base_url)]
     return [
         eval_live_retrieval(base_url, reindex=reindex),
         eval_live_answers(base_url),
@@ -1378,6 +1450,7 @@ def main(argv: list[str] | None = None) -> int:
             "abstention",
             "abstention-gold",
             "frozen",
+            "gold",
         ],
         default="all",
         help="Run one live suite at a time; each burns shared quota.",
