@@ -114,6 +114,7 @@ class WorkersAIGenerator:
         timeout_seconds: float = 35.0,
         max_tokens: int = 1024,
         no_think: bool = False,
+        disable_thinking: bool = False,
     ) -> None:
         """Create the generator with a hard adapter deadline.
 
@@ -130,12 +131,18 @@ class WorkersAIGenerator:
                 Qwen3 thinks by default and that deliberation does not fit the
                 adapter deadline, so the trace has to be switched off from the
                 prompt. It is a chat-template token, inert for other models.
+            disable_thinking: Send ``chat_template_kwargs.enable_thinking =
+                false``, the mechanism GLM-4.5 and later use. GLM-4.7-Flash
+                spent 53 s and 101 neurons on one ``insufficient`` when it was
+                left to think; this is the switch that makes it comparable to a
+                non-reasoning model.
         """
         self._ai = ai
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._max_tokens = max_tokens
         self._no_think = no_think
+        self._disable_thinking = disable_thinking
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
         """Run the chat model, raising a domain error on failure.
@@ -155,7 +162,15 @@ class WorkersAIGenerator:
                 return await asyncio.wait_for(
                     self._ai.run(
                         self._model,
-                        {"messages": messages, "max_tokens": self._max_tokens},
+                        {
+                            "messages": messages,
+                            "max_tokens": self._max_tokens,
+                            **(
+                                {"chat_template_kwargs": {"enable_thinking": False}}
+                                if self._disable_thinking
+                                else {}
+                            ),
+                        },
                     ),
                     timeout=self._timeout_seconds,
                 )
