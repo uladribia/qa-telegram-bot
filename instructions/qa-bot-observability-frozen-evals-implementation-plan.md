@@ -16,7 +16,7 @@ Primary outcomes:
    - malformed model output,
    - invalid citations/source ids,
    - or model/provider unavailability.
-2. Add Logfire in local and production, with the same semantic trace structure and no raw private content in production telemetry.
+2. Add Logfire in local and production, with the same semantic trace structure. Content capture is gated behind an explicit testing flag: with the flag off, no raw user/model content reaches hosted telemetry; with it on, content is exported deliberately so a test deployment's flows can be reconstructed. (Amended 2026-09-27 by owner decision; see "Content capture is a gated testing mode" below.)
 3. Add a frozen-evidence generation eval that isolates the generator from retrieval.
 4. Repair and simplify the human gold evals.
 5. Delete obsolete logging/config/eval paths where the new implementation supersedes them.
@@ -66,7 +66,7 @@ Do **not**:
 - add database tables/columns solely for observability;
 - add dashboards or alerting;
 - add another logging framework beside Logfire;
-- log raw Telegram/group content to hosted telemetry;
+- export raw Telegram/group content to hosted telemetry **with the testing flag off** (with it on, see "Content capture is a gated testing mode");
 - regenerate hundreds of synthetic examples;
 - tune expected eval labels until tests turn green.
 
@@ -218,9 +218,9 @@ Do not expose internal diagnostic reason to ordinary Telegram users unless the c
 
 Add `logfire`.
 
-If `loguru` is only serving the logging/observability role being replaced here, remove it from dependencies and migrate remaining meaningful events to Logfire.
+**Remove `loguru` unconditionally.** Delete it from dependencies, migrate every remaining meaningful event to Logfire or the standard library, and delete its sink configuration. There is no "if it is only serving the observability role" escape hatch: the goal of this phase is one logging system, and leaving a second dependency behind is a failure of the phase. The two-system overlap that existed while instrumentation was being built is over.
 
-Do not run two logging systems without a concrete reason.
+Do not run two logging systems.
 
 Reuse `src/knowledge_bot/infrastructure/logging.py` if it still exists. Do not create a second observability configuration module unless structurally necessary.
 
@@ -322,7 +322,7 @@ Safe attributes only:
 - final mode;
 - final reason.
 
-Do not send raw question text to hosted Logfire.
+Do not send raw question text to hosted Logfire **unless the testing content flag is on** — see "Content capture is a gated testing mode" below.
 
 ### `retrieval`
 
@@ -367,7 +367,7 @@ Record:
 - model-declared `status`;
 - invalid-output safe code when relevant.
 
-Do not send:
+Do not send **with the testing content flag off**:
 
 - raw prompt;
 - raw evidence text;
@@ -377,6 +377,8 @@ Do not send:
 - Telegram username;
 - phone/email;
 - tokens/secrets.
+
+Tokens and secrets are never sent, in either mode.
 
 ### `answer_decision`
 
@@ -743,13 +745,30 @@ MESSAGE_TOP_K
 
 Do not change models as part of this work.
 
-If `KB_LOG_CONTENT` / `Settings.log_content` still exists only as a switch for raw logging, delete it.
+If `KB_LOG_CONTENT` / `Settings.log_content` still exists only as a switch for raw logging, delete it. It has no reason to exist once Loguru is gone.
 
-The desired invariant is stronger and simpler:
+### Content capture is a gated testing mode
 
-> Hosted production telemetry never contains raw user/model content.
+Content capture already exists in the codebase as `KB_LOGFIRE_CAPTURE_CONTENT` (default `true` at time of writing). Keep it, and keep it explicit:
 
-Do not retain a switch that weakens that invariant.
+- **Flag off (the invariant):** no raw user content, prompt, answer, evidence
+  body, or Telegram identity in hosted telemetry. Only ids, counts, sizes,
+  similarities, modes, reasons, and timings.
+- **Flag on (test deployments only):** the same traces plus content, so a
+  question that arrived, what the model was asked, what it replied, and what
+  the bot sent back can be reconstructed end to end.
+
+Safeguards that hold in **both** modes:
+
+- tokens, secrets, webhook secrets, and API keys are never exported; the
+  transport's bot token is scrubbed by value shape, not only by key name;
+- tests and CI never export, whatever the flag says;
+- telemetry failure never breaks answering.
+
+The flag defaults to `true` while this project is an explicitly-flagged test
+deployment. Turning it off must be a one-setting change, and turning it off is
+required before connecting anything but a private test group. Do not add a
+second content switch, and do not make content capture unconditional in code.
 
 ---
 
@@ -795,7 +814,14 @@ Test:
 
 ### Logging privacy
 
-Where practical, test the attributes passed to observability helpers and ensure raw question/evidence/answer text is not included in hosted trace attributes.
+Where practical, test the attributes passed to observability helpers.
+
+Test both modes:
+
+- content flag off: raw question/evidence/answer text and Telegram identity
+  are absent from the attributes the helpers pass;
+- content flag on: the content events carry the text, and the credential
+  scrubbing still holds.
 
 Do not test Logfire's own internals.
 
@@ -838,7 +864,7 @@ Primary debugging procedure should become:
 6. if `model_unavailable`, inspect provider error/timeout;
 7. if `invalid_source_ids`, inspect generation result and supplied IDs.
 
-Document the privacy rule.
+Document the privacy rule: credentials never, content only behind the testing flag.
 
 Document how to configure optional local Logfire export and required production token.
 
@@ -887,10 +913,12 @@ The implementation is complete only when all of the following are true.
 - Local runs correctly without a Logfire token/account.
 - Production can export using `LOGFIRE_TOKEN`.
 - Failure of telemetry/export cannot break answering.
-- No raw question text is exported in production traces.
-- No raw evidence text is exported in production traces.
-- No raw generated answer is exported in production traces.
-- No tokens/secrets/private identity fields are exported.
+- With the content flag **off**: no raw question text, evidence text, generated
+  answer, provider response, or Telegram identity is exported.
+- With the content flag **on**: content events are exported and the flows are
+  reconstructable, and credentials are still scrubbed.
+- No tokens/secrets are exported in either mode.
+- `loguru` is gone from dependencies, with every meaningful event migrated.
 - Duplicate old AI timing logs are removed where superseded.
 
 ## Frozen eval
