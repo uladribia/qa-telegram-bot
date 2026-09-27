@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -45,6 +45,14 @@ eval-live-reindex:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
 	uv run python -m evals.run live --reindex --base-url "$(BOT_BASE_URL)"
+
+# Generator-only gate: every case carries its own evidence, so retrieval does not
+# participate and a failure is the model's. One generation call per case, so it
+# is the cheapest live suite: run it before touching anything else.
+eval-live-frozen:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	uv run python -m evals.run live --suite frozen --base-url "$(BOT_BASE_URL)"
 
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:

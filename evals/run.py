@@ -74,6 +74,7 @@ class EvalReport:
     passed: int = 0
     failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    attributions: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -97,6 +98,14 @@ class EvalReport:
         """Record an advisory finding that never fails the suite."""
         self.warnings.append(message)
 
+    def attribute(self, kind: str) -> None:
+        """Classify one failure so a report says what kind of failure it was.
+
+        Args:
+            kind: One of the attribution kinds, e.g. ``model_false_abstention``.
+        """
+        self.attributions[kind] = self.attributions.get(kind, 0) + 1
+
     def render(self) -> str:
         """Render a short Markdown report."""
         status = "PASS" if self.ok else "FAIL"
@@ -105,7 +114,23 @@ class EvalReport:
         ]
         lines.extend(f"  - {failure}" for failure in self.failures[:8])
         lines.extend(f"  ~ {warning}" for warning in self.warnings[:5])
+        if self.attributions:
+            summary = ", ".join(
+                f"{kind}={count}" for kind, count in sorted(self.attributions.items())
+            )
+            lines.append(f"  failures by kind: {summary}")
         return "\n".join(lines)
+
+
+def load_gold() -> dict[str, list[dict[str, object]]]:
+    """Load the human gold set, the one source of truth for the live gates.
+
+    Returns:
+        The ``answers`` and ``abstentions`` cases, validated for unique ids,
+        unique questions, and valid modes.
+    """
+    gold = yaml.safe_load((EVALS_DIR / "gold.yaml").read_text(encoding="utf-8"))
+    return {"answers": list(gold["answers"]), "abstentions": list(gold["abstentions"])}
 
 
 def load_cases(name: str) -> list[dict[str, object]]:
@@ -139,13 +164,9 @@ def eval_abstention_set() -> EvalReport:
     """Every abstention case is well formed and non-empty."""
     report = EvalReport(name="abstention/set")
     cases = [
-        *load_cases("abstention.yaml"),
+        *load_gold()["abstentions"],
         *load_cases("abstention_synthetic.yaml"),
     ]
-    report.check(
-        len(cases) >= 250,
-        f"expected >= 250 abstention cases, got {len(cases)}",
-    )
     for case in cases:
         question = case.get("question")
         report.check(
@@ -329,8 +350,7 @@ def eval_listener_dataset() -> EvalReport:
 def eval_answer_dataset() -> EvalReport:
     """Validate the expanded factual-answer dataset shape."""
     report = EvalReport(name="answers/dataset")
-    cases = load_cases("answers.yaml")
-    report.check(len(cases) >= 70, f"expected >= 70 answer cases, got {len(cases)}")
+    cases = [*load_gold()["answers"], *load_cases("answers_synthetic.yaml")]
     for case in cases:
         report.check(bool(case.get("id")), f"answer case lacks id: {case}")
         report.check(
@@ -407,6 +427,11 @@ def eval_conflicts() -> EvalReport:
     The gate's deterministic half: a model "insufficient" verdict always
     abstains, and the evidence handed to the model carries each source's
     authority intact (the prompt tells the model to prefer higher authority).
+
+    This overlaps the frozen suite's conflict cases, and deliberately stays:
+    the frozen cases need a real model, while this one runs in the offline tier
+    with a fake generator. Deleting it would trade deterministic CI coverage
+    for coverage that only exists when a live run is authorized.
     """
     report = EvalReport(name="conflicts/gate")
     for case in load_cases("conflicts.yaml"):
@@ -867,10 +892,14 @@ def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> 
     answer = str(payload.get("answer", ""))
     expected_mode = case.get("expected_mode")
     if expected_mode is not None:
-        report.check(
-            mode == str(expected_mode),
-            f"{question!r}: mode {mode!r} != {expected_mode!r}",
-        )
+        matched = mode == str(expected_mode)
+        report.check(matched, f"{question!r}: mode {mode!r} != {expected_mode!r}")
+        if not matched:
+            report.attribute(
+                "model_false_abstention"
+                if mode == "abstention"
+                else "unexpected_answer"
+            )
     citations = [
         item for item in payload.get("citations") or [] if isinstance(item, dict)
     ]
@@ -896,19 +925,21 @@ def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> 
                     f"{question!r}: citation lacks a URL and an author+date",
                 )
         for term in _terms(case.get("must_include")):
-            if term.lower() not in answer.lower():
-                report.warn(f"{question!r}: missing term {term!r} (advisory)")
+            missing = term.lower() not in answer.lower()
+            report.check(not missing, f"{question!r}: answer is missing {term!r}")
+            if missing:
+                report.attribute("answer_content_failure")
         for claim in _terms(case.get("must_not_claim")):
-            report.check(
-                claim.lower() not in answer.lower(),
-                f"{question!r}: answer claims {claim!r}",
-            )
+            present = claim.lower() in answer.lower()
+            report.check(not present, f"{question!r}: answer claims {claim!r}")
+            if present:
+                report.attribute("answer_content_failure")
 
 
 def eval_live_answers(base_url: str) -> EvalReport:
     """Check that live answers are correct, sourced, and grounded (spec §46)."""
     report = EvalReport(name="answers/live")
-    for case in load_cases("answers.yaml"):
+    for case in load_gold()["answers"]:
         _eval_answer(base_url, case, report)
     return report
 
@@ -916,12 +947,107 @@ def eval_live_answers(base_url: str) -> EvalReport:
 def eval_live_abstention(base_url: str, *, gold_only: bool = False) -> EvalReport:
     """Check that unknown questions abstain instead of inventing (spec §41)."""
     report = EvalReport(name="abstention/live")
-    cases = list(load_cases("abstention.yaml"))
+    cases = list(load_gold()["abstentions"])
     if not gold_only:
         cases += load_cases("abstention_synthetic.yaml")
     for case in cases:
         _eval_answer(base_url, {**case, "expected_mode": "abstention"}, report)
     return report
+
+
+def eval_live_frozen(base_url: str) -> EvalReport:
+    """Check the generator alone, against exactly the evidence each case supplies.
+
+    Retrieval does not participate: the case carries the text the model would
+    have seen, so a failure belongs to the generator's decision rather than to
+    the index. Every failure is attributed, so a failing suite says which kind
+    of failure it was instead of only how many.
+    """
+    report = EvalReport(name="frozen/live")
+    for case in load_cases("frozen_generation.yaml"):
+        _eval_frozen(base_url, case, report)
+    return report
+
+
+def _eval_frozen(base_url: str, case: dict[str, object], report: EvalReport) -> None:
+    """Run one frozen case and attribute any failure.
+
+    Args:
+        base_url: The deployed Worker base URL.
+        case: The frozen case.
+        report: The suite report to record into.
+    """
+    question = str(case["question"])
+    expected: dict[str, object] = case.get("expected") or {}  # ty: ignore[invalid-assignment]
+    raw_evidence: list[dict[str, object]] = case.get("evidence") or []  # ty: ignore[invalid-assignment]
+    evidence = [
+        {key: value for key, value in item.items() if value is not None}
+        for item in raw_evidence
+    ]
+    try:
+        response = httpx.post(
+            f"{base_url}/internal/eval/answer",
+            headers=_internal_headers(),
+            json={"question": question, "evidence": evidence},
+            timeout=600.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPError as error:
+        report.check(False, f"{case['id']}: {_explain(error)}")
+        report.attribute("model_unavailable")
+        return
+    if not isinstance(payload, dict):
+        report.check(False, f"{case['id']}: malformed response")
+        report.attribute("unexpected_answer")
+        return
+
+    mode = str(payload.get("mode"))
+    reason = str(payload.get("reason", ""))
+    answer = str(payload.get("answer", ""))
+    wanted = str(expected.get("mode", ""))
+    cited = [str(item) for item in payload.get("source_ids") or []]
+    supplied = {str(item.get("source_id")) for item in evidence}
+
+    if mode == wanted:
+        report.check(True, "")
+    else:
+        report.check(False, f"{case['id']}: mode {mode!r} != {wanted!r} ({reason})")
+        if wanted == "abstention" and reason == "model_insufficient":
+            report.attribute("model_false_answer")
+        elif wanted == "synthesis" and reason == "model_insufficient":
+            report.attribute("model_false_abstention")
+        elif reason == "no_evidence":
+            report.attribute("retrieval_miss")
+        else:
+            report.attribute("unexpected_answer")
+
+    if reason == "invalid_model_output":
+        report.check(False, f"{case['id']}: model output was unreadable ({reason})")
+        report.attribute("invalid_model_output")
+    if reason == "invalid_source_ids":
+        report.check(False, f"{case['id']}: cited evidence it was not given")
+        report.attribute("invalid_source_ids")
+
+    stray = [item for item in cited if item not in supplied]
+    report.check(not stray, f"{case['id']}: cited evidence outside the case: {stray}")
+
+    expected_ids: list[str] = expected.get("source_ids") or []  # ty: ignore[invalid-assignment]
+    for wanted_id in expected_ids:
+        report.check(
+            str(wanted_id) in cited,
+            f"{case['id']}: expected {wanted_id!r} to be cited, got {cited}",
+        )
+    for term in _terms(expected.get("must_include")):
+        present = term.lower() in answer.lower()
+        report.check(present, f"{case['id']}: answer is missing {term!r}")
+        if not present and mode == "synthesis":
+            report.attribute("answer_content_failure")
+    for claim in _terms(expected.get("must_not_claim")):
+        present = claim.lower() in answer.lower()
+        report.check(not present, f"{case['id']}: answer claims {claim!r}")
+        if present:
+            report.attribute("answer_content_failure")
 
 
 def run_live(
@@ -945,6 +1071,8 @@ def run_live(
         return [eval_live_abstention(base_url)]
     if suite == "abstention-gold":
         return [eval_live_abstention(base_url, gold_only=True)]
+    if suite == "frozen":
+        return [eval_live_frozen(base_url)]
     return [
         eval_live_retrieval(base_url, reindex=reindex),
         eval_live_answers(base_url),
@@ -966,7 +1094,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default="")
     parser.add_argument(
         "--suite",
-        choices=["all", "retrieval", "answers", "abstention", "abstention-gold"],
+        choices=[
+            "all",
+            "retrieval",
+            "answers",
+            "abstention",
+            "abstention-gold",
+            "frozen",
+        ],
         default="all",
         help="Run one live suite at a time; each burns shared quota.",
     )

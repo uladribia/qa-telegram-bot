@@ -2,13 +2,20 @@
 """Answer generation port (spec §17).
 
 Model outputs are an external boundary, so the validated shapes are Pydantic
-models living here next to the protocol that produces them.
+models living here next to the protocol that produces them. Parsing lives here
+too, so every adapter reports the same failure the same way: output that cannot
+be read raises ``InvalidModelOutputError`` and never becomes an abstention.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field, model_validator
+
+from knowledge_bot.domain.errors import InvalidModelOutputError
+
+_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,5 +66,36 @@ class Generator(Protocol):
     """Produces grounded answers from retrieved evidence."""
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Generate an answer, or report insufficient evidence."""
+        """Generate an answer, or report insufficient evidence.
+
+        Raises:
+            InvalidModelOutputError: The model replied with output that
+                cannot be parsed or validated. This is a provider failure, not
+                the model declining to answer.
+            ModelUnavailableError: The provider failed or timed out.
+        """
         ...
+
+
+def parse_generation_output(content: str) -> GenerationOutput:
+    """Parse one model reply into validated output.
+
+    Args:
+        content: The raw text the model returned.
+
+    Returns:
+        The validated output.
+
+    Raises:
+        InvalidModelOutputError: The reply is empty, holds no JSON object, or
+            does not validate. The raw text is never carried in the error.
+    """
+    if not content.strip():
+        raise InvalidModelOutputError("missing_content")
+    match = _JSON_OBJECT.search(content)
+    if match is None:
+        raise InvalidModelOutputError("no_json")
+    try:
+        return GenerationOutput.model_validate_json(match.group(0))
+    except ValueError as error:
+        raise InvalidModelOutputError("schema_validation") from error

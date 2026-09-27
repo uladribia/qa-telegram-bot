@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+from knowledge_bot.domain.errors import InvalidModelOutputError
 from knowledge_bot.infrastructure.local.ollama import OllamaEmbedder, OllamaGenerator
 from knowledge_bot.ports.generator import GenerationRequest
 
@@ -32,25 +33,18 @@ async def test_ollama_embedder_preserves_batch_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ollama_generator_retries_malformed_json_once() -> None:
-    """Retry exactly once when the first response is not valid generation JSON."""
-    responses = [
-        httpx.Response(200, json={"message": {"content": "not json"}}),
-        httpx.Response(
-            200,
-            json={"message": {"content": '{"status":"insufficient"}'}},
-        ),
-    ]
+async def test_ollama_generator_raises_on_malformed_json_without_retrying() -> None:
+    """Unreadable output is attributed, not retried into a silent abstention."""
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
-        response = responses[calls]
         calls += 1
-        return response
+        return httpx.Response(200, json={"message": {"content": "not json"}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         generator = OllamaGenerator(client, "http://ollama:11434", "gemma3:270m")
-        output = await generator.generate(GenerationRequest(question="unknown"))
-    assert output.status == "insufficient"
-    assert calls == 2
+        with pytest.raises(InvalidModelOutputError) as raised:
+            await generator.generate(GenerationRequest(question="unknown"))
+    assert raised.value.code == "no_json"
+    assert calls == 1

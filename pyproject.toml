@@ -9,7 +9,6 @@ authors = [{ name = "Ula" }]
 dependencies = [
     "fastapi>=0.141.1",
     "logfire[fastapi,httpx]>=5.1.1",
-    "loguru>=0.7.3",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
 ]

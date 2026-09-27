@@ -3,18 +3,22 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import cast
 
 import pytest
-from loguru import logger
 
-from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.errors import (
+    InvalidModelOutputError,
+    ModelUnavailableError,
+)
 from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIEmbedder,
     WorkersAIGenerator,
 )
+from knowledge_bot.infrastructure.logging import _RESERVED_RECORD_FIELDS
 from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest
 
 
@@ -41,7 +45,7 @@ class _Runner:
 
 @dataclass(frozen=True, slots=True)
 class _Call:
-    """One captured Workers AI call log line, reduced to asserted fields."""
+    """One captured Workers AI call log record, reduced to asserted fields."""
 
     message: str
     operation: str
@@ -58,27 +62,35 @@ class _Call:
 
 @pytest.fixture
 def calls() -> Iterator[list[_Call]]:
-    """Capture the Workers AI call log lines emitted during the test."""
+    """Capture the Workers AI call log records emitted during the test."""
     captured: list[_Call] = []
 
-    def sink(raw: str) -> None:
-        record = cast("dict[str, object]", raw.record)  # ty: ignore[unresolved-attribute]
-        extra = cast("dict[str, object]", record["extra"])
-        captured.append(
-            _Call(
-                message=cast("str", record["message"]),
-                operation=cast("str", extra.get("operation", "")),
-                model=cast("str", extra.get("model", "")),
-                characters=cast("int", extra.get("characters", 0)),
-                duration_ms=cast("float", extra.get("duration_ms", 0.0)),
-                error=cast("str", extra.get("error", "")),
-                extra=extra,
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(
+                _Call(
+                    message=record.getMessage(),
+                    operation=cast("str", getattr(record, "operation", "")),
+                    model=cast("str", getattr(record, "model", "")),
+                    characters=cast("int", getattr(record, "characters", 0)),
+                    duration_ms=cast("float", getattr(record, "duration_ms", 0.0)),
+                    error=cast("str", getattr(record, "error", "")),
+                    extra={
+                        key: value
+                        for key, value in record.__dict__.items()
+                        if key not in _RESERVED_RECORD_FIELDS
+                    },
+                )
             )
-        )
 
-    sink_id = logger.add(sink, level="DEBUG")
+    handler = _Capture()
+    target = logging.getLogger("knowledge_bot.ai")
+    previous_level = target.level
+    target.setLevel(logging.DEBUG)
+    target.addHandler(handler)
     yield captured
-    logger.remove(sink_id)
+    target.removeHandler(handler)
+    target.setLevel(previous_level)
 
 
 def _only(captured: list[_Call], message: str) -> _Call:
@@ -158,28 +170,31 @@ async def test_call_logging_records_failure_without_text(calls: list[_Call]) -> 
     assert "provider detail" not in line.text()
 
 
-async def test_generator_reports_insufficient_on_unparseable_output() -> None:
-    """Model output that is not JSON degrades to insufficient, not a crash."""
+async def test_generator_raises_on_unparseable_output() -> None:
+    """Output that is not JSON is a provider failure, not an abstention."""
     runner = _Runner({"choices": [{"message": {"content": "not json"}}]})
     generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
 
-    output = await generator.generate(
-        GenerationRequest(
-            question="q",
-            evidence=[
-                EvidenceItem(
-                    source_id="s1", text="t", label="l", authority=1, similarity=0.5
-                )
-            ],
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
         )
-    )
 
-    assert output.status == "insufficient"
+    assert raised.value.code == "no_json"
 
 
 async def test_generator_bounds_the_output_budget() -> None:
     """The reasoning model gets a token cap, without a response_format."""
-    runner = _Runner({"choices": [{"message": {"content": "{}"}}]})
+    runner = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
     generator = WorkersAIGenerator(runner, "chat-model", 1.0, 1024)
 
     await generator.generate(GenerationRequest(question="q", evidence=[]))
@@ -195,3 +210,65 @@ async def test_generator_raises_domain_error_on_failure() -> None:
 
     with pytest.raises(ModelUnavailableError):
         await generator.generate(GenerationRequest(question="q", evidence=[]))
+
+
+async def test_generator_raises_when_the_reply_has_no_content() -> None:
+    """An empty reply is a provider failure, not a model abstention."""
+    runner = _Runner({"choices": [{"message": {"content": ""}}]})
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert raised.value.code == "missing_content"
+
+
+async def test_generator_raises_on_a_schema_invalid_reply() -> None:
+    """A JSON object that does not match the contract is a provider failure."""
+    runner = _Runner({"choices": [{"message": {"content": '{"status": "answered"}'}}]})
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert raised.value.code == "schema_validation"
+
+
+async def test_the_error_never_carries_the_model_output() -> None:
+    """The code is safe to export; the text it came from is not."""
+    runner = _Runner(
+        {"choices": [{"message": {"content": "secret internal reasoning here"}}]}
+    )
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert "secret internal reasoning" not in str(raised.value)

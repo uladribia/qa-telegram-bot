@@ -2,13 +2,18 @@
 """Integration tests for durable answer preparation."""
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import ABSTENTION_TEXT, AnswerService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
-from knowledge_bot.domain.enums import AnswerMode, ContentType
+from knowledge_bot.domain.enums import AnswerMode, AnswerReason, ContentType
+from knowledge_bot.domain.errors import (
+    InvalidModelOutputError,
+    ModelUnavailableError,
+)
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import (
@@ -42,11 +47,13 @@ def _message(text: str) -> NormalizedMessage:
 
 
 async def _service(
-    records: list[VectorRecord], result: GenerationOutput | None = None
+    records: list[VectorRecord],
+    result: GenerationOutput | None = None,
+    error: Exception | None = None,
 ) -> tuple[AnswerService, InMemoryBotAnswerRepository, FakeGenerator]:
     store = FakeVectorStore()
     await store.upsert(records)
-    generator = FakeGenerator(result)
+    generator = FakeGenerator(result, error)
     answers = InMemoryBotAnswerRepository()
     service = AnswerService(
         retrieval=RetrievalService(
@@ -170,7 +177,7 @@ async def test_trace_records_why_a_model_refused() -> None:
     )
     await service.answer_message(_message("/ask quan entrenen?"))
     trace = await _trace(answers)
-    assert trace["refusal_reason"] == "insufficient"
+    assert trace["refusal_reason"] == "model_insufficient"
     assert trace["selected"] == ["qa:web-item"]
     assert trace["candidates"] == {
         "qa": [{"id": "qa:web-item", "similarity": 1.0}],
@@ -182,7 +189,7 @@ async def test_trace_records_why_a_model_refused() -> None:
     assert "cited" not in trace
 
 
-async def test_trace_records_an_uncited_source_as_unknown() -> None:
+async def test_trace_records_an_uncited_source_as_invalid_source_ids() -> None:
     """A cited id outside the evidence is a distinct refusal reason."""
     service, answers, _ = await _service(
         [_qa_record()],
@@ -194,7 +201,7 @@ async def test_trace_records_an_uncited_source_as_unknown() -> None:
     assert response is not None
     assert response.mode is AnswerMode.ABSTENTION
     trace = await _trace(answers)
-    assert trace["refusal_reason"] == "unknown_source_id"
+    assert trace["refusal_reason"] == "invalid_source_ids"
     assert trace["generation"]["source_ids"] == ["qa:other"]
 
 
@@ -274,3 +281,236 @@ async def test_trace_records_a_synthesis_without_its_text() -> None:
     assert trace["cited"] == ["qa:web-item"]
     assert "refusal_reason" not in trace
     assert "Els dimarts." not in json.dumps(trace)
+
+
+async def test_every_outcome_carries_exactly_one_reason() -> None:
+    """The six semantic reasons are the whole taxonomy, one per outcome."""
+    answered = GenerationOutput(
+        status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+    )
+    cases = [
+        ([_qa_record()], answered, None, AnswerMode.SYNTHESIS, AnswerReason.ANSWERED),
+        (
+            [],
+            GenerationOutput(status="insufficient"),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.NO_EVIDENCE,
+        ),
+        (
+            [_qa_record()],
+            GenerationOutput(status="insufficient"),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.MODEL_INSUFFICIENT,
+        ),
+        (
+            [_qa_record()],
+            None,
+            InvalidModelOutputError("no_json"),
+            AnswerMode.ABSTENTION,
+            AnswerReason.INVALID_MODEL_OUTPUT,
+        ),
+        (
+            [_qa_record()],
+            GenerationOutput(
+                status="answered", answer="Divendres.", source_ids=["qa:other"]
+            ),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.INVALID_SOURCE_IDS,
+        ),
+        (
+            [_qa_record()],
+            None,
+            ModelUnavailableError("generation"),
+            AnswerMode.UNAVAILABLE,
+            AnswerReason.MODEL_UNAVAILABLE,
+        ),
+    ]
+    for records, result, error, mode, reason in cases:
+        service, _, _ = await _service(records, result, error)
+        preview = await service.dry_run("Quan entrenen?")
+        assert preview.outcome.mode is mode, reason
+        assert preview.outcome.reason is reason
+
+
+async def test_provider_failure_is_not_an_abstention() -> None:
+    """A provider failure never reaches the user as an abstention."""
+    service, _, _ = await _service(
+        [_qa_record()], error=ModelUnavailableError("generation")
+    )
+
+    preview = await service.dry_run("Quan entrenen?")
+
+    assert preview.outcome.mode is AnswerMode.UNAVAILABLE
+    assert preview.outcome.reason is AnswerReason.MODEL_UNAVAILABLE
+
+
+async def test_unreadable_output_keeps_the_invalid_code_in_the_trace() -> None:
+    """The safe parse code is recorded, the raw model output never is."""
+    service, answers, _ = await _service(
+        [_qa_record()], error=InvalidModelOutputError("schema_validation")
+    )
+
+    await service.answer_message(_message("/ask quan entrenen?"))
+
+    trace = await _trace(answers)
+    assert trace["refusal_reason"] == "invalid_model_output"
+    assert trace["generation"]["invalid_output_code"] == "schema_validation"
+
+
+class _RecordingTracer:
+    """A tracer that records span names and their attributes in order."""
+
+    def __init__(self) -> None:
+        """Start with an empty recording."""
+        self.spans: list[str] = []
+        self.attributes: dict[str, dict[str, object]] = {}
+        self._stack: list[str] = []
+
+    def span(self, name: str, **fields: object) -> "_RecordingSpan":
+        """Open a recorded span.
+
+        Args:
+            name: The span name.
+            **fields: The attributes recorded at open time.
+
+        Returns:
+            The span context manager.
+        """
+        self.spans.append(name)
+        self.attributes.setdefault(name, {}).update(fields)
+        return _RecordingSpan(self, name)
+
+
+class _RecordingSpan:
+    """One recorded span."""
+
+    def __init__(self, tracer: _RecordingTracer, name: str) -> None:
+        """Store the tracer and this span's name.
+
+        Args:
+            tracer: The recording tracer.
+            name: The span name.
+        """
+        self._tracer = tracer
+        self._name = name
+
+    def __enter__(self) -> "_RecordingSpan":
+        """Enter the span.
+
+        Returns:
+            The span itself.
+        """
+        self._tracer._stack.append(self._name)
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        """Leave the span.
+
+        Args:
+            *exc_info: The exception triple, if any.
+        """
+        self._tracer._stack.pop()
+
+    def set_attributes(self, fields: dict[str, object]) -> None:
+        """Record attributes discovered while the span was open.
+
+        Args:
+            fields: The attributes.
+        """
+        self._tracer.attributes.setdefault(self._name, {}).update(fields)
+
+
+async def test_a_answered_question_produces_the_documented_span_tree() -> None:
+    """One question yields the five documented spans, in order."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+        ),
+    )
+    service = replace(service, tracer=tracer)
+
+    await service.dry_run("Quan entrenen?")
+
+    assert tracer.spans == [
+        "answer_question",
+        "retrieval",
+        "evidence_selection",
+        "generation",
+        "answer_decision",
+    ]
+    assert tracer.attributes["answer_question"]["reason"] == "answered"
+    assert tracer.attributes["answer_question"]["mode"] == "synthesis"
+    assert tracer.attributes["evidence_selection"]["selected"] == ["qa:web-item"]
+    assert tracer.attributes["generation"]["evidence_count"] == 1
+    assert tracer.attributes["answer_decision"]["cited_source_ids"] == ["qa:web-item"]
+
+
+async def test_an_abstention_produces_the_same_tree_and_says_why() -> None:
+    """The tree does not change shape when the answer is refused."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service(
+        [_qa_record()], GenerationOutput(status="insufficient")
+    )
+    service = replace(service, tracer=tracer)
+
+    await service.dry_run("Quan entrenen?")
+
+    assert tracer.spans == [
+        "answer_question",
+        "retrieval",
+        "evidence_selection",
+        "generation",
+        "answer_decision",
+    ]
+    assert tracer.attributes["answer_question"]["reason"] == "model_insufficient"
+    assert tracer.attributes["generation"]["status"] == "insufficient"
+
+
+async def test_frozen_evidence_bypasses_retrieval_but_not_the_decision_path() -> None:
+    """Frozen evidence reaches the same decide(), without the index."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service([], error=ModelUnavailableError("embedding"))
+    service = replace(service, tracer=tracer)
+
+    evidence = service.frozen_evidence(
+        [
+            {
+                "source_id": "qa-frozen",
+                "text": "La botiga obre de 10:00 a 20:00.",
+                "authority": 90,
+                "label": "Q&A",
+                "kind": "qa",
+            }
+        ]
+    )
+
+    await service.dry_run("Quand ouvre la boutique ?", evidence=evidence)
+
+    assert [item.source_id for item in evidence] == ["qa-frozen"]
+    assert all(item.similarity >= service.policy.floor for item in evidence)
+    assert "retrieval" not in tracer.spans
+    assert tracer.spans == [
+        "answer_question",
+        "evidence_selection",
+        "generation",
+    ]
+
+
+async def test_frozen_evidence_cannot_be_filtered_out_by_the_floor() -> None:
+    """Selection sees frozen evidence, so a case is never silently no_evidence."""
+    service, _, _ = await _service([])
+
+    preview = await service.dry_run(
+        "Quan obre la botiga?",
+        evidence=service.frozen_evidence(
+            [{"source_id": "qa-x", "text": "Obre a les 10:00.", "authority": 90}]
+        ),
+    )
+
+    assert preview.outcome.reason is not AnswerReason.NO_EVIDENCE
+    assert preview.evidence[0].source_id == "qa-x"

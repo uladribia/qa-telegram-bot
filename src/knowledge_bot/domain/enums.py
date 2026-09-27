@@ -104,9 +104,32 @@ class AiWorkClass(StrEnum):
 
 
 class AnswerMode(StrEnum):
-    """How the bot produced an answer (spec §16)."""
+    """How the bot produced an answer (spec §16).
+
+    ``DIRECT_QA`` is never produced any more: the verbatim-echo path was
+    removed when answering became always grounded. The member stays because
+    stored answers from before that change still carry the value, and history
+    is not rewritten; ``RecapService`` reads it as an answered mode.
+    """
 
     DIRECT_QA = "direct_qa"
     SYNTHESIS = "synthesis"
     ABSTENTION = "abstention"
     UNAVAILABLE = "unavailable"
+
+
+class AnswerReason(StrEnum):
+    """Why an answer took the mode it took.
+
+    One reason per outcome. The user-facing mode stays coarse; the reason is
+    the diagnostic distinction between "the model declined", "the provider
+    replied with something unreadable", and "the model cited evidence it was
+    not given" — failures that all used to look like the same abstention.
+    """
+
+    ANSWERED = "answered"
+    NO_EVIDENCE = "no_evidence"
+    MODEL_INSUFFICIENT = "model_insufficient"
+    INVALID_MODEL_OUTPUT = "invalid_model_output"
+    INVALID_SOURCE_IDS = "invalid_source_ids"
+    MODEL_UNAVAILABLE = "model_unavailable"

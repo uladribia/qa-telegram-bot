@@ -74,15 +74,14 @@ execution is for the product code and its tests, not for editing the repository.
 Do not add a framework or dependency that is not in the plan without a documented
 reason. Reach for the standard library first. Prefer the existing stack.
 
-**Loguru is being replaced by Logfire; the migration is not done yet.** Logfire
-is now the observability stack in both runtimes: `infrastructure/logging.py` is
-the only module that configures it, it exports request and client-call spans to
-`oleguer-sagarra/qa-telegram` (EU), and a runtime without a write token keeps its
-spans local. Loguru is still a dependency and still writes the process logs, and
-it will be removed only in a dedicated session with its own plan. Until then: do
-not add new Loguru usage, do not configure a second logging system, and do not
-assume Loguru records reach Logfire (they do not). Treat "Logging | Logfire" as
-the destination state, not the current one.
+**The migration is done: there is one logging system.** The standard library
+is the application's logger and Logfire is its exporter;
+`infrastructure/logging.py` is the only module that configures either. Loguru
+is removed from dependencies and must not come back. Application events are
+emitted with contextual fields on a stdlib `Logger`, printed to stderr
+(human-readable locally, one JSON object per line in the Worker) and forwarded
+to Logfire, where the fields arrive as searchable attributes. Never add a
+second logging framework, and never configure handlers anywhere else.
 
 ## 3. Layout and dependency rule
 
@@ -104,7 +103,8 @@ Rules:
 
 - `domain/` and `application/` must not import `fastapi`, `workers`, Telegram
   libraries, D1/Vectorize bindings, HTTP clients, the logging SDK (`logfire`;
-  `loguru` until its migration lands), or `infrastructure/`.
+  the logging SDK, or `infrastructure/`. The application layer reaches
+  telemetry through the `ports/telemetry.py` protocols, never the SDK.
 - `application/` depends on `ports/` Protocols, never on concrete adapters.
 - Convert external payloads to Pydantic DTOs at the adapter boundary, as early as
   possible.
@@ -332,11 +332,11 @@ FROM records WHERE service_name = 'qa-telegram' AND is_exception
   instrumentation by querying a span you just produced, then hand over
   `mcp link project` or `mcp link trace <full trace id>` (full 32-character
   trace id, not a prefix — a prefix is rejected).
-- A missing span is not a missing event. Loguru records are **not** forwarded
-  yet, so the Worker's own structured logs are still the place for
-  `workers_ai_call_*` and `scheduled_*`; the Logfire project is the place for
-  request spans and content events. Once the Loguru migration lands this stops
-  being true and this paragraph is the first thing to delete.
+- A missing span is not a missing event. The answer pipeline's spans
+  (`answer_question`, `retrieval`, `evidence_selection`, `generation`,
+  `answer_decision`) and the process log are the same records seen two ways: the
+  log for a human reading `docker logs` or `wrangler tail`, the trace for
+  parent/child structure. An AI-call failure appears in both.
 - Answering "why did this question abstain" is a trace question, not an eval
   question. Live evals and reindexing burn the shared daily AI budget
   (~1.5-3k and ~9k neurons) and need explicit authorization; a query is free.
@@ -345,10 +345,12 @@ FROM records WHERE service_name = 'qa-telegram' AND is_exception
   event table, and the content/credential boundary. That document is the
   operator's view; the recipes above are the agent's.
 
-Until the Loguru migration lands, Loguru still writes the process logs and
-Logfire still owns the traces. Two systems, deliberately, for a short time: do
-not add a third, and do not treat the absence of Logfire records as evidence
-that a Loguru event happened.
+The `Tracer` port in `ports/telemetry.py` is how the application records work.
+`NoopTracer` is the default, so tests and any unconfigured runtime record
+nothing and cannot fail. One rule matters there: telemetry isolation guards
+opening and closing a span, never the caller's work inside it. A guard that also
+swallowed the caller's exceptions turned a provider outage into a 500, and
+`tests/unit/test_telemetry.py` now pins that.
 
 ## 9. Git and GitHub workflow
 

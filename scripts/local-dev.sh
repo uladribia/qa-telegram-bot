@@ -109,7 +109,10 @@ reset() {
 }
 
 seed() {
-  docker exec "$APP_CONTAINER" .venv/bin/kb seed --qa data/seed/bot_self_qa.json
+  # The CLI requires an explicit base URL, and a local one is not a live
+  # remote call, so seeding the local stack needs no authorization.
+  docker exec "$APP_CONTAINER" .venv/bin/kb seed \
+    --base-url http://127.0.0.1:8000 --qa data/seed/bot_self_qa.json
 }
 
 case "${1:-}" in

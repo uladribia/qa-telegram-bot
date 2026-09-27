@@ -64,6 +64,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIGenerator,
 )
 from knowledge_bot.infrastructure.context import AppContext
+from knowledge_bot.infrastructure.logging import build_tracer
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
@@ -230,6 +231,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             policy=AnswerPolicy(floor=settings.answer_similarity_floor),
             conversations=listener_conversations,
             sources=listener_sources,
+            tracer=build_tracer(),
         ),
         reindex=ReindexService(
             source=D1SearchIndexSource(database),

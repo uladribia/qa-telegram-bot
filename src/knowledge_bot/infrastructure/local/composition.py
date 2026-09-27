@@ -38,6 +38,7 @@ from knowledge_bot.infrastructure.local.ollama import (
 )
 from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
 from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
+from knowledge_bot.infrastructure.logging import build_tracer
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
@@ -253,6 +254,7 @@ async def build_context(
             policy=AnswerPolicy(floor=settings.answer_similarity_floor),
             conversations=conversations,
             sources=sources,
+            tracer=build_tracer(),
         ),
         reindex=ReindexService(
             source=D1SearchIndexSource(binding),

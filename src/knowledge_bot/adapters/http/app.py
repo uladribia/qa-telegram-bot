@@ -5,6 +5,7 @@ The Worker bindings are only available per request (in ``request.scope["env"]``)
 so the app resolves its context through a callable rather than at import time.
 """
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -12,7 +13,6 @@ from datetime import timedelta
 from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
-from loguru import logger
 
 from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
@@ -60,12 +60,11 @@ from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import DeliveryReceipt, TelegramInteraction
 from knowledge_bot.domain.enums import (
     AiWorkClass,
-    AnswerMode,
     ClassificationStatus,
     IndexStatus,
     ReviewAction,
 )
-from knowledge_bot.domain.errors import InvalidTransitionError, ModelUnavailableError
+from knowledge_bot.domain.errors import InvalidTransitionError
 from knowledge_bot.domain.identity import principal_id, split_principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
@@ -253,8 +252,10 @@ def _log_inbound_message(message: NormalizedMessage) -> None:
 async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
     """Normalize one Telegram update and dispatch its channel flow."""
     started = time.perf_counter()
-    logger.bind(use_case="telegram_webhook", update_id=update.update_id).info(
-        "telegram_webhook_received"
+    log = logging.getLogger("knowledge_bot.webhook")
+    log.info(
+        "telegram_webhook_received",
+        extra={"use_case": "telegram_webhook", "update_id": update.update_id},
     )
     try:
         await _escalate_overdue_reviews(context)
@@ -281,18 +282,24 @@ async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -
                     else await _handle_message(context, message)
                 )
     except Exception:
-        logger.bind(
-            use_case="telegram_webhook",
-            update_id=update.update_id,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
-        ).exception("telegram_webhook_failed")
+        log.exception(
+            "telegram_webhook_failed",
+            extra={
+                "use_case": "telegram_webhook",
+                "update_id": update.update_id,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            },
+        )
         raise
-    logger.bind(
-        use_case="telegram_webhook",
-        update_id=update.update_id,
-        action=result,
-        duration_ms=round((time.perf_counter() - started) * 1000, 2),
-    ).info("telegram_webhook_processed")
+    log.info(
+        "telegram_webhook_processed",
+        extra={
+            "use_case": "telegram_webhook",
+            "update_id": update.update_id,
+            "action": result,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        },
+    )
     return result
 
 
@@ -360,9 +367,12 @@ def create_app(
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
 
-        Returns the decided mode, rendered answer, citations, and retrieved
-        evidence ids for explicitly authorized deterministic evaluations. No
-        message ever reaches Telegram.
+        Returns the decided mode, the semantic reason, the rendered answer, the
+        citations, and the retrieved candidates with their similarities, so a
+        failed evaluation case can be attributed without reading production
+        logs. Supplying ``evidence`` runs the generator against exactly that
+        evidence and bypasses retrieval, which is how the frozen-generation
+        suite isolates the generator. No message ever reaches Telegram.
         """
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
@@ -372,26 +382,34 @@ def create_app(
         _admit_eval_call()
         await _require_evaluation_budget(context)
         question = body.question
-        try:
-            preview = await context.answer.dry_run(question)
-        except ModelUnavailableError:
-            return {
-                "question": question,
-                "mode": AnswerMode.UNAVAILABLE.value,
-                "answer": "model unavailable",
-                "text": "",
-                "source_ids": [],
-                "evidence_ids": [],
-                "citations": [],
-            }
+        preview = await context.answer.dry_run(
+            question,
+            evidence=(
+                context.answer.frozen_evidence(
+                    [item.model_dump() for item in body.evidence]
+                )
+                if body.evidence is not None
+                else None
+            ),
+        )
         outcome = preview.outcome
         return {
             "question": question,
             "mode": outcome.mode.value,
+            "reason": outcome.reason.value,
             "answer": outcome.answer,
             "text": outcome.text,
             "source_ids": outcome.source_ids,
             "evidence_ids": [item.source_id for item in preview.evidence],
+            "candidates": [
+                {
+                    "source_id": item.source_id,
+                    "similarity": round(item.similarity, 4),
+                    "kind": "qa" if item.qa_version_id is not None else "message",
+                    "authority": item.authority,
+                }
+                for item in preview.evidence
+            ],
             "citations": [
                 {
                     "source_id": item.source_id,

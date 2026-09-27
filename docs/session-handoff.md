@@ -1,35 +1,38 @@
 # Session handoff
 
-_Last updated: 2026-09-27, after the Logfire instrumentation pass._
+_Last updated: 2026-09-27, after the failure-attribution, Loguru-removal, and
+eval-consolidation pass._
 
 ## Current state
 
 - `main` is merged and pushed. The deployed Worker runs the configuration below.
-- **Logfire is wired in both runtimes** (local Uvicorn and the Cloudflare
-  Worker), project `oleguer-sagarra/qa-telegram`, EU region, verified by
-  querying fresh spans. Request spans, client calls, and content events
-  (`telegram_inbound_message`, `telegram_outbound`, `ai_generation_prompt`,
-  `ai_generation_response`, `ai_embedding_input`) are exported. See
-  [operations.md](operations.md#traces-logfire).
-- **Content capture is on while testing** (`KB_LOGFIRE_CAPTURE_CONTENT`,
-  default `true`): message text, sender identity, prompts, and answers are
-  exported so a flow can be reconstructed. Credentials never are — the
-  webhook secret and the bot token are scrubbed, the latter by value shape
-  because the transport puts it in the request URL. This is a testing
-  posture, not a product decision: turn it off before anything outside a
-  private test group is connected.
-- **Loguru is still installed and still writes the process logs.** AGENTS.md
-  now names Logfire as the logging stack and records the Loguru removal as
-  pending work with its own plan; the code has not been migrated.
-- The binding plan in `instructions/` is
-  `qa-bot-observability-frozen-evals-implementation-plan.md`. It is a large
-  pass (failure attribution, semantic answer spans, frozen-evidence eval, gold
-  eval repair); only the Logfire foundation has landed. Its Phase 4 semantic
-  spans (`answer_question` → `retrieval` → `evidence_selection` →
-  `generation` → `answer_decision`) are **not** implemented yet.
-- **Production export is unverified.** The Worker needs `LOGFIRE_TOKEN` as a
-  Cloudflare secret; it was never deployed with one, so only the local runtime
-  has proven ingestion.
+- **Every answer outcome now carries one semantic reason**: `answered`,
+  `no_evidence`, `model_insufficient`, `invalid_model_output`,
+  `invalid_source_ids`, or `model_unavailable`. A malformed model reply is no
+  longer reported as a model abstention; it raises
+  `InvalidModelOutputError` with a safe code and is recorded as
+  `invalid_model_output`. `AnswerService.decide` is the only mapper.
+- **Loguru is gone.** The standard library is the one logging system,
+  configured in `infrastructure/logging.py`: stderr stays human-readable
+  locally and becomes one JSON object per line in the Worker, and the same
+  records are forwarded to Logfire.
+- **The answer pipeline is traced** with `answer_question` → `retrieval` →
+  `evidence_selection` → `generation` → `answer_decision`, in both runtimes
+  and through the evaluation path too. `answer_question.reason` is the same
+  value as `refusal_reason` in `trace_json`.
+- **Content capture is a gated testing mode.** `KB_LOGFIRE_CAPTURE_CONTENT`
+  (default `true`) exports message text, sender identity, prompts, and
+  answers so a flow can be reconstructable; `KB_LOGFIRE_SEND_TO_LOGFIRE` is
+  the separate switch for leaving the process. Credentials are scrubbed in both
+  modes. Tests set the send switch to `false` in `tests/conftest.py`.
+- **The evals have one source of truth.** `evals/gold.yaml` (11 answers + 15
+  abstentions, human-checked) is the live gate; `evals/frozen_generation.yaml`
+  (30 cases) measures the generator with retrieval bypassed; synthetic sets are
+  experiment material and are not in the default gate. `must_include` is a
+  hard failure now, and both arbitrary size gates are gone.
+- **Production export is still unverified.** The Worker needs `LOGFIRE_TOKEN`
+  as a Cloudflare secret; nothing has been deployed with one, so only the local
+  runtime has proven ingestion.
 - One branch is deliberately **not merged**: `feat/pairing-head` (learned
   pairing head, disabled). See [experiments.md](experiments.md).
 - The lexical projection is still present in production D1 (95 rows in
@@ -120,12 +123,22 @@ described a five-candidate system and is reported but not gated. Restore it if
 
 ```text
 make lint
-make test              # 143 unit + architecture
-make test-integration  # 132
-make smoke             # Worker boots, /healthz 200
+make test              # 159 unit + architecture
+make test-integration  # 139
 uv run python -m evals.run offline   # 11/11
-make eval-local        # all gates PASS, regenerates the report
+make eval-local        # local Ollama + SQLite quality gate
+make smoke             # Worker boots, /healthz 200
 ```
+
+**The live suites have not been run against the deployed Worker.** They need
+`ALLOW_CLOUDFLARE_LIVE_TESTS=1` and a `BOT_BASE_URL`, and they burn the shared
+daily budget. `make eval-live-frozen` is the one to run first: it is the only
+suite that isolates a single component, at one generation call per case, and it
+is the cheapest way to tell a generator problem from a retrieval problem.
+
+`make eval-local` passes all its gates (classifier, retrieval, listener), but
+none of those gates measure answer quality — see the finding above, the local
+generator is currently broken.
 
 `make smoke` asserts `/healthz`, which resolves no context, so it does **not**
 cover the observability path. After touching it, POST a webhook at a booted
@@ -140,32 +153,63 @@ old-vector baseline MRR of 0.455.
 measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
 width. One run is ~1900 neurons.
 
+## The finding this pass produced
+
+**The local generation model cannot answer anything, and until this pass that
+was invisible.** Measured against the real local stack on 2026-09-27:
+
+```text
+gemma3:270m       -> InvalidModelOutputError(schema_validation)
+                     raw='{"status": "answered"}'
+granite4:micro-h  -> OK  status=answered answer='La botiga obre de 10:00 al 20:00.'
+```
+
+`gemma3:270m` returns an object with a `status` and nothing else, which fails
+`GenerationOutput` validation. Every question therefore ended in
+`invalid_model_output`, whatever the evidence was. Before this pass the same
+event was recorded as a model abstention and read as a knowledge or retrieval
+problem; the frozen suite now names it in one line
+(`invalid_model_output=30`).
+
+This is a local-runtime problem, not a production one: production runs
+`mistral-small-3.1-24b-instruct`, which does answer. `granite4:micro-h` handles
+the schema correctly but is **not** in `LOCAL_ALLOWED_AI_MODELS`, and the
+zero-cost policy correctly refused it when tried; changing the local model is a
+separate, explicitly authorized decision, not part of this pass.
+
+Consequence for the local loop: any local measurement of answer quality is
+currently a measurement of a broken generator. Fix the local model before
+trusting `make eval-local` for anything about answers.
+
 ## Open issues, in the order they will bite
 
-0. **The answer pipeline still has no semantic spans.** Request spans say a
-   webhook was served; they do not say why a question abstained. The plan's
-   Phase 4 names the spans that would. Until they exist, a trace answers "how
-   slow" and "what was asked", not "why no answer".
-1. **The generator is non-deterministic on borderline questions.** The same
+1. **The local generation model is broken** (above). Every local answer ends in
+   `invalid_model_output` with `gemma3:270m`. Either allow and adopt a local
+   model that honours the schema, or stop trusting local answer measurements.
+   This blocks every other local quality question.
+2. **No live suite has run against the production models.** The gold and
+   frozen suites need an authorized live run; the frozen suite has only been
+   run against the local stack, where the generator is the problem above.
+3. **The generator is non-deterministic on borderline questions.** The same
    prompt over the same five documents returned `answered` in five offline
    reproductions and `abstention` in production. The live suite score is
    therefore noisy in both directions, and any single measurement of it is weak
    evidence. The fix is a model whose willingness to answer is stable, which has
    not been searched for.
-2. **Retrieval recall is now the binding constraint, and it just got worse.**
+4. **Retrieval recall is now the binding constraint, and it just got worse.**
    0.860 of answerable questions have their answer in the three candidates the
    model sees. The ceiling was already known; the width cut lowered it. The
    cheapest recovery is not a reranker — it is putting the question text *and*
    the answer text into whatever retrieval exists, or raising `QA_TOP_K` back
    and measuring what the extra candidates do to abstention.
-3. **Completeness was never screened.** Mistral was chosen on grounding and
+5. **Completeness was never screened.** Mistral was chosen on grounding and
    declined 22 of 43 answerable questions at floor 0.45. A completeness screen
    means a rate over repeats, not a single call: 10 questions x 3 repeats x 3
    models is ~2700 neurons, one day. `llama-4-scout-17b-16e-instruct` is the
    untested candidate (3/3 grounded, 2.9 s, 31 neurons).
-4. **No daily report arrives** until an external scheduler is wired to the
+6. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
-5. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
+7. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
    that was never set on the deployed Worker. The local path works; nobody has
    watched a production span arrive.
 

@@ -56,16 +56,74 @@ Use a full rebuild only when SQL truth is known to be correct and the derived in
 
 ## Logs
 
-Local logs are human-readable and debug-level. Cloudflare logs are structured JSON at info level. Logs contain ids, scope, decisions, counts, model names, durations, and state transitions. They never contain raw message text, answers, prompts, usernames, phone numbers, tokens, or secrets.
+There is one logging system: the standard library, configured in
+`infrastructure/logging.py`. Application events are emitted with contextual
+fields; the sink is human-readable and debug-level locally, and one JSON
+object per line in the Worker, so `wrangler tail` still works. The same
+records are forwarded to Logfire, where the fields arrive as searchable
+attributes.
+
+Logs contain ids, scope, decisions, counts, model names, durations, and state
+transitions. They never contain tokens or secrets. Message text, answers, and
+prompts are *telemetry* content, exported only under the testing flag and only
+to Logfire, never written to the process log; see
+[Traces (Logfire)](#traces-logfire).
 
 Two log lines exist specifically to make otherwise-invisible failures diagnosable:
 
 - `workers_ai_call_completed` / `workers_ai_call_failed` — one per Workers AI call, from both adapters. Fields: `operation` (`embedding` or `generation`), `model`, `characters` (request size, a prompt-size proxy), `duration_ms`, and on failure `error` (the exception class, e.g. `TimeoutError`). A timed-out generation shows `workers_ai_call_failed` with `error: TimeoutError` at `duration_ms` equal to `AI_GENERATION_TIMEOUT_SECONDS`. Never log the payload, only its size.
 - `scheduled_started` / `scheduled_finished` / `scheduled_failed` — the Cron Trigger path. Fields: `use_case`, `trigger`, `sent`, `duration_ms`. A scheduled handler that raises leaves no trace in request logs, so this is the only signal that the daily report job ran.
 
-Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
+Tail live traffic with `npx wrangler tail bhc-qa-testbot` when you need the
+process log itself. For anything about a *decision*, use the trace below
+instead: a tail is a live window, and a question answered before the tail
+started is not in it.
+
+### Debugging a question, in order
+
+1. Find the `answer_question` span for the question, and read its `reason`.
+2. `no_evidence` → read `retrieval` for the candidate counts and similarities,
+   then `evidence_selection` for the floor and what it selected.
+3. `model_insufficient` → the evidence was there and the model declined. Read
+   `generation` for the status and duration, and the frozen or gold case that
+   should have answered.
+4. `invalid_model_output` → the provider replied with something unreadable. The
+   `invalid_output_code` says which: `missing_content`, `no_json`, or
+   `schema_validation`. This is a provider or model problem, not knowledge.
+5. `model_unavailable` → read the `workers_ai_call_failed` line, whose `error`
+   is the exception class and whose `duration_ms` against
+   `AI_GENERATION_TIMEOUT_SECONDS` says whether it was a timeout.
+6. `invalid_source_ids` → read `generation.model_source_ids` against
+   `answer_decision.cited_source_ids`: the model cited evidence it was not
+   given, and the answer was discarded.
+7. Answered but wrong → compare the answer against the cited evidence in
+   `answer_decision`. If the evidence is right and the answer is not, it is the
+   generator; run the frozen suite for a comparable case before changing
+   anything.
+
+The command recipes for step 1 are in
+[AGENTS.md](../AGENTS.md#debugging-with-logfire).
 
 ## Traces (Logfire)
+
+### The answer trace
+
+One question produces five named spans, in both runtimes and through both
+entry paths (a real answer and an evaluation alike):
+
+```text
+answer_question      mode, reason, duration, ids, question_chars
+  retrieval          qa/message candidate counts and similarities
+  evidence_selection floor, selected ids, whether it abstained
+  generation         evidence ids and authorities, model status, duration,
+                     invalid_output_code when the reply was unreadable
+  answer_decision    mode, reason, cited source ids
+```
+
+`answer_question.reason` is the same value as `refusal_reason` in
+`trace_json`, so the durable record and the trace agree by construction.
+
+### Runtime
 
 Both runtimes export OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region: `environment=local` from the local entrypoint, `environment=cloudflare` from the Worker. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
 
@@ -100,7 +158,11 @@ Agents debugging a live flow should use the verified query recipes in [AGENTS.md
   The SDK's `record_send_receive` is deliberately **not** used: in this version it emits three extra ASGI event spans per request and attaches no payload to them.
 - **Credentials never leave the process, whatever the capture setting.** Scrubbing is always on. The SDK scrubs by key name (`secret`, `password`, `token`, the webhook secret header), and `SECRET_VALUE_PATTERNS` in `infrastructure/logging.py` covers credential *values* no key name reveals — a Telegram bot token is `<digits>:<base64url>` and the transport puts it in the request URL, so `http.url` would otherwise export it verbatim. Verified: the webhook secret header arrives as `[Scrubbed due to 'secret']` while the message text is exported in full. After adding a field, query the span's `attributes`: a leak is invisible in review and obvious in a query.
 - **Privacy:** endpoint arguments and headers are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, sender identity, prompts, and answers are captured on purpose while testing (see the content note above). Credentials are not.
-- **Not wired yet:** Loguru records are not forwarded, and the answer pipeline has no semantic spans yet (`answer_question` → `retrieval` → `evidence_selection` → `generation` → `answer_decision`); request spans, the content events above, and the client's calls are exported today.
+- **Not wired yet:** the content events above are standalone records rather
+  than children of the answer span, so a question's inbound message and its
+  outbound answer are found by time and conversation id rather than by walking
+  the tree. The process log events (`workers_ai_call_*`, `scheduled_*`) reach
+  Logfire as records of their own, not as span children of the answer either.
 
 
 
@@ -117,15 +179,30 @@ Keys: `floor`, `retrieval_ms`, `total_ms`, `candidates` (`qa` and `message`, eac
 
 `refusal_reason` is the field to read first:
 
-| value | meaning |
-|---|---|
-| `no_evidence` | nothing cleared `ANSWER_SIMILARITY_FLOOR`; no generation call was made, so there is no `generation` key |
-| `insufficient` | the model returned `insufficient` |
-| `empty_answer` | the model claimed `answered` with blank text |
-| `unknown_source_id` | the model cited an id outside the evidence set; the whole answer was discarded |
-| `model_unavailable` | an AI call raised `ModelUnavailableError`; the user got the temporary-unavailable reply |
+Every outcome has exactly one reason, and the reason is the field to read
+first. The user-facing text is deliberately coarse; the reason is the
+diagnostic distinction.
 
-An abstention is a `no_evidence` trace with an empty `selected`, or a `generation` block whose `status` is not `answered` — the two are otherwise identical in `bot_answers`, which is why this column exists. The adapter also coerces unparseable or schema-invalid model output to `insufficient`, and that coercion is deliberately invisible: the trace records the status the adapter returned, not the raw payload. A malformed response is therefore indistinguishable from a genuine `insufficient`, by design.
+| value | mode | meaning |
+|---|---|---|
+| `answered` | `synthesis` | a grounded answer citing evidence it was given |
+| `no_evidence` | `abstention` | nothing cleared `ANSWER_SIMILARITY_FLOOR`; no generation call was made, so there is no `generation` key |
+| `model_insufficient` | `abstention` | the model validly returned `insufficient` on the evidence it was given |
+| `invalid_model_output` | `abstention` | the reply was empty, unparseable, or schema-invalid. The `generation` block carries `invalid_output_code`: `missing_content`, `no_json`, or `schema_validation` |
+| `invalid_source_ids` | `abstention` | the model cited an id outside the evidence set; the whole answer was discarded |
+| `model_unavailable` | `unavailable` | an embedding or generation call failed or timed out; the user got the temporary-unavailable reply |
+
+**A malformed reply is no longer a model abstention.** The adapters raise
+`InvalidModelOutputError` and the decision mapper records
+`invalid_model_output`, with the safe code in the trace. The user still gets
+the ordinary abstention text, so nothing leaks, but a broken model is no
+longer invisible behind a confident "I don't know". The same reason is
+returned by `/internal/eval/answer` as `reason`, which is what lets the frozen
+eval separate a parser failure from a semantic abstention.
+
+`AnswerService.decide` is the only place that maps a situation to a mode and a
+reason, so a question answered through the API, the group, or the evaluation
+endpoint is classified identically.
 
 **`generation.source_ids` is what the model said; `cited` is what was accepted.** They differ in spelling whenever the model dropped the `kind:` prefix, which `AnswerService._resolve` resolves against the evidence. A trace whose `generation.source_ids` are missing from `cited` after resolution is a genuine hallucination, not a formatting slip.
 

@@ -13,6 +13,7 @@ from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.generator import (
     GenerationOutput,
     GenerationRequest,
+    parse_generation_output,
 )
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
@@ -95,8 +96,45 @@ class OllamaGenerator:
         self._model = model
         self._timeout = timeout_seconds
 
-    async def _attempt(self, messages: list[dict[str, str]]) -> GenerationOutput | None:
-        """Run one request and parse its structured response."""
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
+        """Generate one grounded answer from one model call.
+
+        There is no retry for unreadable output. Ollama is already asked for a
+        structured response, so a second call with "return valid JSON" hides
+        the failure instead of attributing it, and it makes local behaviour
+        differ from production.
+
+        Args:
+            request: The question and its evidence.
+
+        Returns:
+            The validated model output.
+
+        Raises:
+            ModelUnavailableError: Ollama failed or timed out.
+            InvalidModelOutputError: The reply was empty, unparseable, or
+                schema-invalid.
+        """
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": render_user(request)},
+        ]
+        response = await self._complete(messages)
+        return parse_generation_output(response.message.content)
+
+    async def _complete(self, messages: list[dict[str, str]]) -> _OllamaChatResponse:
+        """Call the Ollama chat endpoint once and validate its envelope.
+
+        Args:
+            messages: The system and user messages.
+
+        Returns:
+            The validated chat response.
+
+        Raises:
+            ModelUnavailableError: The call failed, timed out, or returned a
+                response that is not a chat envelope.
+        """
         log_content("ai_generation_prompt", model=self._model, messages=messages)
         try:
             response = await self._client.post(
@@ -117,29 +155,4 @@ class OllamaGenerator:
         log_content(
             "ai_generation_response", model=self._model, content=payload.message.content
         )
-        match = _JSON_OBJECT.search(payload.message.content)
-        if match is None:
-            return None
-        try:
-            return GenerationOutput.model_validate_json(match.group(0))
-        except ValueError:
-            return None
-
-    async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Generate an answer, retrying only malformed model JSON once."""
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": render_user(request)},
-        ]
-        output = await self._attempt(messages)
-        if output is None:
-            output = await self._attempt(
-                [
-                    *messages,
-                    {
-                        "role": "user",
-                        "content": "Return ONLY valid JSON matching the schema.",
-                    },
-                ]
-            )
-        return output or GenerationOutput(status="insufficient")
+        return payload
