@@ -3,12 +3,6 @@
 Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
-The binding implementation plan for this hardening pass is
-[`instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md`](instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md).
-Read it before starting any work. The other plans under `instructions/` are
-deprecated and must not be used as implementation contracts. If this file and
-the binding plan disagree, stop and ask; never silently pick one.
-
 When a refactor or implementation plan is provided in Markdown, follow it
 autonomously and do not stop for user input at ordinary implementation steps,
 checkpoints, test results, or documentation updates. Ask only when a genuine
@@ -61,19 +55,19 @@ execution is for the product code and its tests, not for editing the repository.
 
 ## 2. Stack (locked)
 
-| Concern | Tool |
-|---|---|
-| Language / runtime | Python 3.13 |
-| Dependencies, env, run | `uv` |
-| HTTP | FastAPI |
-| Validation / DTOs / settings | Pydantic v2 |
-| CLIs | Typer |
-| Logging | Loguru |
-| Lint + format | Ruff |
-| Type checking | `ty` |
-| Tests | `pytest` |
-| Worker runtime / deploy | Cloudflare Python Workers, `pywrangler` |
-| Dev environment | Docker (dev/CI only, no Compose) |
+| Concern                      | Tool                                    |
+| ---------------------------- | --------------------------------------- |
+| Language / runtime           | Python 3.13                             |
+| Dependencies, env, run       | `uv`                                    |
+| HTTP                         | FastAPI                                 |
+| Validation / DTOs / settings | Pydantic v2                             |
+| CLIs                         | Typer                                   |
+| Logging                      | Logfire                                 |
+| Lint + format                | Ruff                                    |
+| Type checking                | `ty`                                    |
+| Tests                        | `pytest`                                |
+| Worker runtime / deploy      | Cloudflare Python Workers, `pywrangler` |
+| Dev environment              | Docker (dev/CI only, no Compose)        |
 
 Do not add a framework or dependency that is not in the plan without a documented
 reason. Reach for the standard library first. Prefer the existing stack.
@@ -148,13 +142,13 @@ make all              # lint then the fast test tier
 
 Pick the smallest command that covers the change:
 
-| Change | Run |
-|---|---|
-| Pure logic, docs, config | `make test` |
-| Use case, flow, or adapter behaviour | `make test-integration` |
-| Classifier, retrieval, or listener behaviour | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
-| `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke` |
-| Before merging to `main` | `make lint` plus the smallest tier that covers the change |
+| Change                                                     | Run                                                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Pure logic, docs, config                                   | `make test`                                                                              |
+| Use case, flow, or adapter behaviour                       | `make test-integration`                                                                  |
+| Classifier, retrieval, or listener behaviour               | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
+| `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke`                                                                             |
+| Before merging to `main`                                   | `make lint` plus the smallest tier that covers the change                                |
 
 Do not run `make smoke` on every change: it builds and boots the Worker and takes
 minutes. Reserve it for milestone boundaries and runtime-affecting changes.
@@ -206,18 +200,6 @@ Rules:
 - Enforce `ALLOWED_AI_MODELS` in code and raise a configuration error for anything
   outside it. Never hardcode tokens, chat IDs, thresholds, or model names outside
   settings.
-
-## 8. Logging and privacy
-
-- Configure Loguru in exactly one module; no sinks configured elsewhere.
-- Development: human-readable, `DEBUG`. Production: structured JSON to
-  stdout/stderr only. Never write log files.
-- Use contextual fields (`request_id`, `conversation_id`, `use_case`,
-  `duration_ms`, ...) instead of string interpolation.
-- Never log raw message text, answers, sender names/usernames/phone numbers, raw
-  payloads, or full prompts. Log lengths, hashes, counts, similarities, model
-  names, and decisions instead.
-- Never send data to any AI service other than the allowed models.
 
 ## 9. Git and GitHub workflow
 
