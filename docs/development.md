@@ -45,7 +45,7 @@ confidence policy. All plan acceptance gates pass.
 ## Boundaries
 
 - `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
-- `logfire` is imported only from `infrastructure/observability.py`, the one module that configures the exporter. It is a deliberate exception to the locked stack: request traces were the missing observability surface, and the SDK is an application dependency, not a service.
+- `logfire` is imported only from `infrastructure/logging.py`, the one module that configures the exporter and the Loguru sink. It is a deliberate exception to the locked stack: request traces were the missing observability surface, and the SDK is an application dependency, not a service.
 
 ## Models and the local/production gap
 
@@ -84,11 +84,8 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
   you add a refusal branch, set a `refusal_reason` there; an answer mode alone
   does not say why. Keep the trace text-free: it is queryable storage, and the
   prompt and the model output are reconstructible from the ids it keeps.
-- `configure_observability` is idempotent per process and runs at import time in
-  the entrypoints, so a test that imports one has already configured the SDK. The
-  test kill switch is `KB_LOGFIRE_SEND_TO_LOGFIRE=false`, set in
-  `tests/conftest.py`; a new test entrypoint that bypasses conftest would send
-  test spans to the production project.
+- `configure_observability` is idempotent per process, so the Worker can call it from both the request and the scheduled path. It runs at import time in the local entrypoint and at first context resolution in the Worker, where bindings exist. The test kill switch is `KB_LOGFIRE_SEND_TO_LOGFIRE=false`, set in `tests/conftest.py`: without it a developer's project credentials would receive test traffic, because `if-token-present` finds the local `.logfire` credentials.
+- Two Worker traps cost real debugging time, and both are documented in [operations.md](operations.md#traces-logfire): the SDK must be imported lazily (`entry.py` also sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import), and `instrument_httpx()` raises in the Worker because httpx is not in the bundle. `make smoke` only asserts `/healthz`, which resolves no context, so it does **not** cover this path: after any change to observability, probe a context-resolving route (`POST /telegram/webhook`) against a booted Worker and read the logs. `/healthz` answering 200 says nothing about the request path.
 - A span is evidence only after a query returns it. A clean exporter log and a
   successful process exit are not ingestion proof: query the exact project for
   the exercised span before calling instrumentation done.

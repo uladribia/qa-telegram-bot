@@ -67,20 +67,27 @@ Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API to
 
 ## Traces (Logfire)
 
-The local runtime exports OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes.
+Both runtimes export OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region: `environment=local` from the local entrypoint, `environment=cloudflare` from the Worker. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
 
 ```bash
 # fresh spans for the service, in the exact project
 logfire --region eu --org oleguer-sagarra mcp query run \
-  "SELECT start_timestamp, trace_id, span_name, attributes->>'http.route' AS route FROM records WHERE service_name = 'qa-telegram' ORDER BY start_timestamp DESC LIMIT 20" \
+  "SELECT start_timestamp, trace_id, span_name, attributes->>'http.route' AS route, attributes->>'http.status_code' AS status FROM records WHERE service_name = 'qa-telegram' ORDER BY start_timestamp DESC LIMIT 20" \
   --project qa-telegram
 ```
 
-- **Local credentials:** `.logfire/logfire_credentials.json`, gitignored, created by `logfire init use --name qa-telegram --permission send`. It is a send-only token. Never commit it, never print it, and never widen its permissions. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container (Docker, Cloudflare) needs `LOGFIRE_TOKEN` in its environment instead, and a runtime without one logs `logfire_send_unavailable` and keeps its spans local.
-- **Settings:** `KB_LOGFIRE_SERVICE_NAME` (default `qa-telegram`), `KB_LOGFIRE_ENVIRONMENT` (empty means the runtime name), `KB_LOGFIRE_SEND_TO_LOGFIRE` (set to `false` to keep spans local).
-- **Privacy:** endpoint arguments are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, answers, prompts, and sender identity are never captured, exactly as in the logs. Read a span's `attributes` before concluding that a field is safe to send.
-- **Tests never send.** `tests/conftest.py` sets `KB_LOGFIRE_SEND_TO_LOGFIRE=false` before any entrypoint is imported, so test spans stay local while the instrumentation is still exercised.
-- **Not wired yet:** the Cloudflare Worker (`src/entry.py`) is not instrumented, and Loguru records are not forwarded — only request spans, httpx client calls, and standard-library records are exported.
+The `records` view carries span attributes only; the environment and service identity are resource attributes, visible in the UI and on the service page.
+
+- **No token is required to run.** The SDK is configured with `if-token-present`: without a write token the app starts normally and spans stay local. Telemetry failure never breaks the answer path.
+- **Where the token comes from:** `LOGFIRE_TOKEN` (env var, read by the SDK) or the gitignored `.logfire/logfire_credentials.json`, created by `logfire init use --name qa-telegram --permission send`. It is send-only: never commit it, never print it, never widen it. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container or the deployed Worker needs `LOGFIRE_TOKEN` in its environment (a Cloudflare secret, never in `wrangler.jsonc`).
+- **Worker timing:** bindings are not available at import, so the Worker configures the exporter the first time a context is resolved, from either the request or the scheduled handler. Two Worker-specific traps, both verified with `make smoke` plus a webhook request against the booted Worker:
+  - The SDK is imported **lazily**, inside `configure_observability`. The Workers runtime forbids entropy while a Worker is starting, and importing OpenTelemetry needs one: a module-level import aborts the boot. Pydantic makes it worse by importing every installed `pydantic` entry point, which pulls the Logfire plugin in at startup, so `entry.py` sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import. No Pydantic instrumentation is used, so nothing is lost.
+  - `logfire.instrument_httpx()` **raises** in the Worker, because httpx is not part of the Worker bundle. Client instrumentation is therefore opt-in and only the local runtime asks for it. A wrong assumption here cost a 500 on the first real request while `/healthz` still answered 200.
+- **Telemetry can never break the answer path.** Every step runs isolated: a failure is logged as `logfire_step_failed` with the step name and the exception class, and skipped.
+- **Setting:** `KB_LOGFIRE_SEND_TO_LOGFIRE` (default `true`) is the master switch; `tests/conftest.py` sets it to `false` so a developer's project credentials can never receive test traffic.
+- **Privacy:** endpoint arguments are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, answers, prompts, and sender identity are not captured. Read a span's `attributes` before concluding that a new field is safe to export.
+- **Not wired yet:** Loguru records are not forwarded, and the answer pipeline has no semantic spans yet (`answer_question` → `retrieval` → `evidence_selection` → `generation` → `answer_decision`); only request and client-call spans are exported today.
+
 
 
 ## Answer traces

@@ -44,20 +44,14 @@ class Settings(BaseSettings):
         default=False, validation_alias=AliasChoices("KB_LOG_CONTENT", "LOG_CONTENT")
     )
 
-    logfire_service_name: str = "qa-telegram"
-    logfire_environment: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "KB_LOGFIRE_ENVIRONMENT",
-        ),
-    )
+    # Telemetry master switch. The write token itself is not a setting: the
+    # SDK reads LOGFIRE_TOKEN or the local project credentials.
     logfire_send_to_logfire: bool = Field(
         default=True,
         validation_alias=AliasChoices(
             "KB_LOGFIRE_SEND_TO_LOGFIRE",
         ),
     )
-
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
     telegram_bot_id: str = ""
