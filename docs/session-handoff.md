@@ -3,6 +3,14 @@
 _Last updated: 2026-09-27, after the failure-attribution, Loguru-removal, and
 eval-consolidation pass._
 
+## The model decision, in one line
+
+`@cf/mistralai/mistral-small-3.1-24b-instruct` stays. Three models were measured
+in production on 2026-09-27 across both suites; they separate by at most one
+gold case and fail the *same five* cases, so the remaining failures are
+knowledge and grounding work, not model work. Full numbers and method in
+[experiments.md](experiments.md#generation-model-re-measured-the-axis-that-was-missing-now-measured).
+
 ## Current state
 
 - `main` is merged and pushed. The deployed Worker runs the configuration below.
@@ -148,61 +156,38 @@ Local retrieval with the leg removed: Recall@1 0.940, Recall@3 0.962,
 Recall@5 0.970, MRR 0.953, against 0.984 / 0.986 / 0.973 with it and an
 old-vector baseline MRR of 0.455.
 
-**The live answer suite has not been run against this configuration.** The last
-measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
-width. One run is ~1900 neurons.
+**The old 76-case live answer suite no longer exists.** It was consolidated into
+`evals/gold.yaml` (11 answerable + 15 abstentions) when the plan's Phase 6 landed,
+so the historical 38/86 figure has no comparable successor: it was measured at
+floor 0.45, with a reranker and a five-candidate width. The current measurement
+is the gold suite's 20/26 cases earned, which is a different instrument and
+should not be read as an improvement on 38/86. The 65-case synthetic answer
+material now lives in `evals/answers_synthetic.yaml` for local experiments only.
 
-## qwen3-30b-a3b in production, compared with mistral
+## Production model comparisons
 
-Run 2026-09-27 on `eval/qwen3-prod-comparison`, both suites in production.
-`/no_think` works: 3-4 s per call, valid JSON, no timeout. Production was
-restored to mistral afterwards and re-verified.
+Three models were run in production on 2026-09-27, both suites, same cases, one
+variable. Canonical numbers and method:
+[experiments.md](experiments.md#generation-model-re-measured-the-axis-that-was-missing-now-measured).
 
-| | mistral | qwen3 + /no_think |
-|---|---|---|
-| frozen cases earned | 22/30 | 23/30 |
-| gold cases earned | 20/26 | 21/26 |
-| unreadable replies | 1 | 2 |
-| metered cost per call | ~9 | ~18 |
-
-Both models fail **the same five gold cases**; two differ only in kind, not in
-outcome. Quality is a wash, qwen costs about twice as much on a meter that is
-known to be model-blind, and its JSON compliance is slightly worse. Nothing here
-justifies a switch, and the answer is the same whichever way the granite
-comparison went.
-
-Worth keeping: `WorkersAIGenerator(no_think=True)`, wired to
-`AI_APPEND_NO_THINK`, default off and inert for non-Qwen models, with a unit
-test asserting the token is only sent when asked for. It is the only thing from
-this experiment worth carrying, because the model will need it if it is ever
-adopted.
-
-## glm-4.7-flash, thinking disabled: the final model decision
-
-The model rejected in September for spending 53 s and 101 neurons on one
-`insufficient`. Retested 2026-09-27 with `chat_template_kwargs.enable_thinking
-= false`, which Cloudflare exposes and GLM honours: **3.3-3.9 s per call, valid
-JSON, no timeout.** The deliberation is fully gone.
-
-| | mistral | qwen3 + /no_think | glm-4.7 thinking off |
+| | mistral | qwen3-30b-a3b (`/no_think`) | glm-4.7-flash (thinking off) |
 |---|---|---|---|
-| frozen earned | **22/30** | 23/30 | 21/30 |
-| gold earned | **20/26** | 21/26 | 20/26 |
-| metered per call | **~9** | ~18 | ~25 |
+| frozen cases earned | **22/30** | 23/30 | 21/30 |
+| gold cases earned | **20/26** | 21/26 | 20/26 |
+| metered cost per call | **~9** | ~18 | ~25 |
+| needs a thinking switch | no | yes | yes |
 
-All three fail **the same five gold cases**. Those are knowledge and grounding
-problems, not model problems. **Decision: stay on mistral-small-3.1-24b-instruct.**
-Cheapest, no thinking switch needed, and the model swap would buy at most one
-case. Production was restored to mistral and re-verified.
+All three fail the same five gold cases. Production was restored to mistral
+after each run and re-verified; the deployed Worker and `main` agree, and the
+allowlist holds only mistral and the embedder.
 
-Kept from the experiment: `WorkersAIGenerator(disable_thinking=True)` wired to
-`AI_DISABLE_THINKING`, default off, with a test asserting
-`chat_template_kwargs` is only sent when asked for. If a reasoning model is ever
-adopted, that switch is what makes it fit the deadline — it is the same lever
-that rehabilitated GLM here.
-
-Today's meter after all three model runs: ~5,277 of 10,000, so the eval ceiling
-(7,500) is still open but the real quota is the binding constraint, not ours.
+**Kept from the experiments, both default off and tested to be inert unless
+asked for:** `AI_APPEND_NO_THINK` (Qwen3's `/no_think` template token) and
+`AI_DISABLE_THINKING` (`chat_template_kwargs.enable_thinking = false`, the
+mechanism GLM-4.5 and later honour). The second one is the finding worth
+keeping: it turned a model that spent 53 s and 101 neurons on one `insufficient`
+into one that answers in 3.3-3.9 s with valid JSON. A reasoning model behind a
+switch is fine; the same model without one does not fit a 35 s deadline.
 
 ## The gold set, run on both runtimes
 
@@ -323,9 +308,16 @@ trusting `make eval-local` for anything about answers.
    `invalid_model_output` with `gemma3:270m`. Either allow and adopt a local
    model that honours the schema, or stop trusting local answer measurements.
    This blocks every other local quality question.
-2. **No live suite has run against the production models.** The gold and
-   frozen suites need an authorized live run; the frozen suite has only been
-   run against the local stack, where the generator is the problem above.
+2. **The five gold failures that every model shares.** `equipment_when`,
+   `equipment_size`, `training_where`, `medical_expiry`, and
+   `gold_abstention_07` fail on mistral, qwen3 and GLM alike. Three models
+   moving them by at most one case between them is the evidence: these are
+   knowledge and grounding defects, not model defects. The two worth starting
+   with are `training_where` (retrieval returns the rain policy for a question
+   about where they train, and the model answers it confidently) and
+   `gold_abstention_07` (a question about a delegate's phone answered with the
+   club's published general line, which is also a product decision nobody has
+   made).
 3. **The generator is non-deterministic on borderline questions.** The same
    prompt over the same five documents returned `answered` in five offline
    reproductions and `abstention` in production. The live suite score is
@@ -338,11 +330,13 @@ trusting `make eval-local` for anything about answers.
    cheapest recovery is not a reranker — it is putting the question text *and*
    the answer text into whatever retrieval exists, or raising `QA_TOP_K` back
    and measuring what the extra candidates do to abstention.
-5. **Completeness was never screened.** Mistral was chosen on grounding and
-   declined 22 of 43 answerable questions at floor 0.45. A completeness screen
-   means a rate over repeats, not a single call: 10 questions x 3 repeats x 3
-   models is ~2700 neurons, one day. `llama-4-scout-17b-16e-instruct` is the
-   untested candidate (3/3 grounded, 2.9 s, 31 neurons).
+5. **Completeness is still only a rate over repeats.** The three-model
+   comparison closed the "which model" question but not this one: the frozen
+   suite is 30 cases, and on borderline questions the same prompt has answered
+   differently across runs. A rate needs repeats — 10 questions x 3 repeats x 3
+   models is ~2700 neurons for one day — and nobody has spent it. The gold
+   numbers in [experiments.md](experiments.md) are single runs and should be
+   read with that in mind.
 6. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
 7. **The Worker cannot host the Logfire SDK.** It exceeds the 128 MB isolate
