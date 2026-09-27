@@ -44,6 +44,10 @@ UNAVAILABLE_TEXT = (
     "Ara mateix no puc consultar la informació. Torna-ho a provar en una estona."
 )
 
+#: Similarity given to frozen evaluation evidence, high enough that selection
+#: can never reject it for being below the floor.
+FROZEN_SIMILARITY = 1.0
+
 
 def clean_question(text: str | None) -> str:
     """Strip commands and leading bot mentions from a question."""
@@ -353,28 +357,9 @@ class AnswerService:
             The preview, including the unavailable outcome on a provider
             failure, which is a decision like any other.
         """
-        try:
-            with self.tracer.span("retrieval", space_id=space_id) as retrieval_span:
-                retrieved = await self.retrieval.retrieve(question, space_id)
-                retrieval_span.set_attributes(
-                    {
-                        "qa_candidates": len(retrieved.qa),
-                        "message_candidates": len(retrieved.messages),
-                        "qa_similarities": [
-                            round(item.similarity, 4) for item in retrieved.qa
-                        ],
-                        "message_similarities": [
-                            round(item.similarity, 4) for item in retrieved.messages
-                        ],
-                    }
-                )
-        except ModelUnavailableError:
+        retrieved = await self._retrieve(question, space_id, trace, started)
+        if retrieved is None:
             return AnswerPreview(self._unavailable(trace), [], trace)
-        trace["retrieval_ms"] = _elapsed(started)
-        trace["candidates"] = {
-            "qa": _candidates(retrieved.qa),
-            "message": _candidates(retrieved.messages),
-        }
         return AnswerPreview(
             await self.decide(question, retrieved, trace), retrieved.all(), trace
         )
@@ -560,12 +545,25 @@ class AnswerService:
         """
         return await self.retrieval.retrieve(clean_question(question))
 
-    async def dry_run(self, question: str) -> AnswerPreview:
+    async def dry_run(
+        self, question: str, *, evidence: list[Evidence] | None = None
+    ) -> AnswerPreview:
         """Decide an answer without persisting it, with the same trace shape.
 
         The evaluation path opens the same spans as a real answer, so a failed
         evaluation case is attributable from telemetry the same way a
         user-visible abstention is.
+
+        Args:
+            question: The question to decide.
+            evidence: Frozen evidence for a generator-only evaluation. When
+                given, retrieval is bypassed and this exact set is selected, so
+                the case measures the generator and not the index. The path
+                through ``decide`` is the production one; only the candidate
+                source differs.
+
+        Returns:
+            The preview.
         """
         cleaned = clean_question(question)
         started = time.perf_counter()
@@ -575,8 +573,22 @@ class AnswerService:
             answer_id=None,
             question_chars=len(cleaned),
             evaluation=True,
+            frozen_evidence=evidence is not None,
         ) as question_span:
-            preview = await self._decide_retrieved(cleaned, None, trace, started)
+            retrieved = (
+                RetrievedEvidence(qa=list(evidence))
+                if evidence is not None
+                else await self._retrieve(cleaned, None, trace, started)
+            )
+            preview = (
+                AnswerPreview(self._unavailable(trace), [], trace)
+                if retrieved is None
+                else AnswerPreview(
+                    await self.decide(cleaned, retrieved, trace),
+                    retrieved.all(),
+                    trace,
+                )
+            )
             question_span.set_attributes(
                 {
                     "mode": preview.outcome.mode.value,
@@ -585,3 +597,74 @@ class AnswerService:
                 }
             )
             return preview
+
+    async def _retrieve(
+        self,
+        question: str,
+        space_id: str | None,
+        trace: dict[str, object],
+        started: float,
+    ) -> RetrievedEvidence | None:
+        """Retrieve candidates, or ``None`` when the provider is unavailable.
+
+        Args:
+            question: The cleaned question.
+            space_id: The logical space to search, or ``None`` for global.
+            trace: The debug trace to fill.
+            started: When the question started, for the retrieval timing.
+
+        Returns:
+            The candidates, or ``None`` on a provider failure, which the caller
+            turns into the unavailable outcome.
+        """
+        try:
+            with self.tracer.span("retrieval", space_id=space_id) as retrieval_span:
+                retrieved = await self.retrieval.retrieve(question, space_id)
+                retrieval_span.set_attributes(
+                    {
+                        "qa_candidates": len(retrieved.qa),
+                        "message_candidates": len(retrieved.messages),
+                        "qa_similarities": [
+                            round(item.similarity, 4) for item in retrieved.qa
+                        ],
+                        "message_similarities": [
+                            round(item.similarity, 4) for item in retrieved.messages
+                        ],
+                    }
+                )
+        except ModelUnavailableError:
+            return None
+        trace["retrieval_ms"] = _elapsed(started)
+        trace["candidates"] = {
+            "qa": _candidates(retrieved.qa),
+            "message": _candidates(retrieved.messages),
+        }
+        return retrieved
+
+    def frozen_evidence(self, evidence: list[dict[str, object]]) -> list[Evidence]:
+        """Build evaluation evidence that clears the selection floor.
+
+        Args:
+            evidence: The frozen cases, each with ``source_id``, ``text``, and
+                optionally ``label``, ``authority``, and ``kind``.
+
+        Returns:
+            The evidence, with a similarity that unambiguously survives the
+            deterministic floor.
+        """
+        frozen: list[dict[str, object]] = evidence
+        return [
+            Evidence(
+                source_id=str(item.get("source_id", "")),
+                label=str(item.get("label", "Q&A")),
+                text=str(item.get("text", "")),
+                authority=int(str(item.get("authority", 50))),
+                similarity=FROZEN_SIMILARITY,
+                qa_version_id=(
+                    f"frozen:{item.get('source_id')}"
+                    if str(item.get("kind", "qa")) == "qa"
+                    else None
+                ),
+            )
+            for item in frozen
+        ]

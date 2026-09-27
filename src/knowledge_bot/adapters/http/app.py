@@ -370,7 +370,9 @@ def create_app(
         Returns the decided mode, the semantic reason, the rendered answer, the
         citations, and the retrieved candidates with their similarities, so a
         failed evaluation case can be attributed without reading production
-        logs. No message ever reaches Telegram.
+        logs. Supplying ``evidence`` runs the generator against exactly that
+        evidence and bypasses retrieval, which is how the frozen-generation
+        suite isolates the generator. No message ever reaches Telegram.
         """
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
@@ -380,7 +382,16 @@ def create_app(
         _admit_eval_call()
         await _require_evaluation_budget(context)
         question = body.question
-        preview = await context.answer.dry_run(question)
+        preview = await context.answer.dry_run(
+            question,
+            evidence=(
+                context.answer.frozen_evidence(
+                    [item.model_dump() for item in body.evidence]
+                )
+                if body.evidence is not None
+                else None
+            ),
+        )
         outcome = preview.outcome
         return {
             "question": question,
@@ -395,6 +406,7 @@ def create_app(
                     "source_id": item.source_id,
                     "similarity": round(item.similarity, 4),
                     "kind": "qa" if item.qa_version_id is not None else "message",
+                    "authority": item.authority,
                 }
                 for item in preview.evidence
             ],

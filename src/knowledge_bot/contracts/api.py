@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Pydantic request contracts for HTTP boundaries."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 from knowledge_bot.contracts.messages import NormalizedMessage
@@ -8,10 +10,26 @@ from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.enums import AnswerMode, ReviewAction
 
 
+class FrozenEvidence(BaseModel):
+    """One piece of evidence supplied by an evaluation case.
+
+    A frozen case decides the generator's behaviour given exactly this
+    evidence, so the case carries the text the model would have seen.
+    """
+
+    source_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    label: str = "Q&A"
+    authority: int = Field(default=50, ge=0, le=100)
+    kind: Literal["qa", "message"] = "qa"
+
+
 class EvalAnswerRequest(BaseModel):
     """One explicit live-answer evaluation question."""
 
     question: str = Field(default="", min_length=1, max_length=4000)
+    space_id: str | None = None
+    evidence: list[FrozenEvidence] | None = None
 
 
 class ReindexRequest(BaseModel):

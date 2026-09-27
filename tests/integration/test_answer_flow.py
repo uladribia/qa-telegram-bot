@@ -469,3 +469,48 @@ async def test_an_abstention_produces_the_same_tree_and_says_why() -> None:
     ]
     assert tracer.attributes["answer_question"]["reason"] == "model_insufficient"
     assert tracer.attributes["generation"]["status"] == "insufficient"
+
+
+async def test_frozen_evidence_bypasses_retrieval_but_not_the_decision_path() -> None:
+    """Frozen evidence reaches the same decide(), without the index."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service([], error=ModelUnavailableError("embedding"))
+    service = replace(service, tracer=tracer)
+
+    evidence = service.frozen_evidence(
+        [
+            {
+                "source_id": "qa-frozen",
+                "text": "La botiga obre de 10:00 a 20:00.",
+                "authority": 90,
+                "label": "Q&A",
+                "kind": "qa",
+            }
+        ]
+    )
+
+    await service.dry_run("Quand ouvre la boutique ?", evidence=evidence)
+
+    assert [item.source_id for item in evidence] == ["qa-frozen"]
+    assert all(item.similarity >= service.policy.floor for item in evidence)
+    assert "retrieval" not in tracer.spans
+    assert tracer.spans == [
+        "answer_question",
+        "evidence_selection",
+        "generation",
+    ]
+
+
+async def test_frozen_evidence_cannot_be_filtered_out_by_the_floor() -> None:
+    """Selection sees frozen evidence, so a case is never silently no_evidence."""
+    service, _, _ = await _service([])
+
+    preview = await service.dry_run(
+        "Quan obre la botiga?",
+        evidence=service.frozen_evidence(
+            [{"source_id": "qa-x", "text": "Obre a les 10:00.", "authority": 90}]
+        ),
+    )
+
+    assert preview.outcome.reason is not AnswerReason.NO_EVIDENCE
+    assert preview.evidence[0].source_id == "qa-x"

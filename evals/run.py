@@ -74,6 +74,7 @@ class EvalReport:
     passed: int = 0
     failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    attributions: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -97,6 +98,14 @@ class EvalReport:
         """Record an advisory finding that never fails the suite."""
         self.warnings.append(message)
 
+    def attribute(self, kind: str) -> None:
+        """Classify one failure so a report says what kind of failure it was.
+
+        Args:
+            kind: One of the attribution kinds, e.g. ``model_false_abstention``.
+        """
+        self.attributions[kind] = self.attributions.get(kind, 0) + 1
+
     def render(self) -> str:
         """Render a short Markdown report."""
         status = "PASS" if self.ok else "FAIL"
@@ -105,6 +114,11 @@ class EvalReport:
         ]
         lines.extend(f"  - {failure}" for failure in self.failures[:8])
         lines.extend(f"  ~ {warning}" for warning in self.warnings[:5])
+        if self.attributions:
+            summary = ", ".join(
+                f"{kind}={count}" for kind, count in sorted(self.attributions.items())
+            )
+            lines.append(f"  failures by kind: {summary}")
         return "\n".join(lines)
 
 
@@ -924,6 +938,101 @@ def eval_live_abstention(base_url: str, *, gold_only: bool = False) -> EvalRepor
     return report
 
 
+def eval_live_frozen(base_url: str) -> EvalReport:
+    """Check the generator alone, against exactly the evidence each case supplies.
+
+    Retrieval does not participate: the case carries the text the model would
+    have seen, so a failure belongs to the generator's decision rather than to
+    the index. Every failure is attributed, so a failing suite says which kind
+    of failure it was instead of only how many.
+    """
+    report = EvalReport(name="frozen/live")
+    for case in load_cases("frozen_generation.yaml"):
+        _eval_frozen(base_url, case, report)
+    return report
+
+
+def _eval_frozen(base_url: str, case: dict[str, object], report: EvalReport) -> None:
+    """Run one frozen case and attribute any failure.
+
+    Args:
+        base_url: The deployed Worker base URL.
+        case: The frozen case.
+        report: The suite report to record into.
+    """
+    question = str(case["question"])
+    expected: dict[str, object] = case.get("expected") or {}  # ty: ignore[invalid-assignment]
+    raw_evidence: list[dict[str, object]] = case.get("evidence") or []  # ty: ignore[invalid-assignment]
+    evidence = [
+        {key: value for key, value in item.items() if value is not None}
+        for item in raw_evidence
+    ]
+    try:
+        response = httpx.post(
+            f"{base_url}/internal/eval/answer",
+            headers=_internal_headers(),
+            json={"question": question, "evidence": evidence},
+            timeout=600.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPError as error:
+        report.check(False, f"{case['id']}: {_explain(error)}")
+        report.attribute("model_unavailable")
+        return
+    if not isinstance(payload, dict):
+        report.check(False, f"{case['id']}: malformed response")
+        report.attribute("unexpected_answer")
+        return
+
+    mode = str(payload.get("mode"))
+    reason = str(payload.get("reason", ""))
+    answer = str(payload.get("answer", ""))
+    wanted = str(expected.get("mode", ""))
+    cited = [str(item) for item in payload.get("source_ids") or []]
+    supplied = {str(item.get("source_id")) for item in evidence}
+
+    if mode == wanted:
+        report.check(True, "")
+    else:
+        report.check(False, f"{case['id']}: mode {mode!r} != {wanted!r} ({reason})")
+        if wanted == "abstention" and reason == "model_insufficient":
+            report.attribute("model_false_answer")
+        elif wanted == "synthesis" and reason == "model_insufficient":
+            report.attribute("model_false_abstention")
+        elif reason == "no_evidence":
+            report.attribute("retrieval_miss")
+        else:
+            report.attribute("unexpected_answer")
+
+    if reason == "invalid_model_output":
+        report.check(False, f"{case['id']}: model output was unreadable ({reason})")
+        report.attribute("invalid_model_output")
+    if reason == "invalid_source_ids":
+        report.check(False, f"{case['id']}: cited evidence it was not given")
+        report.attribute("invalid_source_ids")
+
+    stray = [item for item in cited if item not in supplied]
+    report.check(not stray, f"{case['id']}: cited evidence outside the case: {stray}")
+
+    expected_ids: list[str] = expected.get("source_ids") or []  # ty: ignore[invalid-assignment]
+    for wanted_id in expected_ids:
+        report.check(
+            str(wanted_id) in cited,
+            f"{case['id']}: expected {wanted_id!r} to be cited, got {cited}",
+        )
+    for term in _terms(expected.get("must_include")):
+        present = term.lower() in answer.lower()
+        report.check(present, f"{case['id']}: answer is missing {term!r}")
+        if not present and mode == "synthesis":
+            report.attribute("answer_content_failure")
+    for claim in _terms(expected.get("must_not_claim")):
+        present = claim.lower() in answer.lower()
+        report.check(not present, f"{case['id']}: answer claims {claim!r}")
+        if present:
+            report.attribute("answer_content_failure")
+
+
 def run_live(
     base_url: str, *, reindex: bool = False, suite: str = "all"
 ) -> list[EvalReport]:
@@ -945,6 +1054,8 @@ def run_live(
         return [eval_live_abstention(base_url)]
     if suite == "abstention-gold":
         return [eval_live_abstention(base_url, gold_only=True)]
+    if suite == "frozen":
+        return [eval_live_frozen(base_url)]
     return [
         eval_live_retrieval(base_url, reindex=reindex),
         eval_live_answers(base_url),
@@ -966,7 +1077,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default="")
     parser.add_argument(
         "--suite",
-        choices=["all", "retrieval", "answers", "abstention", "abstention-gold"],
+        choices=[
+            "all",
+            "retrieval",
+            "answers",
+            "abstention",
+            "abstention-gold",
+            "frozen",
+        ],
         default="all",
         help="Run one live suite at a time; each burns shared quota.",
     )
