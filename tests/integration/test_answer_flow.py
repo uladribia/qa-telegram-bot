@@ -8,7 +8,11 @@ from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import ABSTENTION_TEXT, AnswerService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
-from knowledge_bot.domain.enums import AnswerMode, ContentType
+from knowledge_bot.domain.enums import AnswerMode, AnswerReason, ContentType
+from knowledge_bot.domain.errors import (
+    InvalidModelOutputError,
+    ModelUnavailableError,
+)
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import (
@@ -42,11 +46,13 @@ def _message(text: str) -> NormalizedMessage:
 
 
 async def _service(
-    records: list[VectorRecord], result: GenerationOutput | None = None
+    records: list[VectorRecord],
+    result: GenerationOutput | None = None,
+    error: Exception | None = None,
 ) -> tuple[AnswerService, InMemoryBotAnswerRepository, FakeGenerator]:
     store = FakeVectorStore()
     await store.upsert(records)
-    generator = FakeGenerator(result)
+    generator = FakeGenerator(result, error)
     answers = InMemoryBotAnswerRepository()
     service = AnswerService(
         retrieval=RetrievalService(
@@ -170,7 +176,7 @@ async def test_trace_records_why_a_model_refused() -> None:
     )
     await service.answer_message(_message("/ask quan entrenen?"))
     trace = await _trace(answers)
-    assert trace["refusal_reason"] == "insufficient"
+    assert trace["refusal_reason"] == "model_insufficient"
     assert trace["selected"] == ["qa:web-item"]
     assert trace["candidates"] == {
         "qa": [{"id": "qa:web-item", "similarity": 1.0}],
@@ -182,7 +188,7 @@ async def test_trace_records_why_a_model_refused() -> None:
     assert "cited" not in trace
 
 
-async def test_trace_records_an_uncited_source_as_unknown() -> None:
+async def test_trace_records_an_uncited_source_as_invalid_source_ids() -> None:
     """A cited id outside the evidence is a distinct refusal reason."""
     service, answers, _ = await _service(
         [_qa_record()],
@@ -194,7 +200,7 @@ async def test_trace_records_an_uncited_source_as_unknown() -> None:
     assert response is not None
     assert response.mode is AnswerMode.ABSTENTION
     trace = await _trace(answers)
-    assert trace["refusal_reason"] == "unknown_source_id"
+    assert trace["refusal_reason"] == "invalid_source_ids"
     assert trace["generation"]["source_ids"] == ["qa:other"]
 
 
@@ -274,3 +280,80 @@ async def test_trace_records_a_synthesis_without_its_text() -> None:
     assert trace["cited"] == ["qa:web-item"]
     assert "refusal_reason" not in trace
     assert "Els dimarts." not in json.dumps(trace)
+
+
+async def test_every_outcome_carries_exactly_one_reason() -> None:
+    """The six semantic reasons are the whole taxonomy, one per outcome."""
+    answered = GenerationOutput(
+        status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+    )
+    cases = [
+        ([_qa_record()], answered, None, AnswerMode.SYNTHESIS, AnswerReason.ANSWERED),
+        (
+            [],
+            GenerationOutput(status="insufficient"),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.NO_EVIDENCE,
+        ),
+        (
+            [_qa_record()],
+            GenerationOutput(status="insufficient"),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.MODEL_INSUFFICIENT,
+        ),
+        (
+            [_qa_record()],
+            None,
+            InvalidModelOutputError("no_json"),
+            AnswerMode.ABSTENTION,
+            AnswerReason.INVALID_MODEL_OUTPUT,
+        ),
+        (
+            [_qa_record()],
+            GenerationOutput(
+                status="answered", answer="Divendres.", source_ids=["qa:other"]
+            ),
+            None,
+            AnswerMode.ABSTENTION,
+            AnswerReason.INVALID_SOURCE_IDS,
+        ),
+        (
+            [_qa_record()],
+            None,
+            ModelUnavailableError("generation"),
+            AnswerMode.UNAVAILABLE,
+            AnswerReason.MODEL_UNAVAILABLE,
+        ),
+    ]
+    for records, result, error, mode, reason in cases:
+        service, _, _ = await _service(records, result, error)
+        preview = await service.dry_run("Quan entrenen?")
+        assert preview.outcome.mode is mode, reason
+        assert preview.outcome.reason is reason
+
+
+async def test_provider_failure_is_not_an_abstention() -> None:
+    """A provider failure never reaches the user as an abstention."""
+    service, _, _ = await _service(
+        [_qa_record()], error=ModelUnavailableError("generation")
+    )
+
+    preview = await service.dry_run("Quan entrenen?")
+
+    assert preview.outcome.mode is AnswerMode.UNAVAILABLE
+    assert preview.outcome.reason is AnswerReason.MODEL_UNAVAILABLE
+
+
+async def test_unreadable_output_keeps_the_invalid_code_in_the_trace() -> None:
+    """The safe parse code is recorded, the raw model output never is."""
+    service, answers, _ = await _service(
+        [_qa_record()], error=InvalidModelOutputError("schema_validation")
+    )
+
+    await service.answer_message(_message("/ask quan entrenen?"))
+
+    trace = await _trace(answers)
+    assert trace["refusal_reason"] == "invalid_model_output"
+    assert trace["generation"]["invalid_output_code"] == "schema_validation"

@@ -28,8 +28,8 @@ from knowledge_bot.contracts.api import (
 )
 from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import BotAnswer, Conversation, Source
-from knowledge_bot.domain.enums import AnswerMode
-from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.enums import AnswerMode, AnswerReason
+from knowledge_bot.domain.errors import InvalidModelOutputError, ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest, Generator
 from knowledge_bot.ports.repositories import (
@@ -58,10 +58,11 @@ def clean_question(text: str | None) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AnswerOutcome:
-    """The decided answer, mode, source ids, and rendered text."""
+    """The decided answer, mode, reason, source ids, and rendered text."""
 
     answer: str
     mode: AnswerMode
+    reason: AnswerReason
     source_ids: list[str]
     text: str
     qa_version_id: str | None = None
@@ -166,9 +167,11 @@ def _api_response(
     )
 
 
-def _abstain() -> AnswerOutcome:
-    """Return the deterministic abstention outcome."""
-    return AnswerOutcome(ABSTENTION_TEXT, AnswerMode.ABSTENTION, [], ABSTENTION_TEXT)
+def _abstain(reason: AnswerReason) -> AnswerOutcome:
+    """Return the deterministic abstention outcome for one reason."""
+    return AnswerOutcome(
+        ABSTENTION_TEXT, AnswerMode.ABSTENTION, reason, [], ABSTENTION_TEXT
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,33 +208,47 @@ class AnswerService:
             trace: Optional debug trace to record the decision in.
 
         Returns:
-            The answer or abstention, with ``refusal_reason`` set in the trace
-            whenever the answer is not a synthesis.
+            The answer, abstention, or unavailable outcome, with exactly one
+            ``AnswerReason``.
+
+        Raises:
+            Nothing: both provider failures and unreadable output are mapped
+                to safe user-facing outcomes here, so every caller sees the
+                same decision with the same diagnostic reason.
         """
         selection = self.policy.select(retrieved.qa, retrieved.messages)
         if trace is not None:
             trace["selected"] = [item.source_id for item in selection.evidence]
         if selection.abstain:
-            if trace is not None:
-                trace["refusal_reason"] = "no_evidence"
-            return _abstain()
+            return self._refuse(AnswerReason.NO_EVIDENCE, trace)
         evidence = list(selection.evidence)
         started = time.perf_counter()
-        result = await self.generator.generate(
-            GenerationRequest(
-                question=question,
-                evidence=[
-                    EvidenceItem(
-                        source_id=item.source_id,
-                        text=item.text,
-                        label=item.label,
-                        authority=item.authority,
-                        similarity=item.similarity,
-                    )
-                    for item in evidence
-                ],
+        try:
+            result = await self.generator.generate(
+                GenerationRequest(
+                    question=question,
+                    evidence=[
+                        EvidenceItem(
+                            source_id=item.source_id,
+                            text=item.text,
+                            label=item.label,
+                            authority=item.authority,
+                            similarity=item.similarity,
+                        )
+                        for item in evidence
+                    ],
+                )
             )
-        )
+        except ModelUnavailableError:
+            return self._unavailable(trace)
+        except InvalidModelOutputError as error:
+            if trace is not None:
+                trace["generation"] = {
+                    "status": "invalid_output",
+                    "invalid_output_code": error.code,
+                    "duration_ms": _elapsed(started),
+                }
+            return self._refuse(AnswerReason.INVALID_MODEL_OUTPUT, trace)
         resolved = self._resolve(evidence, result.source_ids)
         if trace is not None:
             trace["generation"] = {
@@ -243,24 +260,58 @@ class AnswerService:
                 "duration_ms": _elapsed(started),
             }
         if result.status != "answered" or not result.answer.strip():
-            if trace is not None:
-                trace["refusal_reason"] = (
-                    "insufficient" if result.status != "answered" else "empty_answer"
-                )
-            return _abstain()
+            return self._refuse(AnswerReason.MODEL_INSUFFICIENT, trace)
         if any(item is None for item in resolved):
-            if trace is not None:
-                trace["refusal_reason"] = "unknown_source_id"
-            return _abstain()
+            return self._refuse(AnswerReason.INVALID_SOURCE_IDS, trace)
         cited = [item for item in resolved if item is not None]
         if trace is not None:
             trace["cited"] = [item.source_id for item in cited]
         return AnswerOutcome(
             answer=result.answer,
             mode=AnswerMode.SYNTHESIS,
+            reason=AnswerReason.ANSWERED,
             source_ids=[item.source_id for item in cited],
             text=_render(result.answer, cited),
         )
+
+    @staticmethod
+    def _unavailable(trace: dict[str, object] | None) -> AnswerOutcome:
+        """Return the unavailable outcome for a provider failure.
+
+        A failed embedding or generation call is the same user-visible event:
+        the bot cannot consult its information right now. Recording the reason
+        keeps it distinct from a model that declined.
+
+        Args:
+            trace: Optional debug trace.
+
+        Returns:
+            The unavailable outcome.
+        """
+        if trace is not None:
+            trace["refusal_reason"] = AnswerReason.MODEL_UNAVAILABLE.value
+        return AnswerOutcome(
+            UNAVAILABLE_TEXT,
+            AnswerMode.UNAVAILABLE,
+            AnswerReason.MODEL_UNAVAILABLE,
+            [],
+            UNAVAILABLE_TEXT,
+        )
+
+    @staticmethod
+    def _refuse(reason: AnswerReason, trace: dict[str, object] | None) -> AnswerOutcome:
+        """Abstain for one reason and record it in the trace.
+
+        Args:
+            reason: Why the answer is an abstention.
+            trace: Optional debug trace.
+
+        Returns:
+            The abstention outcome.
+        """
+        if trace is not None:
+            trace["refusal_reason"] = reason.value
+        return _abstain(reason)
 
     @staticmethod
     def _resolve(
@@ -337,6 +388,9 @@ class AnswerService:
         trace: dict[str, object] = {"floor": self.policy.floor}
         try:
             retrieved = await self.retrieval.retrieve(question, space_id)
+        except ModelUnavailableError:
+            preview = AnswerPreview(self._unavailable(trace), [], trace)
+        else:
             trace["retrieval_ms"] = _elapsed(started)
             trace["candidates"] = {
                 "qa": _candidates(retrieved.qa),
@@ -344,15 +398,6 @@ class AnswerService:
             }
             preview = AnswerPreview(
                 await self.decide(question, retrieved, trace), retrieved.all(), trace
-            )
-        except ModelUnavailableError:
-            trace["refusal_reason"] = "model_unavailable"
-            preview = AnswerPreview(
-                AnswerOutcome(
-                    UNAVAILABLE_TEXT, AnswerMode.UNAVAILABLE, [], UNAVAILABLE_TEXT
-                ),
-                [],
-                trace,
             )
         trace["total_ms"] = _elapsed(started)
         details = _source_details(preview.outcome.source_ids, preview.evidence)
@@ -400,14 +445,22 @@ class AnswerService:
             )
 
     async def retrieve_for_eval(self, question: str) -> RetrievedEvidence:
-        """Retrieve evidence for an explicit internal evaluation."""
-        return await self.retrieval.retrieve(clean_question(question), all_scopes=True)
+        """Retrieve evidence for an explicit internal evaluation.
+
+        Evaluation uses the same scope semantics as a normal global question:
+        a case that needs a specific space passes one through the eval request
+        instead of widening the search to every group.
+        """
+        return await self.retrieval.retrieve(clean_question(question))
 
     async def dry_run(self, question: str) -> AnswerPreview:
         """Decide an answer without persisting it."""
         cleaned = clean_question(question)
-        retrieved = await self.retrieval.retrieve(cleaned, all_scopes=True)
         trace: dict[str, object] = {"floor": self.policy.floor}
+        try:
+            retrieved = await self.retrieval.retrieve(cleaned)
+        except ModelUnavailableError:
+            return AnswerPreview(self._unavailable(trace), [], trace)
         return AnswerPreview(
             await self.decide(cleaned, retrieved, trace), retrieved.all(), trace
         )

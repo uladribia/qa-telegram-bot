@@ -99,21 +99,39 @@ class FakeVectorStore:
 
 
 class FakeGenerator:
-    """A generator that records requests and returns a fixed result.
+    """A generator that records requests and returns a fixed result or error.
 
     With no fixed result it behaves like a helpful model: it answers using
     every source it was given, which is the shape of the runtime now that
-    the model produces the answer.
+    the model produces the answer. With a fixed error it raises it, which is
+    how the adapter failure paths are exercised without a real provider.
     """
 
-    def __init__(self, result: GenerationOutput | None = None) -> None:
-        """Create a generator with a fixed result."""
+    def __init__(
+        self,
+        result: GenerationOutput | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Create a generator with a fixed result or a fixed failure."""
         self.result = result
+        self.error = error
         self.requests: list[GenerationRequest] = []
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Record the request and return the fixed or helpful result."""
+        """Record the request, then return or raise what was configured.
+
+        Args:
+            request: The generation request under test.
+
+        Returns:
+            The configured or helpful result.
+
+        Raises:
+            Exception: The configured error, unchanged.
+        """
         self.requests.append(request)
+        if self.error is not None:
+            raise self.error
         if self.result is not None:
             return self.result
         return GenerationOutput(

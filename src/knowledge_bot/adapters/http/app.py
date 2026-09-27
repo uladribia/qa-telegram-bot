@@ -60,12 +60,11 @@ from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.entities import DeliveryReceipt, TelegramInteraction
 from knowledge_bot.domain.enums import (
     AiWorkClass,
-    AnswerMode,
     ClassificationStatus,
     IndexStatus,
     ReviewAction,
 )
-from knowledge_bot.domain.errors import InvalidTransitionError, ModelUnavailableError
+from knowledge_bot.domain.errors import InvalidTransitionError
 from knowledge_bot.domain.identity import principal_id, split_principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
@@ -360,9 +359,10 @@ def create_app(
     ) -> dict[str, object]:
         """Answer a question without sending it, for live answer evals.
 
-        Returns the decided mode, rendered answer, citations, and retrieved
-        evidence ids for explicitly authorized deterministic evaluations. No
-        message ever reaches Telegram.
+        Returns the decided mode, the semantic reason, the rendered answer, the
+        citations, and the retrieved candidates with their similarities, so a
+        failed evaluation case can be attributed without reading production
+        logs. No message ever reaches Telegram.
         """
         context = await _resolved_context(resolve_context, request)
         if not secrets_match(key, context.settings.internal_admin_key):
@@ -372,26 +372,24 @@ def create_app(
         _admit_eval_call()
         await _require_evaluation_budget(context)
         question = body.question
-        try:
-            preview = await context.answer.dry_run(question)
-        except ModelUnavailableError:
-            return {
-                "question": question,
-                "mode": AnswerMode.UNAVAILABLE.value,
-                "answer": "model unavailable",
-                "text": "",
-                "source_ids": [],
-                "evidence_ids": [],
-                "citations": [],
-            }
+        preview = await context.answer.dry_run(question)
         outcome = preview.outcome
         return {
             "question": question,
             "mode": outcome.mode.value,
+            "reason": outcome.reason.value,
             "answer": outcome.answer,
             "text": outcome.text,
             "source_ids": outcome.source_ids,
             "evidence_ids": [item.source_id for item in preview.evidence],
+            "candidates": [
+                {
+                    "source_id": item.source_id,
+                    "similarity": round(item.similarity, 4),
+                    "kind": "qa" if item.qa_version_id is not None else "message",
+                }
+                for item in preview.evidence
+            ],
             "citations": [
                 {
                     "source_id": item.source_id,

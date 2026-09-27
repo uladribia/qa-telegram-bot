@@ -2,7 +2,6 @@
 """Workers AI adapters for embeddings and grounded text generation."""
 
 import asyncio
-import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -13,9 +12,11 @@ from loguru import logger
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.infrastructure.prompt import SYSTEM_PROMPT, render_user
-from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
-
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+from knowledge_bot.ports.generator import (
+    GenerationOutput,
+    GenerationRequest,
+    parse_generation_output,
+)
 
 
 class AiRunner(Protocol):
@@ -157,24 +158,35 @@ class WorkersAIGenerator:
         except Exception as error:
             raise ModelUnavailableError("generation") from error
 
-    async def _attempt(self, messages: list[dict[str, str]]) -> GenerationOutput | None:
-        """Run the model once and parse its JSON output, or return ``None``."""
-        result = await self._run(messages)
-        content = _extract_content(result)
+    async def _reply(self, messages: list[dict[str, str]]) -> str:
+        """Run the model once and return its raw reply text.
+
+        Args:
+            messages: The system and user messages.
+
+        Returns:
+            The model's reply content, empty when the reply carried none.
+        """
+        content = _extract_content(await self._run(messages))
         log_content("ai_generation_response", model=self._model, content=content)
-        match = _JSON_OBJECT.search(content)
-        if match is None:
-            return None
-        try:
-            return GenerationOutput.model_validate_json(match.group(0))
-        except ValueError:
-            return None
+        return content
 
     async def generate(self, request: GenerationRequest) -> GenerationOutput:
-        """Generate one grounded answer; malformed output becomes insufficient."""
+        """Generate one grounded answer from one model call.
+
+        Args:
+            request: The question and its evidence.
+
+        Returns:
+            The validated model output.
+
+        Raises:
+            ModelUnavailableError: The provider failed or timed out.
+            InvalidModelOutputError: The reply was empty, unparseable, or
+                schema-invalid. This is never reported as an abstention.
+        """
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": render_user(request)},
         ]
-        output = await self._attempt(messages)
-        return output or GenerationOutput(status="insufficient")
+        return parse_generation_output(await self._reply(messages))

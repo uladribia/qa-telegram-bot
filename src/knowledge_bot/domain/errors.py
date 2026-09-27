@@ -20,6 +20,25 @@ class ModelUnavailableError(RuntimeError):
         self.operation = operation
 
 
+class InvalidModelOutputError(RuntimeError):
+    """A model replied with output that is not a usable answer.
+
+    This is a provider/parser failure, not a decision: it must never be
+    reported as the model declining to answer. The code is a short, safe label
+    for telemetry — never the raw output.
+    """
+
+    def __init__(self, code: str) -> None:
+        """Store a short safe error code.
+
+        Args:
+            code: One of ``missing_content``, ``no_json``, or
+                ``schema_validation``.
+        """
+        super().__init__(f"invalid model output: {code}")
+        self.code = code
+
+
 class InvalidTransitionError(RuntimeError):
     """A requested state transition is not valid for the current record."""
 

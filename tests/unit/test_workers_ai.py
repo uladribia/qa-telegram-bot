@@ -10,7 +10,10 @@ from typing import cast
 import pytest
 from loguru import logger
 
-from knowledge_bot.domain.errors import ModelUnavailableError
+from knowledge_bot.domain.errors import (
+    InvalidModelOutputError,
+    ModelUnavailableError,
+)
 from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIEmbedder,
     WorkersAIGenerator,
@@ -158,28 +161,31 @@ async def test_call_logging_records_failure_without_text(calls: list[_Call]) -> 
     assert "provider detail" not in line.text()
 
 
-async def test_generator_reports_insufficient_on_unparseable_output() -> None:
-    """Model output that is not JSON degrades to insufficient, not a crash."""
+async def test_generator_raises_on_unparseable_output() -> None:
+    """Output that is not JSON is a provider failure, not an abstention."""
     runner = _Runner({"choices": [{"message": {"content": "not json"}}]})
     generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
 
-    output = await generator.generate(
-        GenerationRequest(
-            question="q",
-            evidence=[
-                EvidenceItem(
-                    source_id="s1", text="t", label="l", authority=1, similarity=0.5
-                )
-            ],
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
         )
-    )
 
-    assert output.status == "insufficient"
+    assert raised.value.code == "no_json"
 
 
 async def test_generator_bounds_the_output_budget() -> None:
     """The reasoning model gets a token cap, without a response_format."""
-    runner = _Runner({"choices": [{"message": {"content": "{}"}}]})
+    runner = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
     generator = WorkersAIGenerator(runner, "chat-model", 1.0, 1024)
 
     await generator.generate(GenerationRequest(question="q", evidence=[]))
