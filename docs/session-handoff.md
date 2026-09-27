@@ -152,6 +152,31 @@ old-vector baseline MRR of 0.455.
 measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
 width. One run is ~1900 neurons.
 
+## qwen3-30b-a3b in production, compared with mistral
+
+Run 2026-09-27 on `eval/qwen3-prod-comparison`, both suites in production.
+`/no_think` works: 3-4 s per call, valid JSON, no timeout. Production was
+restored to mistral afterwards and re-verified.
+
+| | mistral | qwen3 + /no_think |
+|---|---|---|
+| frozen cases earned | 22/30 | 23/30 |
+| gold cases earned | 20/26 | 21/26 |
+| unreadable replies | 1 | 2 |
+| metered cost per call | ~9 | ~18 |
+
+Both models fail **the same five gold cases**; two differ only in kind, not in
+outcome. Quality is a wash, qwen costs about twice as much on a meter that is
+known to be model-blind, and its JSON compliance is slightly worse. Nothing here
+justifies a switch, and the answer is the same whichever way the granite
+comparison went.
+
+Worth keeping: `WorkersAIGenerator(no_think=True)`, wired to
+`AI_APPEND_NO_THINK`, default off and inert for non-Qwen models, with a unit
+test asserting the token is only sent when asked for. It is the only thing from
+this experiment worth carrying, because the model will need it if it is ever
+adopted.
+
 ## The gold set, run on both runtimes
 
 The suite that measures this knowledge base, run 2026-09-27 on both runtimes:

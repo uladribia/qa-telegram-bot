@@ -113,6 +113,7 @@ class WorkersAIGenerator:
         model: str,
         timeout_seconds: float = 35.0,
         max_tokens: int = 1024,
+        no_think: bool = False,
     ) -> None:
         """Create the generator with a hard adapter deadline.
 
@@ -125,11 +126,16 @@ class WorkersAIGenerator:
                 does not contain the answer it can deliberate past 2600 tokens
                 and 50 seconds. The cap turns that into a truncated response
                 that becomes ``insufficient`` instead of a timeout.
+            no_think: Append Qwen3's ``/no_think`` switch to the user message.
+                Qwen3 thinks by default and that deliberation does not fit the
+                adapter deadline, so the trace has to be switched off from the
+                prompt. It is a chat-template token, inert for other models.
         """
         self._ai = ai
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._max_tokens = max_tokens
+        self._no_think = no_think
 
     async def _run(self, messages: list[dict[str, str]]) -> object:
         """Run the chat model, raising a domain error on failure.
@@ -183,8 +189,11 @@ class WorkersAIGenerator:
             InvalidModelOutputError: The reply was empty, unparseable, or
                 schema-invalid. This is never reported as an abstention.
         """
+        user_message = render_user(request)
+        if self._no_think:
+            user_message = f"{user_message}\n\n/no_think"
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": render_user(request)},
+            {"role": "user", "content": user_message},
         ]
         return parse_generation_output(await self._reply(messages))

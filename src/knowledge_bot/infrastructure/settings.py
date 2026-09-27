@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     ai_embed_timeout_seconds: float = Field(default=10.0, gt=0, le=55)
     ai_generation_timeout_seconds: float = Field(default=35.0, gt=0, le=55)
     ai_generation_max_tokens: int = Field(default=1024, gt=0)
+    # Qwen3 thinks by default and the deliberation does not fit the adapter
+    # deadline. TEMPORARY, for the production model comparison only.
+    ai_append_no_think: bool = Field(
+        default=False, validation_alias=AliasChoices("AI_APPEND_NO_THINK")
+    )
 
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5

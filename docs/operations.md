@@ -196,6 +196,48 @@ concluding anything about one case.
 mode, the reason, and the failure kinds, for anything consuming the suite
 programmatically.
 
+### Generation model in production: qwen3-30b-a3b vs mistral
+
+Measured 2026-09-27 on branch `eval/qwen3-prod-comparison`, both suites in
+production, same cases, same knowledge base, one variable. `/no_think` was
+appended to the user message: Qwen3 thinks by default and the deliberation does
+not fit the 35 s deadline. **It works** — 3.0-4.7 s per call, valid JSON, no
+timeout. The deployed Worker was restored to mistral afterwards.
+
+| | mistral-small-3.1-24b | qwen3-30b-a3b-fp8 (`/no_think`) |
+|---|---|---|
+| frozen assertions | 149/165 (90%) | 149/165 (90%) |
+| frozen cases earned | 22 / 30 | **23 / 30** |
+| gold assertions | 75/80 (94%) | 80/85 (94%) |
+| gold cases earned | 20 / 26 | **21 / 26** |
+| unreadable replies (frozen) | 1 | **2** |
+| metered cost per call | ~9 neurons | **~18 neurons** |
+| latency (median, same probe) | ~4.7 s | ~3.0-4.0 s |
+
+**The two models fail the same gold cases.** Both failed exactly these five:
+`equipment_when`, `equipment_size`, `training_where`, `medical_expiry`, and
+`gold_abstention_07` (the delegate's phone answered with the club's published
+general line). Two differ in *kind* rather than in outcome: on `equipment_size`
+mistral abstained where qwen answered, and on `training_where` mistral answered
+the rain policy to a question about where they train, where qwen answered on
+subject but missed the required place.
+
+So the choice is close to a wash on quality, decided on three axes instead:
+
+1. **Cost is against qwen here, not for it.** The meter charges roughly twice
+   as much per call, and the meter is known to be model-blind, so the real
+   figure is worse than that ratio suggests. This contradicts the earlier
+   granite comparison, where granite looked ~5x cheaper — but that was measured
+   against a *quota-limited* mistral run, not against the meter, so the two
+   findings are not comparable.
+2. **JSON compliance is slightly worse on qwen**: two unreadable replies in the
+   frozen suite against mistral's one.
+3. **Latency is a wash**, both comfortably inside the 35 s deadline.
+
+Nothing here justifies switching. The gold suite is the measuring instrument
+this project lacked all week, and on it the two models are within one case of
+each other, with the same five known failures on both.
+
 ### The gold set, measured on both runtimes
 
 `evals/gold.yaml` is the only suite that measures *this* knowledge base: 11

@@ -272,3 +272,32 @@ async def test_the_error_never_carries_the_model_output() -> None:
         )
 
     assert "secret internal reasoning" not in str(raised.value)
+
+
+async def test_no_think_switch_is_appended_to_the_user_message() -> None:
+    """``/no_think`` reaches the model, and only when asked for.
+
+    Qwen3 thinks by default and the deliberation does not fit the 35 s adapter
+    deadline, so the switch has to be in the user message. The test asserts it
+    is absent by default, because a stray token in the prompt changes the
+    answer for every other model.
+    """
+    plain = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
+    with_switch = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
+    request = GenerationRequest(question="q", evidence=[])
+
+    await WorkersAIGenerator(plain, "chat-model", timeout_seconds=1.0).generate(request)
+    await WorkersAIGenerator(
+        with_switch, "chat-model", timeout_seconds=1.0, no_think=True
+    ).generate(request)
+
+    def user_message(runner: _Runner) -> str:
+        sent = cast("list[dict[str, str]]", runner.inputs["messages"])
+        return str(sent[-1]["content"])
+
+    assert "/no_think" not in user_message(plain)
+    assert user_message(with_switch).rstrip().endswith("/no_think")
