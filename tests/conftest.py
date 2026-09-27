@@ -7,7 +7,13 @@ Tiers:
 - ``smoke`` hits the real Worker runtime and runs at milestone boundaries.
 """
 
+import os
+
 import pytest
+
+# Tests import the runtime entrypoints, which configure telemetry. Keep test
+# spans out of the production project; the SDK is still exercised locally.
+os.environ.setdefault("KB_LOGFIRE_SEND_TO_LOGFIRE", "false")
 
 _TIER_MARKERS = {
     "unit": pytest.mark.unit,

@@ -69,6 +69,7 @@ from knowledge_bot.domain.errors import InvalidTransitionError, ModelUnavailable
 from knowledge_bot.domain.identity import principal_id, split_principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
+from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.infrastructure.security import secrets_match
 
 ContextResolver = Callable[[Request], AppContext | Awaitable[AppContext]]
@@ -223,6 +224,32 @@ async def _deliver_review(
     return False
 
 
+def _log_inbound_message(message: NormalizedMessage) -> None:
+    """Record the normalized message: who said what, and where.
+
+    The webhook request body already carries the raw update, so this is the
+    connector's own view of the same event: the identity the core resolved and
+    the space the message landed in.
+
+    Args:
+        message: The normalized inbound message.
+    """
+    log_content(
+        "telegram_inbound_message",
+        message_id=message.source_message_id,
+        conversation_id=message.conversation_id,
+        space_id=message.space_id,
+        principal_id=message.principal_id,
+        sender_name=message.sender_name,
+        sender_user_id=message.sender_user_id,
+        is_direct_message=message.is_direct_message,
+        is_sender_allowed=message.is_sender_allowed,
+        mentions_bot=message.mentions_bot,
+        reply_to_message_id=message.reply_to_message_id,
+        text=message.text,
+    )
+
+
 async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
     """Normalize one Telegram update and dispatch its channel flow."""
     started = time.perf_counter()
@@ -246,6 +273,7 @@ async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -
             if message is None:
                 result = "ignored"
             else:
+                _log_inbound_message(message)
                 message = await _resolve_message_space(context, message)
                 result = (
                     "ignored"

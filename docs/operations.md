@@ -65,6 +65,43 @@ Two log lines exist specifically to make otherwise-invisible failures diagnosabl
 
 Tail live traffic with `npx wrangler tail bhc-qa-testbot`. The Cloudflare API token in use has no Workers Observability read scope, so the telemetry query API is unavailable and there is no log history: tail is the only window, and a failure that happened before the tail started must be diagnosed from D1 state.
 
+## Traces (Logfire)
+
+Both runtimes export OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region: `environment=local` from the local entrypoint, `environment=cloudflare` from the Worker. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
+
+```bash
+# fresh spans for the service, in the exact project
+logfire --region eu --org oleguer-sagarra mcp query run \
+  "SELECT start_timestamp, trace_id, span_name, attributes->>'http.route' AS route, attributes->>'http.status_code' AS status FROM records WHERE service_name = 'qa-telegram' ORDER BY start_timestamp DESC LIMIT 20" \
+  --project qa-telegram
+```
+
+The `records` view carries span attributes only; the environment and service identity are resource attributes, visible in the UI and on the service page.
+
+- **No token is required to run.** The SDK is configured with `if-token-present`: without a write token the app starts normally and spans stay local. Telemetry failure never breaks the answer path.
+- **Where the token comes from:** `LOGFIRE_TOKEN` (env var, read by the SDK) or the gitignored `.logfire/logfire_credentials.json`, created by `logfire init use --name qa-telegram --permission send`. It is send-only: never commit it, never print it, never widen it. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container or the deployed Worker needs `LOGFIRE_TOKEN` in its environment (a Cloudflare secret, never in `wrangler.jsonc`).
+- **Worker timing:** bindings are not available at import, so the Worker configures the exporter the first time a context is resolved, from either the request or the scheduled handler. Two Worker-specific traps, both verified with `make smoke` plus a webhook request against the booted Worker:
+  - The SDK is imported **lazily**, inside `configure_observability`. The Workers runtime forbids entropy while a Worker is starting, and importing OpenTelemetry needs one: a module-level import aborts the boot. Pydantic makes it worse by importing every installed `pydantic` entry point, which pulls the Logfire plugin in at startup, so `entry.py` sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import. No Pydantic instrumentation is used, so nothing is lost.
+  - `logfire.instrument_httpx()` **raises** in the Worker, because httpx is not part of the Worker bundle. Client instrumentation is therefore opt-in and only the local runtime asks for it. A wrong assumption here cost a 500 on the first real request while `/healthz` still answered 200.
+- **Telemetry can never break the answer path.** Every step runs isolated: a failure is logged as `logfire_step_failed` with the step name and the exception class, and skipped.
+- **Setting:** `KB_LOGFIRE_SEND_TO_LOGFIRE` (default `true`) is the master switch; `tests/conftest.py` sets it to `false` so a developer's project credentials can never receive test traffic.
+- **Content is captured, on purpose.** `KB_LOGFIRE_CAPTURE_CONTENT` (default `true`) exports message text, sender identity, prompts, and answers, so a flow can be reconstructed end to end while debugging. It also captures request headers. It is a testing posture, not a product decision: set it to `false` before anything outside a private test group is ever connected. Explicit `log_content` events carry the content, not body capture:
+
+  | event | fields |
+  |---|---|
+  | `telegram_inbound_message` | `message_id`, `conversation_id`, `space_id`, `principal_id`, `sender_name`, `sender_user_id`, `is_direct_message`, `is_sender_allowed`, `mentions_bot`, `reply_to_message_id`, `text` |
+  | `telegram_outbound` | `method`, `conversation_id`, `text` — every answer, prompt, escalation, and review |
+  | `ai_embedding_input` | `model`, `texts` |
+  | `ai_generation_prompt` | `model`, `messages` (the rendered prompt) |
+  | `ai_generation_response` | `model`, `content` (the raw model output, before parsing) |
+
+  The SDK's `record_send_receive` is deliberately **not** used: in this version it emits three extra ASGI event spans per request and attaches no payload to them.
+- **Credentials never leave the process, whatever the capture setting.** Scrubbing is always on. The SDK scrubs by key name (`secret`, `password`, `token`, the webhook secret header), and `SECRET_VALUE_PATTERNS` in `infrastructure/logging.py` covers credential *values* no key name reveals — a Telegram bot token is `<digits>:<base64url>` and the transport puts it in the request URL, so `http.url` would otherwise export it verbatim. Verified: the webhook secret header arrives as `[Scrubbed due to 'secret']` while the message text is exported in full. After adding a field, query the span's `attributes`: a leak is invisible in review and obvious in a query.
+- **Privacy:** endpoint arguments and headers are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, sender identity, prompts, and answers are captured on purpose while testing (see the content note above). Credentials are not.
+- **Not wired yet:** Loguru records are not forwarded, and the answer pipeline has no semantic spans yet (`answer_question` → `retrieval` → `evidence_selection` → `generation` → `answer_decision`); request spans, the content events above, and the client's calls are exported today.
+
+
+
 ## Answer traces
 
 Because there is no log history, every answer persists a `bot_answers.trace_json` debug trace. It is the durable record of one attempt and answers the question a log line cannot: *why* did this question abstain. It holds no text — no question, no evidence body, no prompt, no model output — only ids, counts, sizes, similarities, statuses, and durations.

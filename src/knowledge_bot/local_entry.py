@@ -8,8 +8,11 @@ from fastapi import Request
 from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.local.composition import build_context
-from knowledge_bot.infrastructure.logging import configure_logging
-from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.logging import (
+    configure_logging,
+    configure_observability,
+)
+from knowledge_bot.infrastructure.settings import RuntimeMode, Settings
 
 _cached_context: AppContext | None = None
 _database = None
@@ -31,7 +34,15 @@ async def _resolve_context(_request: Request) -> AppContext:
 
 
 configure_logging(json_logs=False)
+_settings = Settings()
 app = create_app(_resolve_context)
+configure_observability(
+    app,
+    environment=RuntimeMode.LOCAL.value,
+    send_to_logfire=_settings.logfire_send_to_logfire,
+    instrument_client=True,
+    capture_content=_settings.logfire_capture_content,
+)
 
 
 @app.get("/readyz")

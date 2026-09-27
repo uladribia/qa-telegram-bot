@@ -1,14 +1,35 @@
 # Session handoff
 
-_Last updated: 2026-09-26, after the model swap, the reranker removal, and the
-answer-floor recalibration._
+_Last updated: 2026-09-27, after the Logfire instrumentation pass._
 
 ## Current state
 
 - `main` is merged and pushed. The deployed Worker runs the configuration below.
+- **Logfire is wired in both runtimes** (local Uvicorn and the Cloudflare
+  Worker), project `oleguer-sagarra/qa-telegram`, EU region, verified by
+  querying fresh spans. Request spans, client calls, and content events
+  (`telegram_inbound_message`, `telegram_outbound`, `ai_generation_prompt`,
+  `ai_generation_response`, `ai_embedding_input`) are exported. See
+  [operations.md](operations.md#traces-logfire).
+- **Content capture is on while testing** (`KB_LOGFIRE_CAPTURE_CONTENT`,
+  default `true`): message text, sender identity, prompts, and answers are
+  exported so a flow can be reconstructed. Credentials never are — the
+  webhook secret and the bot token are scrubbed, the latter by value shape
+  because the transport puts it in the request URL. This is a testing
+  posture, not a product decision: turn it off before anything outside a
+  private test group is connected.
+- **Loguru is still installed and still writes the process logs.** AGENTS.md
+  now names Logfire as the logging stack and records the Loguru removal as
+  pending work with its own plan; the code has not been migrated.
 - The binding plan in `instructions/` is
-  `qa-telegram-bot-retrieval-classifier-listener-plan.md` (completed). The work
-  after it is not in that plan.
+  `qa-bot-observability-frozen-evals-implementation-plan.md`. It is a large
+  pass (failure attribution, semantic answer spans, frozen-evidence eval, gold
+  eval repair); only the Logfire foundation has landed. Its Phase 4 semantic
+  spans (`answer_question` → `retrieval` → `evidence_selection` →
+  `generation` → `answer_decision`) are **not** implemented yet.
+- **Production export is unverified.** The Worker needs `LOGFIRE_TOKEN` as a
+  Cloudflare secret; it was never deployed with one, so only the local runtime
+  has proven ingestion.
 - One branch is deliberately **not merged**: `feat/pairing-head` (learned
   pairing head, disabled). See [experiments.md](experiments.md).
 - The lexical projection is still present in production D1 (95 rows in
@@ -99,11 +120,17 @@ described a five-candidate system and is reported but not gated. Restore it if
 
 ```text
 make lint
-make test              # 139 unit + architecture
-make test-integration  # 126
+make test              # 143 unit + architecture
+make test-integration  # 132
+make smoke             # Worker boots, /healthz 200
 uv run python -m evals.run offline   # 11/11
 make eval-local        # all gates PASS, regenerates the report
 ```
+
+`make smoke` asserts `/healthz`, which resolves no context, so it does **not**
+cover the observability path. After touching it, POST a webhook at a booted
+Worker and read the logs: that is how the `instrument_httpx` failure that 500'd
+the first real request was found.
 
 Local retrieval with the leg removed: Recall@1 0.940, Recall@3 0.962,
 Recall@5 0.970, MRR 0.953, against 0.984 / 0.986 / 0.973 with it and an
@@ -115,6 +142,10 @@ width. One run is ~1900 neurons.
 
 ## Open issues, in the order they will bite
 
+0. **The answer pipeline still has no semantic spans.** Request spans say a
+   webhook was served; they do not say why a question abstained. The plan's
+   Phase 4 names the spans that would. Until they exist, a trace answers "how
+   slow" and "what was asked", not "why no answer".
 1. **The generator is non-deterministic on borderline questions.** The same
    prompt over the same five documents returned `answered` in five offline
    reproductions and `abstention` in production. The live suite score is
@@ -134,6 +165,9 @@ width. One run is ~1900 neurons.
    untested candidate (3/3 grounded, 2.9 s, 31 neurons).
 4. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
+5. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
+   that was never set on the deployed Worker. The local path works; nobody has
+   watched a production span arrive.
 
 ## Things that are not problems
 
@@ -154,7 +188,7 @@ width. One run is ~1900 neurons.
 
 ## The pattern to remember
 
-Four attempts at learned selection (answer relevance, pairing, cross-encoder
+Five attempts at learned selection (answer relevance, pairing, cross-encoder
 reranking, lexical fusion) passed their gates in isolation and failed in the
 pipeline. The reranker is the clearest: 0.33 neurons and 0.49 s, a 1000:1
 separation between relevant and irrelevant, and it made the bot worse because
@@ -165,3 +199,9 @@ actually be used, and measure the axis that is failing, not the one that is
 easy to plot. Also: the *documentation* was the last thing to become true —
 "hybrid retrieval, MRR 0.973" was repeated across four files and in a merge
 commit hours after the leg was measured dead.
+
+The same pattern showed up in observability twice. `/healthz` answering 200 was
+read as "the Worker is fine" while the first real request 500'd on a missing
+client library, because the health check resolves no context. And "a clean
+exporter log" was read as ingestion until a query returned the span. A gate that
+does not execute the path is not evidence about the path.

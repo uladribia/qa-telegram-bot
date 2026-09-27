@@ -3,12 +3,6 @@
 Instructions for coding agents (and humans) working in this repository.
 This file describes **how** to write code here, not **what** to build.
 
-The binding implementation plan for this hardening pass is
-[`instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md`](instructions/qa-telegram-bot-retrieval-classifier-listener-plan.md).
-Read it before starting any work. The other plans under `instructions/` are
-deprecated and must not be used as implementation contracts. If this file and
-the binding plan disagree, stop and ask; never silently pick one.
-
 When a refactor or implementation plan is provided in Markdown, follow it
 autonomously and do not stop for user input at ordinary implementation steps,
 checkpoints, test results, or documentation updates. Ask only when a genuine
@@ -50,7 +44,9 @@ execution is for the product code and its tests, not for editing the repository.
   production uses Cloudflare D1. Any vector/search index is derived and must be
   rebuildable from that runtime's SQL store. Never store semantic knowledge only
   in the index.
-- **No PII, no raw message text in logs** (see §8).
+- **No PII in credentials, full content in telemetry.** Message text, sender
+  identity, prompts, and answers *are* exported to Logfire while testing (see
+  §8); tokens, secrets, and keys are never exported.
 - **Tests are offline and deterministic.** No live network, API, or model calls
   in tests; fakes live in tests.
 - **v1 processes no media.** Attachments are metadata only.
@@ -61,22 +57,32 @@ execution is for the product code and its tests, not for editing the repository.
 
 ## 2. Stack (locked)
 
-| Concern | Tool |
-|---|---|
-| Language / runtime | Python 3.13 |
-| Dependencies, env, run | `uv` |
-| HTTP | FastAPI |
-| Validation / DTOs / settings | Pydantic v2 |
-| CLIs | Typer |
-| Logging | Loguru |
-| Lint + format | Ruff |
-| Type checking | `ty` |
-| Tests | `pytest` |
-| Worker runtime / deploy | Cloudflare Python Workers, `pywrangler` |
-| Dev environment | Docker (dev/CI only, no Compose) |
+| Concern                      | Tool                                    |
+| ---------------------------- | --------------------------------------- |
+| Language / runtime           | Python 3.13                             |
+| Dependencies, env, run       | `uv`                                    |
+| HTTP                         | FastAPI                                 |
+| Validation / DTOs / settings | Pydantic v2                             |
+| CLIs                         | Typer                                   |
+| Logging                      | Logfire                                 |
+| Lint + format                | Ruff                                    |
+| Type checking                | `ty`                                    |
+| Tests                        | `pytest`                                |
+| Worker runtime / deploy      | Cloudflare Python Workers, `pywrangler` |
+| Dev environment              | Docker (dev/CI only, no Compose)        |
 
 Do not add a framework or dependency that is not in the plan without a documented
 reason. Reach for the standard library first. Prefer the existing stack.
+
+**Loguru is being replaced by Logfire; the migration is not done yet.** Logfire
+is now the observability stack in both runtimes: `infrastructure/logging.py` is
+the only module that configures it, it exports request and client-call spans to
+`oleguer-sagarra/qa-telegram` (EU), and a runtime without a write token keeps its
+spans local. Loguru is still a dependency and still writes the process logs, and
+it will be removed only in a dedicated session with its own plan. Until then: do
+not add new Loguru usage, do not configure a second logging system, and do not
+assume Loguru records reach Logfire (they do not). Treat "Logging | Logfire" as
+the destination state, not the current one.
 
 ## 3. Layout and dependency rule
 
@@ -97,7 +103,8 @@ tests/{unit,integration,architecture}/
 Rules:
 
 - `domain/` and `application/` must not import `fastapi`, `workers`, Telegram
-  libraries, D1/Vectorize bindings, HTTP clients, Loguru, or `infrastructure/`.
+  libraries, D1/Vectorize bindings, HTTP clients, the logging SDK (`logfire`;
+  `loguru` until its migration lands), or `infrastructure/`.
 - `application/` depends on `ports/` Protocols, never on concrete adapters.
 - Convert external payloads to Pydantic DTOs at the adapter boundary, as early as
   possible.
@@ -148,13 +155,13 @@ make all              # lint then the fast test tier
 
 Pick the smallest command that covers the change:
 
-| Change | Run |
-|---|---|
-| Pure logic, docs, config | `make test` |
-| Use case, flow, or adapter behaviour | `make test-integration` |
-| Classifier, retrieval, or listener behaviour | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
-| `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke` |
-| Before merging to `main` | `make lint` plus the smallest tier that covers the change |
+| Change                                                     | Run                                                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Pure logic, docs, config                                   | `make test`                                                                              |
+| Use case, flow, or adapter behaviour                       | `make test-integration`                                                                  |
+| Classifier, retrieval, or listener behaviour               | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
+| `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke`                                                                             |
+| Before merging to `main`                                   | `make lint` plus the smallest tier that covers the change                                |
 
 Do not run `make smoke` on every change: it builds and boots the Worker and takes
 minutes. Reserve it for milestone boundaries and runtime-affecting changes.
@@ -209,15 +216,44 @@ Rules:
 
 ## 8. Logging and privacy
 
-- Configure Loguru in exactly one module; no sinks configured elsewhere.
-- Development: human-readable, `DEBUG`. Production: structured JSON to
-  stdout/stderr only. Never write log files.
-- Use contextual fields (`request_id`, `conversation_id`, `use_case`,
-  `duration_ms`, ...) instead of string interpolation.
-- Never log raw message text, answers, sender names/usernames/phone numbers, raw
-  payloads, or full prompts. Log lengths, hashes, counts, similarities, model
-  names, and decisions instead.
+Logfire is the observability stack. `infrastructure/logging.py` is the only
+module that configures it, and it is configured with `if-token-present`: a
+runtime without a write token starts normally and keeps its spans local.
+Telemetry must never break the answer path — every step is isolated, and a
+failure is logged (`logfire_step_failed`) and skipped, never raised.
+
+**Content capture is on while the project is under test.**
+`KB_LOGFIRE_CAPTURE_CONTENT` (default `true`) exports message text, sender
+identity, prompts, and answers, deliberately, so a flow can be reconstructed end
+to end while debugging. The goal is visibility, not redaction: a half-redacted
+trace that hides the question is worse than no trace. This is a testing posture,
+not a product decision — turning it off is a one-setting change, and it must be
+revisited before anything outside a private test group is ever connected.
+
+**Credentials are never exported, whatever the capture setting is.**
+
+- Never export or log a bot token, webhook secret, API key, password, or
+  cookie. Scrubbing is always on and is not optional; the SDK scrubs by key
+  name, and `SECRET_VALUE_PATTERNS` covers credential *values* that no key name
+  reveals, such as the Telegram bot token inside the transport's request URL.
+  Read a span's `attributes` after adding a field: a leak is invisible in code
+  review and obvious in a query.
 - Never send data to any AI service other than the allowed models.
+- Never write log files. Development stays human-readable, production structured
+  JSON to stdout/stderr.
+- Tests and CI must not send telemetry: `tests/conftest.py` sets
+  `KB_LOGFIRE_SEND_TO_LOGFIRE=false` before any entrypoint is imported.
+- Never commit, print, or widen the write token, and never put it in
+  `wrangler.jsonc`. Production reads it from a Cloudflare secret.
+
+Prefer explicit content events (`log_content` at a flow boundary) over blanket
+body capture: they are searchable, they are scrubbed by the same rules, and they
+say what the code decided rather than what a client happened to send.
+
+Until the Loguru migration lands, Loguru still writes the process logs and
+Logfire still owns the traces. Two systems, deliberately, for a short time: do
+not add a third, and do not treat the absence of Logfire records as evidence
+that a Loguru event happened.
 
 ## 9. Git and GitHub workflow
 

@@ -96,6 +96,14 @@ auto-retried. Details in [docs/operations.md](docs/operations.md).
 local development uses SQLite. The vector index is derived and rebuildable.
 Never store anything that exists only in the index.
 
+**3. Traces are on, and while testing they carry the conversation.**
+`logfire` exports request spans and, with `KB_LOGFIRE_CAPTURE_CONTENT`, the
+message text, sender identity, prompts, and answers of every flow — that is how
+a debugging trace is meant to be read. Tokens, the webhook secret, and API keys
+are always scrubbed. It is a testing posture, not a product decision: turn
+content capture off before connecting anything but a private test group. Details
+in [docs/operations.md](docs/operations.md#traces-logfire).
+
 ---
 
 ## Current deployment
