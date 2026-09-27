@@ -29,7 +29,7 @@ Reviewers are identified by opaque `principal_id` values. A local reviewer can r
 
 ## AI and quota
 
-Direct questions are never rejected by the estimate guard. Background and maintenance work check admission before each AI-consuming unit. Production Workers AI calls have hard adapter deadlines. Production grounded generation makes one structured call; malformed output becomes an abstention.
+Direct questions are never rejected by the estimate guard. Background and maintenance work check admission before each AI-consuming unit. Production Workers AI calls have hard adapter deadlines. Production grounded generation makes one structured call; malformed output is not treated as a model abstention but recorded as its own reason, `invalid_model_output`, with a safe parse code.
 
 ## Repair
 
