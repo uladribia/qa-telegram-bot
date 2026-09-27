@@ -130,11 +130,15 @@ make eval-local        # local Ollama + SQLite quality gate
 make smoke             # Worker boots, /healthz 200
 ```
 
-**The live suites have not been run against this configuration.** They need
+**The live suites have not been run against the deployed Worker.** They need
 `ALLOW_CLOUDFLARE_LIVE_TESTS=1` and a `BOT_BASE_URL`, and they burn the shared
-daily budget. `live --suite frozen` is the one to run first: it is the only
-suite that isolates a single component, and it is the cheapest way to tell a
-generator problem from a retrieval problem.
+daily budget. `make eval-live-frozen` is the one to run first: it is the only
+suite that isolates a single component, at one generation call per case, and it
+is the cheapest way to tell a generator problem from a retrieval problem.
+
+`make eval-local` passes all its gates (classifier, retrieval, listener), but
+none of those gates measure answer quality — see the finding above, the local
+generator is currently broken.
 
 `make smoke` asserts `/healthz`, which resolves no context, so it does **not**
 cover the observability path. After touching it, POST a webhook at a booted
@@ -149,31 +153,63 @@ old-vector baseline MRR of 0.455.
 measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
 width. One run is ~1900 neurons.
 
+## The finding this pass produced
+
+**The local generation model cannot answer anything, and until this pass that
+was invisible.** Measured against the real local stack on 2026-09-27:
+
+```text
+gemma3:270m       -> InvalidModelOutputError(schema_validation)
+                     raw='{"status": "answered"}'
+granite4:micro-h  -> OK  status=answered answer='La botiga obre de 10:00 al 20:00.'
+```
+
+`gemma3:270m` returns an object with a `status` and nothing else, which fails
+`GenerationOutput` validation. Every question therefore ended in
+`invalid_model_output`, whatever the evidence was. Before this pass the same
+event was recorded as a model abstention and read as a knowledge or retrieval
+problem; the frozen suite now names it in one line
+(`invalid_model_output=30`).
+
+This is a local-runtime problem, not a production one: production runs
+`mistral-small-3.1-24b-instruct`, which does answer. `granite4:micro-h` handles
+the schema correctly but is **not** in `LOCAL_ALLOWED_AI_MODELS`, and the
+zero-cost policy correctly refused it when tried; changing the local model is a
+separate, explicitly authorized decision, not part of this pass.
+
+Consequence for the local loop: any local measurement of answer quality is
+currently a measurement of a broken generator. Fix the local model before
+trusting `make eval-local` for anything about answers.
+
 ## Open issues, in the order they will bite
 
-1. **No live suite has run against the new reason taxonomy.** The gold and
-   frozen suites need an authorized live run; until then the taxonomy is
-   verified by tests and local runs only.
-2. **The generator is non-deterministic on borderline questions.** The same
+1. **The local generation model is broken** (above). Every local answer ends in
+   `invalid_model_output` with `gemma3:270m`. Either allow and adopt a local
+   model that honours the schema, or stop trusting local answer measurements.
+   This blocks every other local quality question.
+2. **No live suite has run against the production models.** The gold and
+   frozen suites need an authorized live run; the frozen suite has only been
+   run against the local stack, where the generator is the problem above.
+3. **The generator is non-deterministic on borderline questions.** The same
    prompt over the same five documents returned `answered` in five offline
    reproductions and `abstention` in production. The live suite score is
    therefore noisy in both directions, and any single measurement of it is weak
    evidence. The fix is a model whose willingness to answer is stable, which has
    not been searched for.
-3. **Retrieval recall is now the binding constraint, and it just got worse.**
+4. **Retrieval recall is now the binding constraint, and it just got worse.**
    0.860 of answerable questions have their answer in the three candidates the
    model sees. The ceiling was already known; the width cut lowered it. The
    cheapest recovery is not a reranker — it is putting the question text *and*
    the answer text into whatever retrieval exists, or raising `QA_TOP_K` back
    and measuring what the extra candidates do to abstention.
-4. **Completeness was never screened.** Mistral was chosen on grounding and
+5. **Completeness was never screened.** Mistral was chosen on grounding and
    declined 22 of 43 answerable questions at floor 0.45. A completeness screen
    means a rate over repeats, not a single call: 10 questions x 3 repeats x 3
    models is ~2700 neurons, one day. `llama-4-scout-17b-16e-instruct` is the
    untested candidate (3/3 grounded, 2.9 s, 31 neurons).
-5. **No daily report arrives** until an external scheduler is wired to the
+6. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
-6. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
+7. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
    that was never set on the deployed Worker. The local path works; nobody has
    watched a production span arrive.
 
