@@ -11,7 +11,7 @@ This is an explicit production/staging procedure. Commands that call Workers AI 
 7. Deploy the Worker.
 8. Check `/healthz` and `/readyz` where applicable. `/healthz` is served by the static asset layer (`public/healthz`, deployed with `run_worker_first: false`) and answers from the edge even if the Python interpreter cannot start; `/readyz` runs inside Python and is the application-side probe. Monitor both. Neither resolves the application context, so neither exercises telemetry: after any observability change, POST a webhook and read the logs.
 9. Seed committed data and register logical spaces/channel bindings.
-10. Register the Telegram webhook at `/telegram/webhook`.
+10. Register the Telegram webhook at `/adapters/telegram/webhook` (`uv run kb set-webhook` does this for you). The path changed with the adapter split; re-register after deploying, or Telegram keeps posting to the old URL and the bot goes silent.
 11. Run the guarded tiny smoke only after explicit authorization:
 
 ```bash

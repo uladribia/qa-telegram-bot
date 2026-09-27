@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: MIT
-"""Shared application context exposed to transport adapters."""
+"""Shared application context exposed to the API and to adapters.
+
+Everything here is channel-independent application state. Connector-specific
+dependencies are grouped on the connector that owns them, so a shared service
+never has to pretend to be Telegram-aware.
+"""
 
 from dataclasses import dataclass
 
-from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
-from knowledge_bot.adapters.telegram.client import TelegramClient
+from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -15,6 +19,7 @@ from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.revert import CorrectionReverter
@@ -32,10 +37,10 @@ class AppContext:
     """Services and adapter dependencies shared by HTTP routes."""
 
     settings: Settings
-    identity: TelegramIdentity
     clock: Clock
     ingestor: MessageIngestor
     classifier: MessageClassifier
+    listener: ListenerIngestor
     background_indexer: BackgroundIndexer
     answer: AnswerService
     reindex: ReindexService
@@ -49,7 +54,7 @@ class AppContext:
     daily_report: DailyReportService
     reverter: CorrectionReverter
     budget: AiBudget
-    transport: TelegramClient
+    telegram: TelegramChannel
     delivery_receipts: DeliveryReceiptRepository
     pairing: MessagePairingService
     projector: SearchProjectionService

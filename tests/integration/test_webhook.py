@@ -7,8 +7,10 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
+from knowledge_bot.api.app import create_app
 from knowledge_bot.application.classifier import MessageClassifier
+from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.infrastructure.context import AppContext
 from tests.fakes.ai import FakeEmbedder, linear_head
@@ -41,7 +43,9 @@ def test_update_is_acknowledged_before_it_is_processed() -> None:
 
     client = TestClient(create_app(lambda request: context, defer))
     response = client.post(
-        "/telegram/webhook", json=_update("/ask quan entrenen?"), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update("/ask quan entrenen?"),
+        headers=SECRET_HEADER,
     )
 
     assert response.json() == {"status": "accepted"}
@@ -87,7 +91,7 @@ def test_invalid_secret_is_rejected() -> None:
     """A wrong webhook secret returns 401 and stores nothing."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("/ask hola"),
         headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
     )
@@ -99,7 +103,7 @@ def test_disallowed_chat_is_ignored() -> None:
     """Updates from another chat are ignored."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("/ask hola", chat_id=-1),
         headers=SECRET_HEADER,
     )
@@ -111,7 +115,9 @@ def test_addressed_message_is_answered_and_persisted() -> None:
     """An addressed message is stored and marked to be answered."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook", json=_update("/ask quan entrenen?"), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update("/ask quan entrenen?"),
+        headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "answer"}
     stored = _stored(context)
@@ -128,12 +134,12 @@ def test_delivery_failure_replays_the_persisted_answer_once() -> None:
     client = _client(context)
     update = _update("/ask quan entrenen?")
 
-    first = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    first = client.post(TELEGRAM_WEBHOOK_PATH, json=update, headers=SECRET_HEADER)
     assert first.status_code == 503
     assert asyncio.run(context.answer.answers.get("ans:-100:10")) is not None
     assert transport.answers == []
 
-    second = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    second = client.post(TELEGRAM_WEBHOOK_PATH, json=update, headers=SECRET_HEADER)
     assert second.status_code == 200
     assert len(transport.answers) == 1
     receipt = asyncio.run(
@@ -141,7 +147,7 @@ def test_delivery_failure_replays_the_persisted_answer_once() -> None:
     )
     assert receipt is not None
 
-    third = client.post("/telegram/webhook", json=update, headers=SECRET_HEADER)
+    third = client.post(TELEGRAM_WEBHOOK_PATH, json=update, headers=SECRET_HEADER)
     assert third.status_code == 200
     assert len(transport.answers) == 1
     assert (
@@ -154,7 +160,7 @@ def test_empty_text_does_not_crash_reviewer_command_parsing() -> None:
     """An empty Telegram text is ignored safely."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook", json=_update(""), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH, json=_update(""), headers=SECRET_HEADER
     )
     assert response.status_code == 200
     assert response.json() == {"status": "ignored"}
@@ -165,7 +171,9 @@ def test_bare_question_is_ignored_by_default() -> None:
     """Without the background listener, an unaddressed question is ignored."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook", json=_update("quan entrenen?"), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update("quan entrenen?"),
+        headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ignored"}
     assert _stored(context) is None
@@ -175,7 +183,9 @@ def test_listener_ingests_unaddressed_messages() -> None:
     """With the background listener on, unaddressed traffic is stored."""
     context, _ = build_test_context(background_listener_enabled=True)
     response = _client(context).post(
-        "/telegram/webhook", json=_update("quan entrenen?"), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update("quan entrenen?"),
+        headers=SECRET_HEADER,
     )
     assert response.json() == {"status": "ingest"}
     assert _stored(context) is not None
@@ -185,11 +195,19 @@ def _listener_context(**vectors: list[float]) -> AppContext:
     """Build a listener context with a controllable linear classifier head."""
     context, _ = build_test_context(background_listener_enabled=True)
     embedder = FakeEmbedder(vector=[0.25, 0.25, 0.25, 0.25], by_text=dict(vectors))
+    classifier = MessageClassifier(
+        embedder=embedder,
+        head=linear_head(len(embedder.vector)),
+    )
     return replace(
         context,
-        classifier=MessageClassifier(
-            embedder=embedder,
-            head=linear_head(len(embedder.vector)),
+        classifier=classifier,
+        listener=ListenerIngestor(
+            ingestor=context.ingestor,
+            classifier=classifier,
+            budget=context.budget,
+            pairing=context.pairing,
+            background_indexer=context.background_indexer,
         ),
     )
 
@@ -212,7 +230,7 @@ def test_listener_stores_pure_chitchat_without_evidence_status() -> None:
         },
     )
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("gràcies, cracks!"),
         headers=SECRET_HEADER,
     )
@@ -235,7 +253,7 @@ def test_listener_labels_kept_context() -> None:
         },
     )
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("gràcies, demà a les sis?"),
         headers=SECRET_HEADER,
     )
@@ -253,7 +271,7 @@ def test_listener_persists_budget_deferred_message_without_ai() -> None:
     assert isinstance(usage, InMemoryAiUsageRepository)
     usage.seed("2026-09-19", 6_000.0)
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("recordem que demà hi ha entrenament", message_id=29),
         headers=SECRET_HEADER,
     )
@@ -278,7 +296,7 @@ def test_bounded_backlog_processes_deferred_background_messages() -> None:
     )[0]
     client = _client(context)
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("recordem que demà hi ha entrenament", message_id=28),
         headers=SECRET_HEADER,
     )
@@ -311,7 +329,7 @@ def test_listener_indexes_relevant_background_evidence_immediately() -> None:
         },
     )
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("recordem que demà hi ha entrenament", message_id=30),
         headers=SECRET_HEADER,
     )
@@ -341,7 +359,7 @@ def test_admin_background_evidence_uses_connector_sender_authority() -> None:
         },
     )
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("recordem que l'horari ha canviat", message_id=31, from_id=1),
         headers=SECRET_HEADER,
     )
@@ -370,13 +388,13 @@ def test_listener_matches_a_reply_to_its_parent_question() -> None:
     )
     client = _client(context)
     parent = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update("a quina hora entrenen?", message_id=20),
         headers=SECRET_HEADER,
     )
     assert parent.json() == {"status": "ingest"}
     reply = _update("finalment a les sis", message_id=21, reply_to=20)
-    response = client.post("/telegram/webhook", json=reply, headers=SECRET_HEADER)
+    response = client.post(TELEGRAM_WEBHOOK_PATH, json=reply, headers=SECRET_HEADER)
     assert response.json() == {"status": "ingest_pair"}
     stored = asyncio.run(context.ingestor.messages.get("-100:21"))
     assert stored is not None
@@ -390,7 +408,7 @@ def test_reprocessing_the_same_update_is_idempotent() -> None:
     client = _client(context)
     for _ in range(2):
         response = client.post(
-            "/telegram/webhook", json=_update("/ask hola"), headers=SECRET_HEADER
+            TELEGRAM_WEBHOOK_PATH, json=_update("/ask hola"), headers=SECRET_HEADER
         )
         assert response.status_code == 200
     assert _stored(context) is not None
@@ -410,7 +428,7 @@ def test_a_strangers_dm_is_ignored_and_never_stored() -> None:
     """
     context, transport = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update(
             "quan entrenen?",
             message_id=77,
@@ -429,7 +447,7 @@ def test_an_allowed_user_may_dm_the_bot() -> None:
     """Users on the allowlist can start a private conversation."""
     context, _ = build_test_context(allowed_user_ids=frozenset({"777"}))
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_update(
             "quan entrenen?",
             message_id=78,

@@ -6,8 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import ClassificationStatus, ContentType, IndexStatus
+from knowledge_bot.models.common import SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
 from tests.fakes.context import build_test_context
 from tests.fakes.support import FrozenClock
 

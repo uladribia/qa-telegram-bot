@@ -8,10 +8,10 @@ retry webhooks) must not duplicate state.
 import json
 from dataclasses import dataclass
 
-from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.entities import Attachment, Conversation, Message, Source
 from knowledge_bot.domain.enums import ClassificationStatus, IndexStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
+from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
     ConversationRepository,

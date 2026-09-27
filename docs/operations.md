@@ -324,7 +324,7 @@ does.
 The local runtime exports to Logfire, project `oleguer-sagarra/qa-telegram` in
 the EU region, as `environment=local`. The Worker is configured with
 `environment=cloudflare` but currently exports nothing: see
-[Production tracing is disabled](#production-tracing-is-disabled-and-why). Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
+[Production tracing is disabled](#production-tracing-is-disabled-and-why). Each HTTP request is a span named `POST /adapters/telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
 
 ```bash
 # fresh spans for the service, in the exact project

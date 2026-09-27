@@ -6,12 +6,13 @@ from typing import Literal
 
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.seed import SeedService
-from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion
 from knowledge_bot.domain.enums import ContentType, QAStatus
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.scope import scope_for_space
+from knowledge_bot.models.common import SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.seed import SeedQA
 from tests.fakes.backend import InMemoryBackend
 from tests.fakes.repositories import (
     InMemoryQAItemRepository,

@@ -12,8 +12,8 @@ The background listener is off by default so the bot stays silent unless asked.
 
 from enum import StrEnum
 
-from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.policies import is_addressed
+from knowledge_bot.models.messages import NormalizedMessage
 
 
 class IntakeAction(StrEnum):

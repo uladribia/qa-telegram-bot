@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from html import unescape
 from urllib.request import Request, urlopen
 
-from knowledge_bot.contracts.seed import SeedQA
+from knowledge_bot.models.seed import SeedQA
 
 _UA = "knowledge-bot-snapshot/1.0"
 _SCRIPT_STYLE = re.compile(r"<(script|style)\b.*?</\1>", re.IGNORECASE | re.DOTALL)

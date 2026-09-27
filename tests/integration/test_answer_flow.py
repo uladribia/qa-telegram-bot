@@ -8,12 +8,13 @@ from datetime import UTC, datetime
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import ABSTENTION_TEXT, AnswerService
 from knowledge_bot.application.retrieval import RetrievalService
-from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode, AnswerReason, ContentType
 from knowledge_bot.domain.errors import (
     InvalidModelOutputError,
     ModelUnavailableError,
 )
+from knowledge_bot.models.common import SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.ports.generator import GenerationOutput
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import (

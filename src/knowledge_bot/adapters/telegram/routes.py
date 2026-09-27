@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""Telegram webhook HTTP adapter."""
+"""Telegram webhook HTTP adapter.
+
+The route validates the secret, parses the update, and hands it to the
+connector flow. It decides nothing about the update's meaning.
+"""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -7,11 +11,12 @@ from typing import Annotated, cast
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from knowledge_bot.adapters.inbound.telegram import (
-    is_valid_webhook_secret,
-)
-from knowledge_bot.contracts.telegram import TelegramUpdate
+from knowledge_bot.adapters.telegram.flow import handle_telegram_update
+from knowledge_bot.adapters.telegram.models import TelegramUpdate
+from knowledge_bot.adapters.telegram.normalize import is_valid_webhook_secret
 from knowledge_bot.infrastructure.context import AppContext
+
+TELEGRAM_WEBHOOK_PATH = "/adapters/telegram/webhook"
 
 TelegramUpdateHandler = Callable[[AppContext, TelegramUpdate], Awaitable[str]]
 Deferrer = Callable[[Awaitable[str]], None]
@@ -20,7 +25,6 @@ Deferrer = Callable[[Awaitable[str]], None]
 def register_telegram_routes(
     app: FastAPI,
     resolve_context: Callable[[Request], AppContext | Awaitable[AppContext]],
-    handle_update: TelegramUpdateHandler,
     defer: Deferrer | None = None,
 ) -> None:
     """Register the authenticated Telegram webhook on the HTTP app.
@@ -28,13 +32,12 @@ def register_telegram_routes(
     Args:
         app: The application to register the route on.
         resolve_context: Returns the application context for a request.
-        handle_update: Processes one validated Telegram update.
         defer: Hands the processing to the platform after the response, as the
             Worker does so a slow model cannot outlast Telegram's read timeout.
             Without it the update is processed inline, as the local runtime does.
     """
 
-    @app.post("/telegram/webhook")
+    @app.post(TELEGRAM_WEBHOOK_PATH)
     async def telegram_webhook(
         request: Request,
         secret: Annotated[
@@ -52,7 +55,7 @@ def register_telegram_routes(
         ):
             raise HTTPException(status_code=401, detail="invalid secret")
         update = TelegramUpdate.model_validate(await request.json())
-        processing = handle_update(context, update)
+        processing = handle_telegram_update(context, update)
         if defer is None:
             return {"status": await processing}
         logging.getLogger("knowledge_bot.webhook").info(

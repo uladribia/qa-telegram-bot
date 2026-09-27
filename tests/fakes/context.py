@@ -4,7 +4,8 @@
 import asyncio
 from datetime import UTC, datetime
 
-from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
+from knowledge_bot.adapters.telegram.channel import TelegramChannel
+from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
@@ -15,6 +16,7 @@ from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -123,23 +125,38 @@ def build_test_context(
     commits = InMemoryCorrectionCommitStore(
         backend.qa_items, backend.qa_versions, backend.qa_evidence, backend.feedback
     )
+    background_indexer = BackgroundIndexer(
+        backend.messages,
+        backend.conversations,
+        backend.sources,
+        classifier,
+        projector,
+        clock,
+        0.60,
+        0.15,
+        budget,
+    )
+    pairing = MessagePairingService(
+        backend.messages,
+        backend.conversations,
+        backend.sources,
+        backend.message_pair_candidates,
+        projector,
+        clock,
+    )
     context = AppContext(
         settings=settings,
-        identity=identity,
         clock=clock,
         ingestor=ingestor,
         classifier=classifier,
-        background_indexer=BackgroundIndexer(
-            backend.messages,
-            backend.conversations,
-            backend.sources,
-            classifier,
-            projector,
-            clock,
-            0.60,
-            0.15,
-            budget,
+        listener=ListenerIngestor(
+            ingestor=ingestor,
+            classifier=classifier,
+            budget=budget,
+            pairing=pairing,
+            background_indexer=background_indexer,
         ),
+        background_indexer=background_indexer,
         answer=AnswerService(
             RetrievalService(embedder, vectors),
             FakeGenerator(),
@@ -182,16 +199,9 @@ def build_test_context(
         ),
         reverter=CorrectionReverter(backend.qa_items, backend.qa_versions),
         budget=budget,
-        transport=transport,
+        telegram=TelegramChannel(identity=identity, client=transport),
         delivery_receipts=backend.delivery_receipts,
-        pairing=MessagePairingService(
-            backend.messages,
-            backend.conversations,
-            backend.sources,
-            backend.message_pair_candidates,
-            projector,
-            clock,
-        ),
+        pairing=pairing,
         projector=projector,
         runtime_smoke=RuntimeSmokeService(
             embedder, FakeGenerator(), vectors, manifest, clock

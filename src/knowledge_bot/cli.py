@@ -19,6 +19,7 @@ import typer
 
 from knowledge_bot.adapters.inbound.web_snapshot import fetch_html, parse_qa_html
 from knowledge_bot.adapters.inbound.whatsapp_export import parse_export
+from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
 from knowledge_bot.infrastructure.settings import Settings
 
 MIN_QA_COUNT = 30
@@ -356,7 +357,7 @@ def set_webhook(base_url: str = _BASE_URL) -> None:
     """Register the Telegram webhook for the deployed Worker."""
     _require_live_allowed(base_url)
     settings = Settings()
-    url = f"{base_url.rstrip('/')}/telegram/webhook"
+    url = f"{base_url.rstrip('/')}{TELEGRAM_WEBHOOK_PATH}"
     response = httpx.post(
         f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook",
         json={

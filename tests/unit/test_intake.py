@@ -4,8 +4,8 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.application.intake import IntakeAction, decide_intake
-from knowledge_bot.contracts.messages import NormalizedMessage
 from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.models.messages import NormalizedMessage
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
