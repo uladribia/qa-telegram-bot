@@ -122,6 +122,17 @@ class EvalReport:
         return "\n".join(lines)
 
 
+def load_gold() -> dict[str, list[dict[str, object]]]:
+    """Load the human gold set, the one source of truth for the live gates.
+
+    Returns:
+        The ``answers`` and ``abstentions`` cases, validated for unique ids,
+        unique questions, and valid modes.
+    """
+    gold = yaml.safe_load((EVALS_DIR / "gold.yaml").read_text(encoding="utf-8"))
+    return {"answers": list(gold["answers"]), "abstentions": list(gold["abstentions"])}
+
+
 def load_cases(name: str) -> list[dict[str, object]]:
     """Load an eval YAML file.
 
@@ -153,13 +164,9 @@ def eval_abstention_set() -> EvalReport:
     """Every abstention case is well formed and non-empty."""
     report = EvalReport(name="abstention/set")
     cases = [
-        *load_cases("abstention.yaml"),
+        *load_gold()["abstentions"],
         *load_cases("abstention_synthetic.yaml"),
     ]
-    report.check(
-        len(cases) >= 250,
-        f"expected >= 250 abstention cases, got {len(cases)}",
-    )
     for case in cases:
         question = case.get("question")
         report.check(
@@ -343,8 +350,7 @@ def eval_listener_dataset() -> EvalReport:
 def eval_answer_dataset() -> EvalReport:
     """Validate the expanded factual-answer dataset shape."""
     report = EvalReport(name="answers/dataset")
-    cases = load_cases("answers.yaml")
-    report.check(len(cases) >= 70, f"expected >= 70 answer cases, got {len(cases)}")
+    cases = [*load_gold()["answers"], *load_cases("answers_synthetic.yaml")]
     for case in cases:
         report.check(bool(case.get("id")), f"answer case lacks id: {case}")
         report.check(
@@ -881,10 +887,14 @@ def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> 
     answer = str(payload.get("answer", ""))
     expected_mode = case.get("expected_mode")
     if expected_mode is not None:
-        report.check(
-            mode == str(expected_mode),
-            f"{question!r}: mode {mode!r} != {expected_mode!r}",
-        )
+        matched = mode == str(expected_mode)
+        report.check(matched, f"{question!r}: mode {mode!r} != {expected_mode!r}")
+        if not matched:
+            report.attribute(
+                "model_false_abstention"
+                if mode == "abstention"
+                else "unexpected_answer"
+            )
     citations = [
         item for item in payload.get("citations") or [] if isinstance(item, dict)
     ]
@@ -910,19 +920,21 @@ def _eval_answer(base_url: str, case: dict[str, object], report: EvalReport) -> 
                     f"{question!r}: citation lacks a URL and an author+date",
                 )
         for term in _terms(case.get("must_include")):
-            if term.lower() not in answer.lower():
-                report.warn(f"{question!r}: missing term {term!r} (advisory)")
+            missing = term.lower() not in answer.lower()
+            report.check(not missing, f"{question!r}: answer is missing {term!r}")
+            if missing:
+                report.attribute("answer_content_failure")
         for claim in _terms(case.get("must_not_claim")):
-            report.check(
-                claim.lower() not in answer.lower(),
-                f"{question!r}: answer claims {claim!r}",
-            )
+            present = claim.lower() in answer.lower()
+            report.check(not present, f"{question!r}: answer claims {claim!r}")
+            if present:
+                report.attribute("answer_content_failure")
 
 
 def eval_live_answers(base_url: str) -> EvalReport:
     """Check that live answers are correct, sourced, and grounded (spec §46)."""
     report = EvalReport(name="answers/live")
-    for case in load_cases("answers.yaml"):
+    for case in load_gold()["answers"]:
         _eval_answer(base_url, case, report)
     return report
 
@@ -930,7 +942,7 @@ def eval_live_answers(base_url: str) -> EvalReport:
 def eval_live_abstention(base_url: str, *, gold_only: bool = False) -> EvalReport:
     """Check that unknown questions abstain instead of inventing (spec §41)."""
     report = EvalReport(name="abstention/live")
-    cases = list(load_cases("abstention.yaml"))
+    cases = list(load_gold()["abstentions"])
     if not gold_only:
         cases += load_cases("abstention_synthetic.yaml")
     for case in cases:

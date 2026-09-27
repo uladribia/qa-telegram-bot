@@ -40,9 +40,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("KB_SQLITE_PATH", "SQLITE_PATH"),
     )
     ollama_base_url: str = "http://127.0.0.1:11434"
-    log_content: bool = Field(
-        default=False, validation_alias=AliasChoices("KB_LOG_CONTENT", "LOG_CONTENT")
-    )
 
     # Telemetry master switch. The write token itself is not a setting: the
     # SDK reads LOGFIRE_TOKEN or the local project credentials.
@@ -134,8 +131,6 @@ class Settings(BaseSettings):
             < 1
         ):
             raise ValueError("budget fractions must be ordered")
-        if self.runtime is RuntimeMode.CLOUDFLARE and self.log_content:
-            raise ValueError("KB_LOG_CONTENT cannot be enabled in Cloudflare mode")
         return self
 
 

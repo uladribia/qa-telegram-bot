@@ -41,10 +41,30 @@ def test_local_models_use_local_allowlist() -> None:
     assert settings.generation_model in LOCAL_ALLOWED_AI_MODELS
 
 
-def test_cloudflare_rejects_content_logging() -> None:
-    """Cloudflare runtime cannot enable content logging."""
-    with pytest.raises(ValidationError, match="KB_LOG_CONTENT"):
-        Settings(_env_file=None, log_content=True)
+def test_content_capture_is_a_separate_switch_from_sending() -> None:
+    """Telemetry can be captured locally without being sent anywhere.
+
+    Content capture is the debugging switch; sending is its own switch. They
+    are separate settings on purpose, so a run can record content for the
+    console while exporting nothing.
+    """
+    settings = Settings(
+        _env_file=None,
+        logfire_capture_content=True,
+        logfire_send_to_logfire=False,
+    )
+    assert settings.logfire_capture_content is True
+    assert settings.logfire_send_to_logfire is False
+
+
+def test_the_removed_content_logging_setting_is_gone() -> None:
+    """``KB_LOG_CONTENT`` no longer exists; the capture flag replaced it."""
+    assert "log_content" not in Settings.model_fields
+    assert not any(
+        "KB_LOG_CONTENT" in str(alias)
+        for aliases in Settings.model_fields.values()
+        for alias in (aliases.alias or ())
+    )
 
 
 def test_ai_deadlines_are_bounded() -> None:
