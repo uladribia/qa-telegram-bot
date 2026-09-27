@@ -27,6 +27,13 @@ class EvidenceItem:
     label: str
     authority: int
     similarity: float
+    provenance: str = "official"
+    source_kind: str | None = None
+    #: The question this item answers. Retrieval matches on it, so the model
+    #: needs it to tell a near-miss from an answer. For curated Q&A it is the
+    #: canonical question; for reported evidence it is the question the message
+    #: replied to.
+    question: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

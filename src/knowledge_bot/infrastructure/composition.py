@@ -19,6 +19,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
@@ -123,7 +124,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             env, "CLASSIFIER_MODEL_PATH", "data/classifier/model.json"
         ),
         answer_similarity_floor=_text(env, "ANSWER_SIMILARITY_FLOOR", "0.35"),
-        qa_top_k=_text(env, "QA_TOP_K", "3"),
+        qa_top_k=_text(env, "QA_TOP_K", "5"),
         message_top_k=_text(env, "MESSAGE_TOP_K", "2"),
         ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
         ai_neuron_reserve_fraction=_text(env, "AI_NEURON_RESERVE_FRACTION", "0.25"),
@@ -310,6 +311,11 @@ def build_context(env: WorkerEnv) -> AppContext:
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(database),
             qa_versions=D1QAVersionRepository(database),
+        ),
+        promoter=QAPromoter(
+            qa_items=D1QAItemRepository(database),
+            qa_versions=D1QAVersionRepository(database),
+            clock=clock,
         ),
         budget=budget,
         telegram=TelegramChannel(

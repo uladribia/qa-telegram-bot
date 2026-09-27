@@ -65,6 +65,18 @@ class RevertRequest(BaseModel):
     qa_item_id: str = Field(default="")
 
 
+class PromoteRequest(BaseModel):
+    """Administrative Q&A promotion request.
+
+    ``target`` is a Q&A item id or the canonical question text as the operator
+    reads it in the review report. It defaults to empty so a body-less request
+    reaches the route's own guard, which answers 422 instead of failing model
+    construction.
+    """
+
+    target: str = Field(default="")
+
+
 class SeedRequest(BaseModel):
     """Versioned Q&A and imported-message seed request."""
 

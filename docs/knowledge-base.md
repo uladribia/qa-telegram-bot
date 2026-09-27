@@ -53,7 +53,7 @@ ranking:
   factual update embeds its own text.
 
 A single cosine threshold decides what evidence exists: candidates at or above
-`ANSWER_SIMILARITY_FLOOR` (0.35) are kept, the best `QA_TOP_K` (3) Q&A and
+`ANSWER_SIMILARITY_FLOOR` (0.35) are kept, the best `QA_TOP_K` (5) Q&A and
 `MESSAGE_TOP_K` (2) group candidates go to the model, a group's own variant
 suppresses the global answer for the same canonical question, and authority
 breaks remaining ties. The answer model (Mistral) and correction workflow are
@@ -212,6 +212,36 @@ reclassification command in the section below fixes existing rows.
 
 Reviewer delivery failures remain pending and escalate to the admin. The deterministic daily report is the only active report mechanism. The admin can roll a correction back with `kb revert` (see [operations.md](operations.md)) — never from Telegram.
 
+### Publishing seeded Q&A: `under_review` is not a queue
+
+A snapshot entry seeded with `"status": "in_review"` is stored as
+`under_review`, and that state is **write-only**. Retrieval filters on
+`status: active`, the item is never embedded, and no feedback record exists to
+approve it through the reviewer flow, so it can never reach the base on its own.
+Two production entries were stuck this way: *Com funciona el procés
+d'inscripcions?* and *Quan arriben els equipaments?* `kb review` flags them as
+*sota revisió*, which is the only warning you get.
+
+Seed such content as `published` unless it genuinely needs a human read first.
+
+**The two paths to a live answer, and they are not interchangeable:**
+
+| Path | What promotes it |
+|---|---|
+| A correction a reviewer approves | Automatic. `FeedbackService.approve` writes the item back as `active` in the same transaction as the new version, and the route reindexes it. |
+| A seeded snapshot entry marked `in_review` | Manual: `kb promote`. No reviewer decision exists to make it live. |
+
+```bash
+# by item id, or by the question text kb review prints
+uv run kb promote "Com s'escull el dorsal de la samarreta?"
+```
+
+`kb promote` sets the status to `active` and projects the item, so the cost is
+one embedding. It is idempotent, and it edits no answer text and creates no
+version. It is **not reversible**: the previous status is not recorded, so
+withdrawing a published entry is a separate, deliberate operation rather than
+something a flag flip can undo.
+
 ---
 
 ## Renewing the base from a live source
@@ -225,6 +255,26 @@ is ever deleted.
 uv run kb snapshot-web --url "https://example.org/faq" --out data/seed/qa.json
 BOT_BASE_URL=https://<worker>.workers.dev uv run kb seed --qa data/seed/qa.json --renew
 ```
+
+### Enriching an entry without re-snapshotting
+
+`--renew` matches on `canonical_key_for(question)`, so **editing an answer
+renews the existing item, but editing a question creates a new item and leaves
+the old one in place.** Rephrasing a canonical question to match how people
+actually ask — which is often the real fix for a question the bot fails to
+retrieve — therefore needs the stale item retired deliberately, or the base ends
+up with two near-identical entries competing for the same retrieval slots.
+
+On 2026-09-27 this was left undone on purpose: `On entrenen i juguen els partits
+els equips del club?` holds the venue and address, and it lost the top-3 cut for
+*on és el camp?* Rephrasing it to *"On és el camp? On juguen i entrenen?"* is
+the durable fix; `QA_TOP_K=5` may mask it. Retire the old item first.
+
+**Correction, measured the same day: the width did not mask it.** Retrieval for
+*on és el camp?* still returns the rain policy first and the venue entry is
+absent from all five slots, while *com es fan els pagaments?* was fixed the same
+day by a new payment entry. So this is still open: retire the old item,
+rephrase, seed the replacement, and promote it.
 
 A renewal that becomes current is indexed incrementally (~4 neurons each); no
 full reindex is needed. A diverged non-current refresh is not indexed until a

@@ -724,11 +724,11 @@ def _render(
         ("classifier macro F1 >= 0.90", classifier["macro_f1"] >= 0.90),
         ("classifier knowledge_update precision >= 0.92", ku_precision >= 0.92),
         ("classifier correction precision >= 0.92", corr_precision >= 0.92),
-        # Retrieval returns qa_top_k=3 candidates, so Recall@3 is the metric
-        # that describes the shipped system. The former Recall@5 >= 0.98 gate
-        # was written for a five-candidate hybrid that returned nothing lexical
-        # in practice; it is reported below but no longer gated.
-        ("retrieval Recall@3 >= 0.95", retrieval["recall3"]["semantic"] >= 0.95),
+        # Retrieval returns qa_top_k=5 candidates, so Recall@5 is the metric
+        # that describes the shipped system. The Recall@3 gate that replaced it
+        # described the narrower width and is reported below but no longer
+        # gated. Restore the 0.98 bar if a lexical leg ever returns.
+        ("retrieval Recall@5 >= 0.98", retrieval["recall5"]["semantic"] >= 0.98),
         (
             "retrieval MRR improves over baseline",
             retrieval["mrr"]["semantic"] > retrieval["mrr"]["baseline"],

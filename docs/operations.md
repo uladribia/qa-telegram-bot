@@ -56,6 +56,22 @@ uv run kb index repair --limit 100
 
 Use a full rebuild only when SQL truth is known to be correct and the derived index needs complete reconstruction. The rebuild cleanup is a separate zero-AI operation; the CLI then sends bounded batches of at most 100 and prints resume cursors after every batch. A resumed run skips cleanup.
 
+## Publishing seeded Q&A
+
+`under_review` is a **write-only** state: retrieval filters on `active`, the
+item is never embedded, and there is no feedback record to approve it, so it can
+never answer anything. `kb index repair` will not help — there is no projection
+row to repair.
+
+```bash
+uv run kb promote "<canonical question>"   # or the qa item id
+```
+
+One embedding per item. Idempotent, and it moves nothing but the status. Approving
+a reviewer correction does **not** need this: that path already writes `active`
+in the same transaction as the new version. See
+[knowledge-base.md](knowledge-base.md#publishing-seeded-qa-under_review-is-not-a-queue).
+
 ## Logs
 
 There is one logging system: the standard library, configured in
@@ -274,6 +290,31 @@ not model problems. On the axes that are not a tie, mistral is cheapest and
 needs no switch to stay inside its deadline. Swapping would cost a deployment, a
 prompt re-tune and the shared daily quota to buy one case.
 
+**Reverted 2026-09-27: production now runs `glm-4.7-flash` with thinking
+disabled.** The comparison above decided on mistral, and the reasoning for that
+still holds on the axes it measured. It was overridden for one reason the
+comparison does not capture: mistral declines too much. The production log shows
+six consecutive abstentions on 2026-09-26 and two more on 2026-09-27, across
+every question family, while the evidence set was complete and cleared the floor
+— a completeness failure, not a grounding one, and the one axis
+[the generator notes](#the-generator-measured-on-both-runtimes) above says was
+never screened.
+
+What was accepted knowingly, and is the reason this is not a free swap:
+
+- **Cost: ~25 neurons per call against mistral's ~9**, on a shared daily budget.
+  A busy group roughly triples the bill.
+- **Quality: 21/30 frozen against mistral's 22/30** — the weakest of the three
+  measured. Gold cases are a tie (20/26).
+- **A new failure shape:** `redundant_sources`, where two near-identical sources
+  must both be cited and GLM cites one. Mistral passes it.
+- **`AI_DISABLE_THINKING=true` is mandatory, not an optimisation.** The setting
+  defaults to `false`; deployed without it, this is the 53-second timeout that
+  made users report the bot never answered. It is set in `wrangler.jsonc` and
+  documented in `.env.example`. If you are reading this while a reasoning model
+  is deployed *without* that flag, that is the bug.
+- The same five gold failures are expected to remain: they are knowledge gaps.
+
 ### The gold set, measured on both runtimes
 
 `evals/gold.yaml` is the only suite that measures *this* knowledge base: 11
@@ -411,18 +452,25 @@ endpoint is classified identically.
 
 - **Candidate pool is 15 per list, fused with RRF.** No cross-encoder: a `bge-reranker-base` reranker was measured and removed. It promoted high-relevance, low-cosine items and pushed high-cosine items out of the top-5, thinning the generation prompt to 1047-1400 characters, and the model — told to return `insufficient` when evidence is insufficient — declined. It cost 1% of the neurons and bought nothing.
 - **BM25/FTS5 was removed; do not readd it without measuring recall.** As written it AND-ed every query token including stopwords and returned rows for **2 of 91** eval questions; a fixed OR-of-content-tokens query was worth +2 questions in 43 at Recall@5 and 0 questions at Recall@15. Locally it cost 0.984/0.986/0.973 (Recall@3/5, MRR) against 0.962/0.970/0.953 without it. `make eval-local` is the free check.
-- **The gated metric is Recall@3, because retrieval returns three Q&A candidates.** The former `Recall@5 >= 0.98` gate described a five-candidate hybrid and is reported but not gated. If `QA_TOP_K` is raised, restore it.
+- **The gated metric is Recall@5, because retrieval returns five Q&A candidates.** `QA_TOP_K` was raised from 3 to 5, which lifts gold answerable-question recall from 0.860 (37/43) to 0.907 at the same floor. The `Recall@5 >= 0.98` bar is restored as the doc required. **Check it before trusting it:** the 0.98 figure was measured on a five-candidate *hybrid*, and the semantic-only five-candidate system scored 0.970 on the synthetic set. If the restored gate fails, the cause is the missing lexical leg, not the width.
 - **The rerank score does not separate answerable from unanswerable questions.** Measured across all 76 eval questions: both distributions span 0.9997 down to 0.0000 and overlap almost completely. Any floor on a cross-encoder score loses more answers than it saves. Do not reintroduce one without a better separating signal.
 - **`ANSWER_SIMILARITY_FLOOR` is a thickness knob, not a precision device.** At 0.45 ten of twenty unanswerable eval questions already cleared it, while the answerable ones bottom out at cosine 0.357. At 0.35 — the lowest top-1 cosine any of the 43 answerable questions has — all 43 receive their full five-item evidence set. Most unanswerable questions also clear it, so abstention is the model's job, which is the design the always-grounded change adopted. Lowering it further costs nothing in precision and only adds prompt tokens.
 
 ## Answer selection
 
-- **The generation model is not a reasoning model, deliberately.** `@cf/zai-org/glm-4.7-flash` spent 10 551 characters of `reasoning_content` and 53.0 s on one real question, blowing the 35 s deadline into a user-visible "no info available". `@cf/mistralai/mistral-small-3.1-24b-instruct` answers the same question in 2.5 s and correctly returns `insufficient`.
+- **The generation model reasons, deliberately, with thinking switched off.** Production runs `@cf/zai-org/glm-4.7-flash` with `AI_DISABLE_THINKING=true`. Left thinking it spent 10 551 characters of `reasoning_content` and 53.0 s on one real question, blowing the 35 s deadline into a user-visible "no info available"; with the flag it measures 3.3-3.9 s and valid JSON. The flag is what makes the model usable, so treat it as part of the model choice, not a tuning knob.
 - **Screen a generator on completeness, not just grounding.** Mistral was chosen because it was the only candidate that refused when the evidence did not support an answer — the three Llamas invented a payment method in no document. It was never screened on how many answerable questions it *declines*, and that turned out to be the axis that fails. Any future model comparison needs both numbers.
 - **Grounding, not size, decides the model.** Measured on evidence that does not answer the question: `mistral-small-3.1-24b` abstained correctly, while `llama-3.1-8b-instruct-fp8`, `llama-3.3-70b-instruct-fp8-fast`, and `llama-3.2-3b-instruct` all invented a payment method that is in no document. Never swap in a smaller model on speed alone; run the live answer suite.
 - **Truncated output returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter degrades to `insufficient`. Safe direction, but a low cap silently increases abstentions. Measured: answerable questions need 675-851 completion tokens; the pathological case needed 2653. `AI_GENERATION_MAX_TOKENS=1024` is the compromise.
 - **The request carries no `response_format`.** The system prompt fixes the JSON shape and output is parsed and validated locally, so the structured-output mode only added a latency path.
-- **The prompt has one home, and the evidence lines carry a similarity score.** `infrastructure/prompt.py` holds the system prompt and the user rendering; the Workers AI and Ollama adapters import it. They each used to carry an identical private copy, which is how they drift — an architecture test now fails if a second copy appears. Each line reads `[id] (label, authority=N, similarity=0.48) text`, and rule 4 tells the model a low score is a weak match while forbidding a high score from excusing text that does not answer the question. The score is advice; `ANSWER_SIMILARITY_FLOOR` remains the only hard cutoff.
+- **The prompt has one home, and each evidence item carries its question, its provenance and a similarity score.** `infrastructure/prompt.py` holds the system prompt and the user rendering; the Workers AI and Ollama adapters import it. They each used to carry an identical private copy, which is how the two drift — an architecture test now fails if a second copy appears.
+    - **Every item renders as `Q:` (the question it answers) and `A:` (its text, every line prefixed).** The question was missing from the generator entirely until 2026-09-27: `Evidence.question` was populated from the vector metadata and then dropped at the `EvidenceItem` port boundary, so the model received bare assertions with no idea what they answered and had to infer relevance from the answer text alone. It now gets it for both tiers — the canonical question for Q&A, the replied-to question for reported evidence. This is also what separates a near-miss from an answer: *Què inclou el pagament* and *Com es paguen* are near-identical in cosine and answer different things, and rule 2 says so explicitly.
+    - **The `A:` prefix on every line is load-bearing**, not decoration. Multi-line answers (the equipment price list, the bus timetable) previously ran straight into the next item's text, because only the `[id]` header marked a boundary. Prefixing each line keeps the item boundaries unambiguous.
+    - **Provenance is `official` or `reported`.** `official` is the club's curated Q&A; `reported` is evidence inferred from group conversation, which may be casual chatter, hearsay or out of date. `RetrievalService` sets the tier from the vector `kind` it already filters on, and passes the connector-declared `source_kind` through without interpreting it (`whatsapp`, `telegram`, `web_snapshot`). Rule 3 tells the model official evidence is more trustworthy and to prefer it on conflict; rule 7 also requires citing only the items the answer rests on.
+    - **Provenance is not a licence to answer.** Rule 4 extends the similarity rule: `however high the score and however official or authoritative the item is`, an item that does not answer the question still yields `insufficient`. Without that clause, preferring official evidence would have turned *"on és el camp?"* into a confident answer from the rain policy — a high-authority item that does not answer the question. Mistral was selected precisely because it declines unsupported questions; see the generator notes above before relaxing this.
+    - **`qa_versions.origin` is not in the vector index**, so the model cannot yet distinguish a `web_seed` from a `human_approved` correction. Both are official and both carry authority 90, so the tier is unaffected; splitting them would need `IndexableQA.origin` and a reindex (~9k neurons, explicit authorization).
+    - The score is advice; `ANSWER_SIMILARITY_FLOOR` remains the only hard cutoff.
+    - **Not done: a second, answer-side retrieval list.** Q&A embeds the canonical question only, so a question phrased unlike the canonical wording can miss an answer that is present ("on és el camp?" vs *On entrenen i juguen els partits*). Embedding the answer as a second vector per item would generalise the fix, but it is not a small change: answer-side cosines are a different distribution, so the single 0.35 floor would need a second calibrated value; `_select_qa` dedups on `match.id` and would emit the same Q&A twice under two vector ids, feeding the `redundant_sources` shape GLM already fails; and the merged list would have to be traced per-list, because `trace_json` is the only durable record while production tracing is off. Sequence the Q/A rendering first, then measure a dual list with its own floor and top-k.
 - **The generation model call is never sent with no deadline and no token cap**: `AI_GENERATION_TIMEOUT_SECONDS` (35) and `AI_GENERATION_MAX_TOKENS` (1024) both apply. Read `workers_ai_call_completed` before raising either.
 
 ## Daily report

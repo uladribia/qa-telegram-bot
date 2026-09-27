@@ -141,6 +141,63 @@ async def test_full_correction_flow_creates_authoritative_local_version() -> Non
     assert await versions.get(version.id) is not None
 
 
+async def test_approving_a_correction_activates_the_item() -> None:
+    """Reviewer acceptance publishes the item, so retrieval can reach it.
+
+    This is the promotion the reviewer flow owes on its own: an approved
+    correction must not leave the item under_review, or the correction would be
+    stored and never answerable. The seed path has no feedback record and needs
+    ``kb promote`` instead.
+    """
+    service, answers, items, _versions, _ = await _service()
+    await _seed_answer(answers)
+    started = await service.start("ans:m1", PRINCIPAL)
+    assert started is not None
+    proposed = await service.propose(
+        started.id, "La llista la passa l'entrenador.", PRINCIPAL
+    )
+    assert proposed is not None
+
+    version = await service.approve(started.id, ReviewAction.APPROVE_LOCAL)
+    assert version is not None
+
+    item = await items.get(version.qa_id)
+    assert item is not None
+    assert item.status is QAStatus.ACTIVE
+
+
+async def test_approving_over_an_under_review_item_reactivates_it() -> None:
+    """A correction aimed at a seeded under_review item publishes it too."""
+    service, answers, items, versions, _ = await _service()
+    answer = await _seed_answer(answers)
+    key = canonical_key_for(answer.question)
+    await items.add(
+        QAItem(
+            "qa-seeded",
+            key,
+            answer.question,
+            QAStatus.UNDER_REVIEW,
+            NOW,
+            NOW,
+            current_version_id="qav-seeded-1",
+        )
+    )
+    await versions.add(
+        QAVersion("qav-seeded-1", "qa-seeded", answer.answer, 30, "web_seed", NOW)
+    )
+    started = await service.start(answer.id, PRINCIPAL)
+    assert started is not None
+    proposed = await service.propose(started.id, "Resposta corregida.", PRINCIPAL)
+    assert proposed is not None
+
+    version = await service.approve(started.id, ReviewAction.APPROVE_GLOBAL)
+    assert version is not None
+
+    item = await items.get(version.qa_id)
+    assert item is not None
+    assert item.status is QAStatus.ACTIVE
+
+
 async def test_resolved_feedback_cannot_be_decided_twice() -> None:
     """A repeated approval or rejection creates no second decision."""
     service, answers, _items, _, _ = await _service()

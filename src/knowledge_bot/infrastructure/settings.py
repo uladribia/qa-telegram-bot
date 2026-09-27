@@ -13,6 +13,7 @@ ALLOWED_AI_MODELS = frozenset(
     {
         "@cf/google/embeddinggemma-300m",
         "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        "@cf/zai-org/glm-4.7-flash",
     }
 )
 LOCAL_ALLOWED_AI_MODELS = frozenset({"embeddinggemma", "gemma3:270m"})
@@ -89,7 +90,7 @@ class Settings(BaseSettings):
     classifier_margin_threshold: float = 0.15
     classifier_model_path: str = "data/classifier/model.json"
     answer_similarity_floor: float = 0.35
-    qa_top_k: int = 3
+    qa_top_k: int = 5
     message_top_k: int = 2
     ai_daily_neuron_budget: float = 10_000.0
     ai_neuron_reserve_fraction: float = 0.25

@@ -22,6 +22,7 @@ from knowledge_bot.models.operations import (
     DailyReportRequest,
     EvalAnswerRequest,
     IndexRepairRequest,
+    PromoteRequest,
     ReindexRequest,
     RevertRequest,
     SeedRequest,
@@ -35,6 +36,7 @@ _MAX_EVAL_QUERIES = 20
 _EVAL_CALLS_PER_MINUTE = 60
 _EMPTY_EVAL_BODY = Body(default_factory=EvalAnswerRequest)
 _EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
+_EMPTY_PROMOTE_BODY = Body(default_factory=PromoteRequest)
 _EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
 _EMPTY_SEED_BODY = Body(default_factory=SeedRequest)
 _EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
@@ -191,6 +193,36 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
             "status": "reverted",
             "restored_version_id": restored.id,
             "projection_status": attempt.status,
+        }
+
+    @router.post("/internal/promote")
+    async def internal_promote(
+        request: Request,
+        body: PromoteRequest = _EMPTY_PROMOTE_BODY,
+        key: InternalKey = None,
+    ) -> dict[str, object]:
+        """Publish a seeded ``under_review`` Q&A item and project it.
+
+        A CLI operation, never a Telegram action. The reviewer flow does not
+        need it: approving a correction already writes the item back as active.
+        """
+        context = await internal_context(request, key, resolve_context)
+        if not body.target.strip():
+            raise HTTPException(status_code=422, detail="target required")
+        item = await context.promoter.promote(body.target)
+        if item is None:
+            raise HTTPException(status_code=404, detail="no such q&a item")
+        version_id = item.current_version_id
+        projection = (
+            "no_current_version"
+            if version_id is None
+            else (await context.reindex.try_reindex_qa_version(version_id)).status
+        )
+        return {
+            "status": item.status.value,
+            "qa_item_id": item.id,
+            "canonical_question": item.canonical_question,
+            "projection_status": projection,
         }
 
     @router.post("/internal/index/cleanup")

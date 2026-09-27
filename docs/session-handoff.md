@@ -103,7 +103,7 @@ guess: one log line per Workers AI call (`operation`, `model`, `characters`,
   worth +2 questions in 43 at Recall@5. Gone with it: the `LexicalIndex` port,
   `D1LexicalIndex`, the RRF fuser, the lexical half of the search projection,
   and `search_fts` (migration `0022_drop_search_fts.sql`).
-- **The evidence width is 3 + 2.** `QA_TOP_K` and `MESSAGE_TOP_K` are exposed
+- **The evidence width is 5 + 2.** `QA_TOP_K` and `MESSAGE_TOP_K` are exposed
   next to the floor in `wrangler.jsonc` so the deployed width is readable in
   one place.
 
