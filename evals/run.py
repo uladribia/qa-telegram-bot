@@ -37,11 +37,11 @@ from knowledge_bot.application.retrieval import (
     RetrievedEvidence,
 )
 from knowledge_bot.application.seed import SeedService
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import BotAnswer, QAItem, QAVersion
 from knowledge_bot.domain.enums import AnswerMode, QAStatus, ReviewAction
 from knowledge_bot.domain.identity import source_instance_id
 from knowledge_bot.domain.policies import is_ask_command
+from knowledge_bot.models.seed import SeedQA
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import (
     FakeEmbedder,

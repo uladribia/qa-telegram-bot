@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the boundary contracts."""
+"""Tests for the shared boundary models."""
 
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
-from knowledge_bot.contracts.api import BackgroundBacklogRequest, ReindexRequest
-from knowledge_bot.contracts.messages import (
+from knowledge_bot.domain.enums import ContentType, ProcessingStatus
+from knowledge_bot.models.common import (
     AttachmentRef,
-    NormalizedMessage,
     SourceDescriptor,
 )
-from knowledge_bot.contracts.seed import SeedQA
-from knowledge_bot.domain.enums import ContentType, ProcessingStatus
+from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.operations import BackgroundBacklogRequest, ReindexRequest
+from knowledge_bot.models.seed import SeedQA
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 

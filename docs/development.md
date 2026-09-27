@@ -60,6 +60,18 @@ confidence policy. All plan acceptance gates pass.
 
 ## Boundaries
 
+- `api/` owns FastAPI and nothing else: `api/app.py` composes the app and
+  registers routes, and `api/routes/` holds the canonical, channel-independent
+  `/v1` contract plus the internal operator endpoints. FastAPI is not an
+  adapter. A connector lives under `adapters/` and owns its own payloads,
+  identity, delivery, and route; the Telegram webhook is
+  `/adapters/telegram/webhook`. Both the canonical API and the connector call
+  the same application services directly — there is deliberately no HTTP hop
+  between them, and adding one needs its own plan.
+- `models/` holds the DTOs shared across channels (`NormalizedMessage`, the
+  question/feedback/operation requests, `SeedQA`). Telegram payload models are
+  **not** there: they are connector payloads and live in
+  `adapters/telegram/models.py`, so nothing outside the connector imports them.
 - `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
 - `logfire` is imported only from `infrastructure/logging.py` and
   `infrastructure/telemetry.py`, the only modules that configure the exporter
@@ -94,14 +106,15 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
   Telegram: those complete in milliseconds. The `workers_ai_call_*` lines give
   the exact split per call.
 - Cold start is outside the request timer. `resolve_context` runs before
-  `_handle_telegram_update` starts its `perf_counter`, so a large
-  `duration_ms` on `telegram_webhook_processed` is real work, not interpreter
-  start-up.
+  `handle_telegram_update` (in `adapters/telegram/flow.py`) starts its
+  `perf_counter`, so a large `duration_ms` on `telegram_webhook_processed` is
+  real work, not interpreter start-up.
 - The webhook must not await the AI pipeline. Telegram's read timeout is
   shorter than one generation deadline, so the route acknowledges and hands the
-  work to `defer` (see `create_app` in `adapters/http/app.py`). Anything added
-  to the inbound path inherits that: it runs after the response, in a
-  `waitUntil` task that no upstream retry can rescue.
+  work to `defer` (see `create_app` in `api/app.py`, passing it to
+  `register_telegram_routes`). Anything added to the inbound path inherits
+  that: it runs after the response, in a `waitUntil` task that no upstream
+  retry can rescue.
 - There is no log history. See [operations.md](operations.md#logs). What a log
   line cannot answer is answered instead by `bot_answers.trace_json`, written by
   `AnswerService._prepare` from the same values the decision branches used. When

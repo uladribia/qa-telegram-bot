@@ -5,11 +5,11 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from knowledge_bot.contracts.api import AskQuestionRequest
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.enums import ReviewAction
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.domain.scope import scope_for_space
+from knowledge_bot.models.questions import AskQuestionRequest
+from knowledge_bot.models.seed import SeedQA
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
 from knowledge_bot.ports.index import IndexableQA
 from tests.fakes.ai import FakeSearchIndexSource

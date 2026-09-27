@@ -15,13 +15,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from knowledge_bot.contracts.messages import (
-    AttachmentRef,
-    NormalizedMessage,
-    SourceDescriptor,
-)
 from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.domain.identity import source_instance_id
+from knowledge_bot.models.common import (
+    AttachmentRef,
+    SourceDescriptor,
+)
+from knowledge_bot.models.messages import NormalizedMessage
 
 # Android: ``19/09/26, 09:32 - Nom: Missatge``
 _ANDROID_HEADER = re.compile(

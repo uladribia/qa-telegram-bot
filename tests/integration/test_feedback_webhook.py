@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.http.app import create_app
 from knowledge_bot.adapters.outbound.telegram import FEEDBACK_BUTTON
+from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
+from knowledge_bot.api.app import create_app
 from knowledge_bot.application.feedback import (
     PROPOSAL_ACK,
     PROPOSAL_PROMPT,
@@ -85,7 +86,7 @@ def test_button_press_prompts_the_reporter_privately() -> None:
     context, transport = build_test_context()
     asyncio.run(_seed_answer(context))
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
@@ -107,13 +108,13 @@ def test_proposal_goes_to_the_admin_dm_and_acks_the_reporter() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
     prompt_id = transport.force_replies.__len__()
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("La llista la passa l'entrenador.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
@@ -130,13 +131,13 @@ def test_consumed_proposal_interaction_cannot_be_reused() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
     payload = _reply("Resposta nova.", reply_to=1)
-    first = client.post("/telegram/webhook", json=payload, headers=SECRET_HEADER)
-    second = client.post("/telegram/webhook", json=payload, headers=SECRET_HEADER)
+    first = client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
+    second = client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
 
     assert first.json() == {"status": "proposed"}
     assert second.json() == {"status": "ignored"}
@@ -148,17 +149,17 @@ def test_approve_creates_a_version_and_thanks_the_reporter() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=1),
         headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=1),
         headers=SECRET_HEADER,
     )
@@ -177,15 +178,17 @@ def test_reject_keeps_the_old_answer() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
     client.post(
-        "/telegram/webhook", json=_reply("proposta", reply_to=1), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_reply("proposta", reply_to=1),
+        headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:reject:fb:ans:-100:10", from_id=1),
         headers=SECRET_HEADER,
     )
@@ -201,15 +204,17 @@ def test_non_admin_cannot_confirm() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10"),
         headers=SECRET_HEADER,
     )
     client.post(
-        "/telegram/webhook", json=_reply("proposta", reply_to=1), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH,
+        json=_reply("proposta", reply_to=1),
+        headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
@@ -223,7 +228,7 @@ def test_unknown_callback_is_ignored() -> None:
     """A callback that matches no action is ignored."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook", json=_callback("nonsense"), headers=SECRET_HEADER
+        TELEGRAM_WEBHOOK_PATH, json=_callback("nonsense"), headers=SECRET_HEADER
     )
     assert response.json() == {"status": "ignored"}
 
@@ -269,12 +274,12 @@ def test_a_group_member_who_is_not_allowlisted_can_still_propose() -> None:
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta nova.", reply_to=1),
         headers=SECRET_HEADER,
     )

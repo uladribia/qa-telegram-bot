@@ -1,21 +1,19 @@
 # SPDX-License-Identifier: MIT
-"""Telegram inbound adapter: converts Updates to normalized messages.
+"""Telegram update normalization: raw updates to channel-independent models.
 
 The adapter makes no knowledge decisions. It verifies the chat, converts the
 payload into the channel-independent contract, and records attachment metadata
 only: binary content is never fetched in v1.
 """
 
-import hashlib
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from knowledge_bot.contracts.messages import (
-    AttachmentRef,
-    NormalizedMessage,
-    SourceDescriptor,
+from knowledge_bot.adapters.telegram.identity import (
+    TELEGRAM_RUNTIME_SOURCE_ID,
+    TelegramIdentity,
+    pseudonymize,
 )
-from knowledge_bot.contracts.telegram import (
+from knowledge_bot.adapters.telegram.models import (
     NormalizedCallback,
     TelegramMessage,
     TelegramUpdate,
@@ -23,49 +21,23 @@ from knowledge_bot.contracts.telegram import (
 from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.infrastructure.security import secrets_match
-
-TELEGRAM_RUNTIME_SOURCE_ID = "src:telegram:runtime"
-
-
-@dataclass(frozen=True, slots=True)
-class TelegramIdentity:
-    """Identifiers the adapter needs to route and address messages.
-
-    ``allowed_user_ids`` lists the people who may open a private chat with the
-    bot. The admin is always allowed implicitly.
-    """
-
-    admin_user_id: str | None = None
-    bot_id: str | None = None
-    bot_username: str | None = None
-    allowed_user_ids: frozenset[str] = frozenset()
-
-    def allows_sender(self, user_id: str | None) -> bool:
-        """Return whether a user may start a private conversation.
-
-        Args:
-            user_id: The raw Telegram user id, if known.
-
-        Returns:
-            ``True`` for the admin and for anyone on the allowed list.
-        """
-        if user_id is None:
-            return False
-        if self.admin_user_id and user_id == self.admin_user_id:
-            return True
-        return user_id in self.allowed_user_ids
+from knowledge_bot.models.common import AttachmentRef, SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
 
 
-def pseudonymize(value: str) -> str:
-    """Return a stable, non-reversible identifier for a user.
+def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
+    """Constant-time comparison of the Telegram webhook secret header.
 
     Args:
-        value: The raw identifier (for example a Telegram user id).
+        provided: The value of ``X-Telegram-Bot-Api-Secret-Token``.
+        expected: The configured secret.
 
     Returns:
-        A short hexadecimal hash.
+        ``True`` only when both are present and equal.
     """
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    if not provided or not expected:
+        return False
+    return secrets_match(provided, expected)
 
 
 def _display_name(sender: object) -> str | None:
@@ -88,21 +60,6 @@ def _display_name(sender: object) -> str | None:
         return name
     username = getattr(sender, "username", None)
     return f"@{username}" if username else None
-
-
-def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
-    """Constant-time comparison of the Telegram webhook secret header.
-
-    Args:
-        provided: The value of ``X-Telegram-Bot-Api-Secret-Token``.
-        expected: The configured secret.
-
-    Returns:
-        ``True`` only when both are present and equal.
-    """
-    if not provided or not expected:
-        return False
-    return secrets_match(provided, expected)
 
 
 def _attachment_for(

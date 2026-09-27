@@ -21,7 +21,7 @@ from workers import Request as WorkerRequest
 from workers import WorkerEntrypoint, asgi, wait_until
 from workers.asgi import run_in_background
 
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.api.app import create_app
 from knowledge_bot.infrastructure.composition import (
     WorkerEnv,
     build_context,

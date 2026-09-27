@@ -5,7 +5,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.api.app import create_app
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
 from knowledge_bot.infrastructure.context import AppContext

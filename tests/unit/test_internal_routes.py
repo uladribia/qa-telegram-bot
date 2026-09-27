@@ -1,20 +1,12 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the HTTP routes (health and webhook)."""
+"""Tests for the internal operator routes."""
 
 import pytest
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.http import app as app_module
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.api.app import create_app
+from knowledge_bot.api.routes import internal as internal_module
 from tests.fakes.context import build_test_context
-
-
-def test_healthz_returns_ok() -> None:
-    """The health endpoint reports the Worker is alive."""
-    context, _ = build_test_context()
-    response = TestClient(create_app(lambda request: context)).get("/healthz")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
 
 
 def test_eval_routes_are_refused_once_the_ai_budget_is_spent() -> None:
@@ -44,7 +36,9 @@ def test_retrieve_refuses_more_queries_than_one_chunk() -> None:
     """One request may not carry more queries than a single safe chunk."""
     context, _ = build_test_context()
     client = TestClient(create_app(lambda request: context))
-    queries = [f"què val {index}?" for index in range(app_module._MAX_EVAL_QUERIES + 1)]
+    queries = [
+        f"què val {index}?" for index in range(internal_module._MAX_EVAL_QUERIES + 1)
+    ]
     response = client.post(
         "/internal/retrieve",
         headers={"X-Internal-Key": "internal"},
@@ -56,7 +50,7 @@ def test_retrieve_refuses_more_queries_than_one_chunk() -> None:
 
 def test_eval_calls_are_throttled_per_isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     """A burst of evaluation calls is refused once the allowance is spent."""
-    monkeypatch.setattr(app_module, "_EVAL_CALLS_PER_MINUTE", 2)
+    monkeypatch.setattr(internal_module, "_EVAL_CALLS_PER_MINUTE", 2)
     context, _ = build_test_context()
     client = TestClient(create_app(lambda request: context))
     headers = {"X-Internal-Key": "internal"}
@@ -78,7 +72,7 @@ def test_eval_throttle_does_not_block_unauthenticated_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Requests without the internal key never consume the allowance."""
-    monkeypatch.setattr(app_module, "_EVAL_CALLS_PER_MINUTE", 1)
+    monkeypatch.setattr(internal_module, "_EVAL_CALLS_PER_MINUTE", 1)
     context, _ = build_test_context()
     client = TestClient(create_app(lambda request: context))
     for _ in range(3):

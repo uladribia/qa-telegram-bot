@@ -7,11 +7,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.contracts.messages import (
-    AttachmentRef,
-    NormalizedMessage,
-    SourceDescriptor,
-)
 from knowledge_bot.domain.entities import (
     Attachment,
     BotAnswer,
@@ -52,6 +47,11 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
+from knowledge_bot.models.common import (
+    AttachmentRef,
+    SourceDescriptor,
+)
+from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.ports.repositories import (
     AttachmentRepository,
     BotAnswerRepository,

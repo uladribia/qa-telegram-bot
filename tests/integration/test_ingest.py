@@ -4,12 +4,12 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.contracts.messages import (
+from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.models.common import (
     AttachmentRef,
-    NormalizedMessage,
     SourceDescriptor,
 )
-from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.models.messages import NormalizedMessage
 from tests.fakes.repositories import (
     InMemoryAttachmentRepository,
     InMemoryConversationRepository,

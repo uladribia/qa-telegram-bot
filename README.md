@@ -81,7 +81,7 @@ uv run pywrangler deploy
 | `make eval-live-reindex` | Same, after the explicitly authorized bounded reindex |
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
 
-Routes: `GET /healthz`; generic key-guarded `POST /v1/{questions,feedback,...}`; operational `POST /internal/jobs/daily-report`; and the Telegram webhook. Runtime generation exposes no LLM-judge endpoint.
+Routes: `GET /healthz`; generic key-guarded `POST /v1/{questions,feedback,...}`; operational `POST /internal/jobs/daily-report`; and the Telegram webhook at `POST /adapters/telegram/webhook`. Runtime generation exposes no LLM-judge endpoint.
 
 ---
 

@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
+from knowledge_bot.api.app import create_app
 from knowledge_bot.application.feedback import PROPOSAL_ACK, PROPOSAL_PROMPT
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode, FeedbackStatus
@@ -118,7 +119,7 @@ async def _seed_answer(context: AppContext) -> None:
 
 def _nominate_reviewer(context: AppContext, client: TestClient) -> None:
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_group_message(
             "/reviewer",
             from_id=ADMIN_ID,
@@ -132,7 +133,7 @@ def _nominate_reviewer(context: AppContext, client: TestClient) -> None:
 def _open_proposal(client: TestClient) -> int:
     """Start a correction and return the prompt message id to reply to."""
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
@@ -156,7 +157,7 @@ def test_non_admin_cannot_nominate() -> None:
     """A nomination from anyone but the admin is ignored."""
     context, _ = build_test_context()
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_group_message("/reviewer", from_id=777, reply_to=_pepe_message()),
         headers=SECRET_HEADER,
     )
@@ -170,7 +171,7 @@ def test_reviewer_without_reply_lists_current_reviewers() -> None:
     client = _client(context)
     _nominate_reviewer(context, client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_group_message("/reviewer", from_id=ADMIN_ID),
         headers=SECRET_HEADER,
     )
@@ -188,7 +189,7 @@ def test_admin_cannot_nominate_the_bot() -> None:
         "text": "resposta",
     }
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_group_message("/reviewer", from_id=ADMIN_ID, reply_to=bot_reply),
         headers=SECRET_HEADER,
     )
@@ -204,7 +205,7 @@ def test_flagging_twice_reuses_the_open_feedback() -> None:
     client = _client(context)
     _open_proposal(client)
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10", from_id=777, first_name="Joana"),
         headers=SECRET_HEADER,
     )
@@ -221,7 +222,7 @@ def test_flag_prompt_fails_with_an_alert_when_dm_is_unreachable() -> None:
     transport.dead_chats = frozenset({"555"})
     asyncio.run(_seed_answer(context))
     response = _client(context).post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:start:ans:-100:10", from_id=555),
         headers=SECRET_HEADER,
     )
@@ -258,7 +259,7 @@ def test_unreachable_reviewer_keeps_feedback_pending_and_activates_reviewer() ->
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
@@ -280,7 +281,7 @@ def test_unreachable_reviewer_escalates_to_admin_after_configured_timeout() -> N
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
@@ -291,7 +292,7 @@ def test_unreachable_reviewer_escalates_to_admin_after_configured_timeout() -> N
     assert any("0 s" in text for _, text in transport.messages)
 
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback(
             "feedback:edit:fb:ans:-100:10", from_id=ADMIN_ID, first_name="Admin"
         ),
@@ -299,7 +300,7 @@ def test_unreachable_reviewer_escalates_to_admin_after_configured_timeout() -> N
     )
     edit_prompt = transport.force_replies[-1][0]
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply(
             "La resposta local corregida és VERIFICAT-LOCAL.",
             reply_to=int(edit_prompt),
@@ -308,7 +309,7 @@ def test_unreachable_reviewer_escalates_to_admin_after_configured_timeout() -> N
         headers=SECRET_HEADER,
     )
     approval = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback(
             "feedback:approve-group:fb:ans:-100:10",
             from_id=ADMIN_ID,
@@ -328,7 +329,7 @@ def test_reviewer_off_removes_the_group_reviewer() -> None:
     client = _client(context)
     _nominate_reviewer(context, client)
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_group_message("/reviewer off", from_id=ADMIN_ID),
         headers=SECRET_HEADER,
     )
@@ -344,7 +345,7 @@ def test_proposal_from_the_group_goes_to_its_reviewer_not_the_admin() -> None:
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("La llista la passa l'entrenador.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
@@ -366,12 +367,12 @@ def test_group_reviewer_can_confirm_and_admin_gets_a_report() -> None:
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback(
             "feedback:approve-group:fb:ans:-100:10",
             from_id=REVIEWER_ID,
@@ -394,12 +395,12 @@ def test_local_reviewer_global_approval_is_denied_by_server() -> None:
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta global.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback(
             "feedback:approve-global:fb:ans:-100:10",
             from_id=REVIEWER_ID,
@@ -420,12 +421,12 @@ def test_a_stranger_cannot_confirm() -> None:
     _nominate_reviewer(context, client)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
     response = client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=888),
         headers=SECRET_HEADER,
     )
@@ -442,12 +443,12 @@ def test_revert_endpoint_rolls_back_and_reports_the_version() -> None:
     client = _client(context)
     prompt_id = _open_proposal(client)
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_reply("Resposta corregida.", reply_to=prompt_id),
         headers=SECRET_HEADER,
     )
     client.post(
-        "/telegram/webhook",
+        TELEGRAM_WEBHOOK_PATH,
         json=_callback("feedback:approve-global:fb:ans:-100:10", from_id=ADMIN_ID),
         headers=SECRET_HEADER,
     )

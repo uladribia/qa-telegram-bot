@@ -1,11 +1,20 @@
 # SPDX-License-Identifier: MIT
-"""Telegram boundary contracts.
+"""Telegram boundary models.
 
 A minimal, typed view of the Telegram Bot API objects the adapter consumes.
-Unknown fields are ignored so the API can evolve without breaking us.
+Unknown fields are ignored so the API can evolve without breaking us. These are
+connector payloads: nothing outside the Telegram adapter imports them.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class RegisterGroupRequest(BaseModel):
+    """Telegram group registration request."""
+
+    chat_id: str = Field(default="", min_length=1)
+    title: str | None = None
+    space_id: str | None = None
 
 
 class TelegramChat(BaseModel):

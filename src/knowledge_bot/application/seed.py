@@ -10,12 +10,12 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from knowledge_bot.application.ingest import MessageIngestor
-from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.contracts.seed import SeedQA
 from knowledge_bot.domain.entities import QAItem, QAVersion, Source
 from knowledge_bot.domain.enums import QAStatus
 from knowledge_bot.domain.identity import canonical_key_for, source_instance_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope, is_global
+from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.seed import SeedQA
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import (
     QAItemRepository,

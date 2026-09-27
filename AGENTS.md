@@ -87,12 +87,16 @@ second logging framework, and never configure handlers anywhere else.
 
 ```text
 src/knowledge_bot/
+├── api/           FastAPI app factory, canonical /v1 routes, internal operator
+│                  routes. Not a channel adapter; composition and routing only.
+├── adapters/      connectors: telegram/ (webhook, identity, payloads, delivery)
+│                  and inbound/ importers, outbound/ delivery
+├── models/        Pydantic DTOs shared across channels; connector payloads stay
+│                  in their adapter
 ├── domain/         entities, value objects, enums, policies (no I/O, no frameworks)
 ├── application/    use cases and orchestration (depends on domain + ports only)
 ├── ports/          Protocol interfaces (repositories, vector store, classifier,
 │                   generator, notifier, media, clock)
-├── contracts/      Pydantic DTOs at external boundaries
-├── adapters/       http/ (FastAPI app), telegram/ (webhook), inbound/ (importers), outbound/ (media)
 ├── infrastructure/ concrete externals (D1, Vectorize, Workers AI, logging, settings)
 ├── entry.py        Worker / ASGI entrypoint
 └── cli.py          Typer CLI
@@ -105,7 +109,17 @@ Rules:
   libraries, D1/Vectorize bindings, HTTP clients, the logging SDK (`logfire`;
   the logging SDK, or `infrastructure/`. The application layer reaches
   telemetry through the `ports/telemetry.py` protocols, never the SDK.
-- `application/` depends on `ports/` Protocols, never on concrete adapters.
+- `application/` depends on `ports/` Protocols, never on concrete adapters, and
+  never on `AppContext`: a use case takes its collaborators as constructor or
+  function arguments.
+- `api/routes/` outside `internal.py` is channel-independent. A canonical route
+  must not import an adapter, and an architecture test enforces it. A connector
+  owns its payload models, identity, delivery, and route: the Telegram webhook
+  is `/adapters/telegram/webhook` and nothing outside `adapters/telegram/`
+  imports a Telegram type.
+- The canonical API and each adapter call the application services **directly**.
+  Do not add an HTTP hop between them speculatively; if the deployment is ever
+  split, the adapter is what changes.
 - Convert external payloads to Pydantic DTOs at the adapter boundary, as early as
   possible.
 - No SQL in use cases. No prompts in HTTP routes. No channel-specific branching in

@@ -21,15 +21,15 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
-from knowledge_bot.contracts.api import (
+from knowledge_bot.domain.entities import BotAnswer, Conversation, Source
+from knowledge_bot.domain.enums import AnswerMode, AnswerReason
+from knowledge_bot.domain.errors import InvalidModelOutputError, ModelUnavailableError
+from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.questions import (
     AnswerSource,
     AskQuestionRequest,
     AskQuestionResponse,
 )
-from knowledge_bot.contracts.messages import NormalizedMessage
-from knowledge_bot.domain.entities import BotAnswer, Conversation, Source
-from knowledge_bot.domain.enums import AnswerMode, AnswerReason
-from knowledge_bot.domain.errors import InvalidModelOutputError, ModelUnavailableError
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest, Generator
 from knowledge_bot.ports.repositories import (

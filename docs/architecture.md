@@ -2,6 +2,25 @@
 
 The Worker has one SQL source of truth: D1 in production and SQLite locally. The vector index is a derived, rebuildable projection.
 
+## Layers
+
+```text
+api/          FastAPI: the app factory, the canonical /v1 contract, internal operator routes
+adapters/     connectors: Telegram (webhook, identity, payloads, delivery), importers
+models/       DTOs shared across channels; connector payloads stay with their adapter
+application/  use cases, wired to ports
+domain/       entities, policies, enums
+ports/        protocol interfaces
+infrastructure/ concrete externals: D1, Vectorize, Workers AI, logging, settings
+```
+
+`api/` owns FastAPI and is not a channel adapter. The canonical `/v1` routes and
+the Telegram webhook are two front doors onto the same application services;
+neither calls the other over HTTP. A connector owns everything channel-specific,
+including its payload models, so nothing outside it imports a Telegram type.
+`tests/architecture/test_layer_boundaries.py` fails if a canonical route starts
+importing a connector.
+
 ## Runtime flow
 
 ```text

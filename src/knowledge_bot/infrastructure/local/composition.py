@@ -5,9 +5,10 @@ from pathlib import Path
 
 import httpx
 
-from knowledge_bot.adapters.inbound.telegram import TelegramIdentity
 from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
+from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.client import TelegramClient
+from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.background import BackgroundIndexer
@@ -19,6 +20,7 @@ from knowledge_bot.application.groups import SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
+from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -210,37 +212,49 @@ async def build_context(
     runtime_smoke = RuntimeSmokeService(embedder, generator, vectors, manifest, clock)
     pair_candidates = D1MessagePairCandidateRepository(binding)
     commits = D1CorrectionCommitStore(binding)
+    ingestor = MessageIngestor(
+        sources=sources,
+        conversations=conversations,
+        messages=messages,
+        attachments=D1AttachmentRepository(binding),
+    )
+    background_indexer = BackgroundIndexer(
+        messages=messages,
+        conversations=conversations,
+        sources=sources,
+        classifier=classifier,
+        projector=projector,
+        clock=clock,
+        confidence_threshold=settings.classifier_confidence_threshold,
+        margin_threshold=settings.classifier_margin_threshold,
+        budget=budget,
+    )
+    pairing = MessagePairingService(
+        messages=messages,
+        conversations=conversations,
+        sources=sources,
+        candidates=pair_candidates,
+        projector=projector,
+        clock=clock,
+        budget=budget,
+        question_window_minutes=settings.pairing_question_window_minutes,
+        max_pending_questions=settings.pairing_max_pending_questions,
+        confidence_threshold=settings.classifier_confidence_threshold,
+        margin_threshold=settings.classifier_margin_threshold,
+    )
     context = AppContext(
         settings=settings,
-        identity=TelegramIdentity(
-            admin_user_id=settings.admin_telegram_user_id,
-            bot_id=settings.telegram_bot_id,
-            bot_username=settings.telegram_bot_username,
-            allowed_user_ids=frozenset(
-                item.strip()
-                for item in settings.allowed_telegram_user_ids.split(",")
-                if item.strip()
-            ),
-        ),
         clock=clock,
-        ingestor=MessageIngestor(
-            sources=sources,
-            conversations=conversations,
-            messages=messages,
-            attachments=D1AttachmentRepository(binding),
-        ),
+        ingestor=ingestor,
         classifier=classifier,
-        background_indexer=BackgroundIndexer(
-            messages=messages,
-            conversations=conversations,
-            sources=sources,
+        listener=ListenerIngestor(
+            ingestor=ingestor,
             classifier=classifier,
-            projector=projector,
-            clock=clock,
-            confidence_threshold=settings.classifier_confidence_threshold,
-            margin_threshold=settings.classifier_margin_threshold,
             budget=budget,
+            pairing=pairing,
+            background_indexer=background_indexer,
         ),
+        background_indexer=background_indexer,
         answer=AnswerService(
             retrieval=RetrievalService(
                 embedder=embedder,
@@ -312,22 +326,22 @@ async def build_context(
             qa_versions=D1QAVersionRepository(binding),
         ),
         budget=budget,
-        transport=transport,
+        telegram=TelegramChannel(
+            identity=TelegramIdentity(
+                admin_user_id=settings.admin_telegram_user_id,
+                bot_id=settings.telegram_bot_id,
+                bot_username=settings.telegram_bot_username,
+                allowed_user_ids=frozenset(
+                    item.strip()
+                    for item in settings.allowed_telegram_user_ids.split(",")
+                    if item.strip()
+                ),
+            ),
+            client=transport,
+        ),
         delivery_receipts=D1DeliveryReceiptRepository(binding),
         projector=projector,
         runtime_smoke=runtime_smoke,
-        pairing=MessagePairingService(
-            messages=messages,
-            conversations=conversations,
-            sources=sources,
-            candidates=pair_candidates,
-            projector=projector,
-            clock=clock,
-            budget=budget,
-            question_window_minutes=settings.pairing_question_window_minutes,
-            max_pending_questions=settings.pairing_max_pending_questions,
-            confidence_threshold=settings.classifier_confidence_threshold,
-            margin_threshold=settings.classifier_margin_threshold,
-        ),
+        pairing=pairing,
     )
     return context, database, client

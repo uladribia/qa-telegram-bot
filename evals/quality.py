@@ -32,9 +32,10 @@ from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.retrieval import _rank
-from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import ClassificationStatus, ContentType, IndexStatus
 from knowledge_bot.infrastructure.classifier_head import load_classifier_head
+from knowledge_bot.models.common import SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.ports.vector_store import VectorMatch
 from tests.fakes.ai import (
     FakeSearchIndexSource,

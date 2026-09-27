@@ -94,3 +94,35 @@ def test_the_grounded_answer_prompt_has_one_home() -> None:
         if any(marker in value for value in _string_constants(path))
     )
     assert owners == ["infrastructure/prompt.py"]
+
+
+def test_canonical_routes_stay_channel_independent() -> None:
+    """The ``/v1`` contract must not know which channel a request came from.
+
+    The canonical API and each connector are two front doors onto the same
+    application services. A ``/v1`` route that imported a connector would make
+    the "channel-independent" contract a lie, and a Telegram model reaching into
+    ``models/`` would leak a connector payload into shared code.
+    """
+    routes = SRC / "api" / "routes"
+    for module_path in sorted(routes.rglob("*.py")):
+        if module_path.name == "internal.py":
+            continue
+        offending = sorted(
+            module
+            for module in _imported_modules(module_path)
+            if _is_forbidden(module, ("knowledge_bot.adapters",))
+        )
+        assert not offending, f"{module_path} imports {offending}"
+
+
+def test_the_app_factory_holds_no_route_bodies() -> None:
+    """``api/app.py`` composes the app; route bodies live under ``api/routes``.
+
+    The app factory grew to over a thousand lines by absorbing the whole
+    Telegram flow. Pinning its size keeps composition and behaviour apart, so
+    the next channel cannot quietly move back in.
+    """
+    app_source = SRC / "api" / "app.py"
+    lines = app_source.read_text(encoding="utf-8").splitlines()
+    assert len(lines) < 60, f"api/app.py grew to {len(lines)} lines"

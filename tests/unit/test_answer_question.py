@@ -12,8 +12,9 @@ from knowledge_bot.application.retrieval import (
     RetrievalService,
     RetrievedEvidence,
 )
-from knowledge_bot.contracts.messages import NormalizedMessage, SourceDescriptor
 from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.models.common import SourceDescriptor
+from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.ports.generator import GenerationOutput
 from tests.fakes.ai import (
     FakeEmbedder,

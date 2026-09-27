@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the Telegram inbound adapter."""
+"""Tests for the Telegram inbound normalizer."""
 
 from datetime import UTC, datetime
 
-from knowledge_bot.adapters.inbound.telegram import (
-    TelegramIdentity,
+from knowledge_bot.adapters.telegram.identity import TelegramIdentity
+from knowledge_bot.adapters.telegram.models import TelegramUpdate
+from knowledge_bot.adapters.telegram.normalize import (
     is_valid_webhook_secret,
     normalize_callback,
     normalize_message,
 )
-from knowledge_bot.contracts.telegram import TelegramUpdate
 from knowledge_bot.domain.enums import ContentType
 
 ALLOWED_CHAT = "-1001234567890"

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Seed Q&A contracts (spec §7.1)."""
+"""Seed Q&A models (spec §7.1)."""
 
 from datetime import datetime
 from typing import Literal

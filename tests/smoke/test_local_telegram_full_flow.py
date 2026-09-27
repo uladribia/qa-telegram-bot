@@ -11,7 +11,8 @@ from typing import cast
 import httpx
 import pytest
 
-from knowledge_bot.adapters.http.app import create_app
+from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
+from knowledge_bot.api.app import create_app
 from knowledge_bot.domain.identity import canonical_key_for
 from knowledge_bot.infrastructure.local.composition import build_context
 from knowledge_bot.infrastructure.settings import RuntimeMode, Settings
@@ -121,7 +122,7 @@ async def test_synthetic_telegram_uses_real_local_graph(tmp_path: Path) -> None:
             assert seeded.status_code == 200, seeded.text
             for chat_id in (-100, -200):
                 response = await api.post(
-                    "/telegram/webhook",
+                    TELEGRAM_WEBHOOK_PATH,
                     headers=headers,
                     json=_message(f"/ask {question}", 10 + chat_id, chat_id),
                 )
@@ -141,12 +142,12 @@ async def test_synthetic_telegram_uses_real_local_graph(tmp_path: Path) -> None:
                 "from": {"id": 222, "is_bot": False},
             }
             nominated = await api.post(
-                "/telegram/webhook", headers=headers, json=nomination
+                TELEGRAM_WEBHOOK_PATH, headers=headers, json=nomination
             )
             assert nominated.status_code == 200, nominated.text
             assert nominated.json() == {"status": "reviewer_nominated"}
             started = await api.post(
-                "/telegram/webhook",
+                TELEGRAM_WEBHOOK_PATH,
                 headers=headers,
                 json=_callback(f"feedback:start:{answer_id}", 20, 222, -100),
             )
@@ -165,12 +166,12 @@ async def test_synthetic_telegram_uses_real_local_graph(tmp_path: Path) -> None:
                 "from": {"id": 999, "is_bot": True},
             }
             proposed = await api.post(
-                "/telegram/webhook", headers=headers, json=proposal
+                TELEGRAM_WEBHOOK_PATH, headers=headers, json=proposal
             )
             assert proposed.status_code == 200, proposed.text
             assert proposed.json() == {"status": "proposed"}
             forged = await api.post(
-                "/telegram/webhook",
+                TELEGRAM_WEBHOOK_PATH,
                 headers=headers,
                 json=_callback(
                     f"feedback:approve-global:{interaction.object_id}",
@@ -182,7 +183,7 @@ async def test_synthetic_telegram_uses_real_local_graph(tmp_path: Path) -> None:
             assert forged.status_code == 200, forged.text
             assert forged.json() == {"status": "ignored"}
             approved = await api.post(
-                "/telegram/webhook",
+                TELEGRAM_WEBHOOK_PATH,
                 headers=headers,
                 json=_callback(
                     f"feedback:approve-group:{interaction.object_id}", 23, 1, -100
@@ -197,7 +198,7 @@ async def test_synthetic_telegram_uses_real_local_graph(tmp_path: Path) -> None:
             # directly below instead.
             for chat_id in (-100, -200):
                 response = await api.post(
-                    "/telegram/webhook",
+                    TELEGRAM_WEBHOOK_PATH,
                     headers=headers,
                     json=_message(f"/ask {question}", 30 + chat_id, chat_id),
                 )
@@ -280,7 +281,7 @@ async def test_background_pair_persists_and_retrieves_local_evidence(
                     base_time + timedelta(seconds=30 * index if index < 3 else 180)
                 )
                 response = await api.post(
-                    "/telegram/webhook",
+                    TELEGRAM_WEBHOOK_PATH,
                     headers=headers,
                     json=_message(text, index, -100, int(clock.now().timestamp())),
                 )
