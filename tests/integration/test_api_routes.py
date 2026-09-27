@@ -108,3 +108,69 @@ def test_feedback_start_and_proposal_are_channel_independent() -> None:
 
     assert proposed.status_code == 200
     assert proposed.json()["status"] == "pending_review"
+
+
+def test_eval_answer_reports_the_reason_and_the_candidates() -> None:
+    """A live-shaped eval answer carries its reason and retrieval metadata.
+
+    The attribution the report needs has to come from the response, not from
+    reading production logs: the reason says which branch refused, and the
+    candidates say whether the answer had anything to work with.
+    """
+    context = _context_with_answer()
+    client = TestClient(create_app(lambda request: context))
+
+    response = client.post(
+        "/internal/eval/answer", json={"question": "Quan?"}, headers=KEY
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["mode"] in ("synthesis", "abstention", "unavailable")
+    assert payload["reason"] in (
+        "answered",
+        "no_evidence",
+        "model_insufficient",
+        "invalid_model_output",
+        "invalid_source_ids",
+        "model_unavailable",
+    )
+    assert isinstance(payload["candidates"], list)
+    for candidate in payload["candidates"]:
+        assert "source_id" in candidate
+        assert "similarity" in candidate
+        assert "authority" in candidate
+
+
+def test_eval_answer_frozen_mode_bypasses_retrieval() -> None:
+    """Frozen evidence decides the answer even when the index is empty.
+
+    The index here holds nothing, so a retrieval-backed run could not answer.
+    The frozen case answers from its own evidence, which is what makes the
+    suite a measurement of the generator.
+    """
+    context, _ = build_test_context()
+    client = TestClient(create_app(lambda request: context))
+
+    response = client.post(
+        "/internal/eval/answer",
+        json={
+            "question": "Quan obre la botiga?",
+            "evidence": [
+                {
+                    "source_id": "qa-frozen-botiga",
+                    "text": "La botiga obre de 10:00 a 20:00.",
+                    "label": "Q&A",
+                    "authority": 90,
+                    "kind": "qa",
+                }
+            ],
+        },
+        headers=KEY,
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["evidence_ids"] == ["qa-frozen-botiga"]
+    assert payload["reason"] != "no_evidence"
+    assert payload["candidates"][0]["similarity"] == 1.0

@@ -427,6 +427,11 @@ def eval_conflicts() -> EvalReport:
     The gate's deterministic half: a model "insufficient" verdict always
     abstains, and the evidence handed to the model carries each source's
     authority intact (the prompt tells the model to prefer higher authority).
+
+    This overlaps the frozen suite's conflict cases, and deliberately stays:
+    the frozen cases need a real model, while this one runs in the offline tier
+    with a fake generator. Deleting it would trade deterministic CI coverage
+    for coverage that only exists when a live run is authorized.
     """
     report = EvalReport(name="conflicts/gate")
     for case in load_cases("conflicts.yaml"):

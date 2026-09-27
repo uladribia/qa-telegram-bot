@@ -104,7 +104,13 @@ class AiWorkClass(StrEnum):
 
 
 class AnswerMode(StrEnum):
-    """How the bot produced an answer (spec §16)."""
+    """How the bot produced an answer (spec §16).
+
+    ``DIRECT_QA`` is never produced any more: the verbatim-echo path was
+    removed when answering became always grounded. The member stays because
+    stored answers from before that change still carry the value, and history
+    is not rewritten; ``RecapService`` reads it as an answered mode.
+    """
 
     DIRECT_QA = "direct_qa"
     SYNTHESIS = "synthesis"

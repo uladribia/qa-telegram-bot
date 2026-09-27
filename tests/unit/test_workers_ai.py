@@ -210,3 +210,65 @@ async def test_generator_raises_domain_error_on_failure() -> None:
 
     with pytest.raises(ModelUnavailableError):
         await generator.generate(GenerationRequest(question="q", evidence=[]))
+
+
+async def test_generator_raises_when_the_reply_has_no_content() -> None:
+    """An empty reply is a provider failure, not a model abstention."""
+    runner = _Runner({"choices": [{"message": {"content": ""}}]})
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert raised.value.code == "missing_content"
+
+
+async def test_generator_raises_on_a_schema_invalid_reply() -> None:
+    """A JSON object that does not match the contract is a provider failure."""
+    runner = _Runner({"choices": [{"message": {"content": '{"status": "answered"}'}}]})
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert raised.value.code == "schema_validation"
+
+
+async def test_the_error_never_carries_the_model_output() -> None:
+    """The code is safe to export; the text it came from is not."""
+    runner = _Runner(
+        {"choices": [{"message": {"content": "secret internal reasoning here"}}]}
+    )
+    generator = WorkersAIGenerator(runner, "chat-model", timeout_seconds=1.0)
+
+    with pytest.raises(InvalidModelOutputError) as raised:
+        await generator.generate(
+            GenerationRequest(
+                question="q",
+                evidence=[
+                    EvidenceItem(
+                        source_id="s1", text="t", label="l", authority=1, similarity=0.5
+                    )
+                ],
+            )
+        )
+
+    assert "secret internal reasoning" not in str(raised.value)
