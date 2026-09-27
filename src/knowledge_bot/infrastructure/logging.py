@@ -215,12 +215,18 @@ def _bridge_standard_library_logging(logfire: ModuleType) -> None:
     handler here leaves the existing console output and the configured
     thresholds untouched; only records that already pass their logger's level
     are exported.
+
+    The handler is pinned to INFO. The root logger is DEBUG in development, and
+    without this the bridge exported every library's debug chatter: on one
+    question, 70 records arrived and 50 of them were ``executing %s`` and
+    ``receive_response_headers.complete return_value=...`` from httpcore and
+    httpx. Console verbosity is a developer setting; telemetry is not.
     """
     root: Logger = getLogger()
     if not any(
         isinstance(handler, logfire.LogfireLoggingHandler) for handler in root.handlers
     ):
-        root.addHandler(logfire.LogfireLoggingHandler())
+        root.addHandler(logfire.LogfireLoggingHandler(level=logging.INFO))
 
 
 def _fields(record: logging.LogRecord) -> dict[str, object]:

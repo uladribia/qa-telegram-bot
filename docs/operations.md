@@ -156,31 +156,52 @@ Same dataset, same code, same runner, one generation call per case:
 | | local | production |
 |---|---|---|
 | model | `gemma3:270m` (Ollama) | `@cf/mistral-small-3.1-24b-instruct` |
-| assertions | 80/194 (41%) | **148/164 (90%)** |
-| attribution | `invalid_model_output=30` | `model_false_abstention=2`, `answer_content_failure=3`, `unexpected_answer=1` |
+| assertions | 80/194 (41%) | 149/165 (90%) |
+| cases earned | **0 / 30** | **22 / 30** |
+| passed by accident | 0 | 0 |
+| failed | 30 | 8 |
+
+Assertion counts flatter the local run, so the report also splits the cases. An
+*earned* pass is one that passed for the reason the case was written to test.
+The nine local abstention cases do satisfy their mode assertion — the bot did
+abstain — but the reason was `invalid_model_output`, not a decision, so none of
+them counts. That is why local is **0 of 30**, not the 41% the assertion rate
+suggests.
 
 Every local case fails the same way: the model returns
 `{"status": "answered"}` with no answer and no source ids, which fails schema
-validation. Production answers 28 of 30. The taxonomy earns its keep here:
-before it, both runs would have been reported as abstentions, and the local
-generator's inability to follow its own contract would have read as missing
-knowledge.
+validation. The taxonomy earns its keep here: before it, both runs would have
+been reported as abstentions, and the local generator's inability to follow its
+own contract would have read as missing knowledge.
 
-The production failures are real, and they are all *generator* behaviour rather
-than retrieval: two false abstentions (`two_sources_needed_together`, a
-two-part question with both parts evidenced, and `conditional_answer`), one
-incomplete citation (`three_sources_only_two_answer` stated a fact from the
-second source while citing only the first), and one content miss
-(`correction_rejects_outdated_detail` omitted the time).
+The eight production failures are generator behaviour, none retrieval:
 
-One earlier production run returned `invalid_model_output` on a single case
-that passed on the re-run, so production is not perfect at emitting valid
-JSON either — it is rare, not absent, and the frozen suite is how you would
-catch it.
+| case | shape | what happened |
+|---|---|---|
+| `two_sources_needed_together` | complementary pair | false abstention on a two-part question with both parts evidenced |
+| `multi_part_fully_evidenced` | complementary pair | answered, but one source uncited and a required time missing |
+| `conditional_answer` | conditional | false abstention on a yes/no the evidence answers |
+| `abstention_when_only_one_of_two_subquestions_is_evidenced` | partial support | **answered when it should have abstained**, the dangerous direction |
+| `three_sources_only_two_answer` | one of many | stated a fact from the second source while citing only the first |
+| `correction_rejects_outdated_detail` | authority correction | answered without the time |
+| `message_with_html_noise` | noisy evidence | missed a required term |
+| `question_about_time_evidence_has_only_date` | near miss | unreadable output, so the abstention was unearned |
+
+Multi-part questions, conditional questions, and partial support are the weak
+shapes. The suite is non-deterministic: two consecutive production runs failed a
+slightly different subset, so treat these as tendencies and re-run before
+concluding anything about one case.
+
+`--json` emits the same result per case, with the expected mode, the actual
+mode, the reason, and the failure kinds, for anything consuming the suite
+programmatically.
 
 ### Runtime
 
-Both runtimes export OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region: `environment=local` from the local entrypoint, `environment=cloudflare` from the Worker. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
+The local runtime exports to Logfire, project `oleguer-sagarra/qa-telegram` in
+the EU region, as `environment=local`. The Worker is configured with
+`environment=cloudflare` but currently exports nothing: see
+[Production tracing is disabled](#production-tracing-is-disabled-and-why). Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
 
 ```bash
 # fresh spans for the service, in the exact project

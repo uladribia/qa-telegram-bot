@@ -160,8 +160,22 @@ Same dataset, same code, same runner, one generation call per case, run on
 | | local | production |
 |---|---|---|
 | model | `gemma3:270m` (Ollama) | `@cf/mistralai/mistral-small-3.1-24b-instruct` |
-| assertions | 80/194 (41%) | **148/164 (90%)** |
-| attribution | `invalid_model_output=30` | `model_false_abstention=2`, `answer_content_failure=3`, `unexpected_answer=1` |
+| assertions | 80/194 (41%) | 149/165 (90%) |
+| **cases earned** | **0 / 30** | **22 / 30** |
+| failed | 30 | 8 |
+
+The assertion rate flatters local. Nine local abstention cases satisfy their
+mode assertion, but the reason is `invalid_model_output`, not a decision, so
+the report counts them as accidental and local earns **none** of its 30 cases.
+The report now splits every suite into earned, accidental, and failed, and
+`--json` emits the same per case.
+
+The eight production failures are generator behaviour, none retrieval: two
+false abstentions on a multi-part and a conditional question, one **false
+answer** where abstention was required, two incomplete citations, two content
+misses, and one unreadable output. Multi-part, conditional, and partial-support
+shapes are the weak spots. Two consecutive runs failed a slightly different
+subset, so re-run before concluding anything about one case.
 
 `make eval-frozen-local` (no authorization needed) and `make eval-live-frozen`
 (explicit opt-in) run the same suite against the two targets.

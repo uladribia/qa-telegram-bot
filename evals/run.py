@@ -67,6 +67,57 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @dataclass
+class CaseOutcome:
+    """What one case did, in the vocabulary the report needs.
+
+    A pass rate says how much failed. This says which cases, in what shape,
+    with which reason, and how the suite's judgement compares to the model's.
+    """
+
+    case_id: str
+    category: str
+    expected_mode: str
+    actual_mode: str
+    reason: str
+    failures: list[str] = field(default_factory=list)
+    kinds: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        """Whether every assertion of this case passed."""
+        return not self.failures
+
+    @property
+    def earned(self) -> bool:
+        """Whether the case passed for a reason the case actually tested.
+
+        An abstention case the model "passes" by emitting unreadable output has
+        not abstained, it has broken. Counting that as a pass is how a broken
+        generator scores 9/30 on the local run: 30 cases, 0 real successes, 9
+        abstentions that only looked right.
+        """
+        return self.ok and "unearned_pass" not in self.kinds
+
+    def as_dict(self) -> dict[str, object]:
+        """Return the outcome as plain data.
+
+        Returns:
+            A JSON-serializable mapping of this outcome.
+        """
+        return {
+            "id": self.case_id,
+            "category": self.category,
+            "expected_mode": self.expected_mode,
+            "actual_mode": self.actual_mode,
+            "reason": self.reason,
+            "ok": self.ok,
+            "earned": self.earned,
+            "kinds": self.kinds,
+            "failures": self.failures,
+        }
+
+
+@dataclass
 class EvalReport:
     """The outcome of one eval suite."""
 
@@ -76,6 +127,7 @@ class EvalReport:
     failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     attributions: dict[str, int] = field(default_factory=dict)
+    cases: list[CaseOutcome] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -94,6 +146,70 @@ class EvalReport:
             self.passed += 1
         else:
             self.failures.append(message)
+
+    def record(self, outcome: CaseOutcome) -> None:
+        """Attach one case's outcome to the suite.
+
+        Args:
+            outcome: What the case did.
+        """
+        self.cases.append(outcome)
+        for kind in outcome.kinds:
+            self.attribute(kind)
+
+    def pass_breakdown(self) -> dict[str, int]:
+        """Split the cases into failed, accidental, and earned passes.
+
+        Returns:
+            Counts of ``failed`` (an assertion did not hold), ``accidental``
+            (every assertion held, but for a reason the case did not test for,
+            such as an abstention that was really unreadable output) and
+            ``earned`` (passed for the reason the case was written to test).
+            The three always sum to the number of cases.
+        """
+        failed = sum(1 for case in self.cases if not case.ok)
+        accidental = sum(1 for case in self.cases if case.ok and not case.earned)
+        earned = sum(1 for case in self.cases if case.earned)
+        return {"failed": failed, "accidental": accidental, "earned": earned}
+
+    def by_category(self) -> dict[str, tuple[int, int]]:
+        """Group cases by their shape.
+
+        Returns:
+            Each category mapped to ``(passed, total)`` cases, so a reader can
+            see which *kind* of question fails rather than only how many.
+        """
+        grouped: dict[str, list[bool]] = {}
+        for case in self.cases:
+            grouped.setdefault(case.category, []).append(case.earned)
+        return {name: (sum(vals), len(vals)) for name, vals in sorted(grouped.items())}
+
+    def mode_matrix(self) -> dict[str, int]:
+        """Count outcomes by what was expected against what happened.
+
+        Returns:
+            ``"expected->actual"`` counts. The diagonal is the suite's
+            judgement agreeing with the model; the rest is disagreement, split
+            by direction, which is what tells a false abstention from a false
+            answer.
+        """
+        counts: dict[str, int] = {}
+        for case in self.cases:
+            key = f"{case.expected_mode}->{case.actual_mode}"
+            counts[key] = counts.get(key, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def reason_matrix(self) -> dict[str, int]:
+        """Count outcomes by the semantic reason the pipeline reported.
+
+        Returns:
+            Reason counts, including ``answered`` for successes, so a suite
+            that fails on one reason is visible as such.
+        """
+        counts: dict[str, int] = {}
+        for case in self.cases:
+            counts[case.reason] = counts.get(case.reason, 0) + 1
+        return dict(sorted(counts.items()))
 
     def warn(self, message: str) -> None:
         """Record an advisory finding that never fails the suite."""
@@ -120,7 +236,57 @@ class EvalReport:
                 f"{kind}={count}" for kind, count in sorted(self.attributions.items())
             )
             lines.append(f"  failures by kind: {summary}")
+        if self.cases:
+            lines.append("  by category (passed/total):")
+            for name, (good, total) in self.by_category().items():
+                mark = " " if good == total else "*"
+                lines.append(f"   {mark} {name:24} {good}/{total}")
+            lines.append(
+                "  expected -> actual: "
+                + ", ".join(f"{k} x{v}" for k, v in self.mode_matrix().items())
+            )
+            lines.append(
+                "  reasons: "
+                + ", ".join(f"{k} x{v}" for k, v in self.reason_matrix().items())
+            )
+            split = self.pass_breakdown()
+            lines.append(
+                f"  cases: {split['earned']} earned, {split['accidental']} "
+                f"passed by accident, {split['failed']} failed"
+            )
+            lines.append("  failing cases:")
+            for case in self.cases:
+                if not case.ok:
+                    lines.append(
+                        f"   - {case.case_id} [{case.category}] "
+                        f"{case.expected_mode} -> {case.actual_mode} ({case.reason}): "
+                        + "; ".join(case.kinds)
+                    )
         return "\n".join(lines)
+
+    def as_dict(self) -> dict[str, object]:
+        """Return the suite as plain data, for machine consumers.
+
+        Returns:
+            A JSON-serializable mapping of the suite.
+        """
+        return {
+            "name": self.name,
+            "ok": self.ok,
+            "total": self.total,
+            "passed": self.passed,
+            "rate": round(self.rate, 4),
+            "case_summary": self.pass_breakdown(),
+            "attributions": self.attributions,
+            "by_category": {
+                k: {"passed": v[0], "total": v[1]}
+                for k, v in self.by_category().items()
+            },
+            "modes": self.mode_matrix(),
+            "reasons": self.reason_matrix(),
+            "failures": self.failures,
+            "cases": [case.as_dict() for case in self.cases],
+        }
 
 
 def load_gold() -> dict[str, list[dict[str, object]]]:
@@ -362,7 +528,56 @@ def eval_answer_dataset() -> EvalReport:
             isinstance(case.get("must_include"), list),
             f"answer case must_include is not a list: {case}",
         )
+    _check_gold_grounding(report, load_gold()["answers"])
     return report
+
+
+def _seed_corpus_text() -> str:
+    """Return the committed seed Q&A as one lowercased blob.
+
+    Returns:
+        Every question and answer in ``data/seed/qa.json``, lowercased, so a
+        required fact can be checked against what the bot could possibly know.
+    """
+    seed = json.loads(
+        (EVALS_DIR.parent / "data" / "seed" / "qa.json").read_text(encoding="utf-8")
+    )
+    items = seed if isinstance(seed, list) else seed.get("items", [])
+    return " ".join(
+        f"{item.get('question', '')} {item.get('answer', '')}" for item in items
+    ).lower()
+
+
+def _check_gold_grounding(report: EvalReport, cases: list[dict[str, object]]) -> None:
+    """Check that every required fact is actually in the seed corpus.
+
+    A required fact the corpus never states makes its case unanswerable: the
+    only way to pass is to be wrong. Two gold cases had exactly that, one
+    requiring a word the corpus does not use and one forbidding a phrase it
+    does use, so the check belongs in the offline gate rather than in a
+    one-off script.
+
+    Synthetic cases are excluded: they are experiments, not claims about the
+    corpus.
+
+    Args:
+        report: The dataset report to record into.
+        cases: The human gold answer cases.
+    """
+    corpus = _seed_corpus_text()
+    for case in cases:
+        for term in _terms(case.get("must_include")):
+            report.check(
+                str(term).lower() in corpus,
+                f"{case.get('id')}: requires {term!r}, which the seed corpus "
+                "never states, so no grounded answer can satisfy it",
+            )
+        for claim in _terms(case.get("must_not_claim")):
+            report.check(
+                str(claim).lower() not in corpus,
+                f"{case.get('id')}: forbids {claim!r}, which the seed corpus "
+                "does state, so a faithful answer would fail",
+            )
 
 
 def eval_citation_format() -> EvalReport:
@@ -985,6 +1200,20 @@ def _eval_frozen(base_url: str, case: dict[str, object], report: EvalReport) -> 
         {key: value for key, value in item.items() if value is not None}
         for item in raw_evidence
     ]
+    wanted_mode = str(expected.get("mode", ""))
+    outcome = CaseOutcome(
+        case_id=str(case.get("id", "?")),
+        category=str(case.get("category", "uncategorised")),
+        expected_mode=wanted_mode,
+        actual_mode="unavailable",
+        reason="unknown",
+    )
+    # Failures are collected per case so the report can attribute one to its
+    # shape. The slice starts at the length of the failure list, not at the
+    # assertion counter: the counter includes passes, the list does not, and
+    # slicing by the counter silently attributes a case's failure to whichever
+    # case came before it.
+    failures_before = len(report.failures)
     try:
         response = httpx.post(
             f"{base_url}/internal/eval/answer",
@@ -995,60 +1224,91 @@ def _eval_frozen(base_url: str, case: dict[str, object], report: EvalReport) -> 
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as error:
-        report.check(False, f"{case['id']}: {_explain(error)}")
-        report.attribute("model_unavailable")
+        report.check(False, f"{outcome.case_id}: {_explain(error)}")
+        outcome.failures = report.failures[failures_before:]
+        outcome.kinds = ["model_unavailable"]
+        report.record(outcome)
         return
     if not isinstance(payload, dict):
-        report.check(False, f"{case['id']}: malformed response")
-        report.attribute("unexpected_answer")
+        report.check(False, f"{outcome.case_id}: malformed response")
+        outcome.kinds = ["unexpected_answer"]
+        report.record(outcome)
         return
 
     mode = str(payload.get("mode"))
     reason = str(payload.get("reason", ""))
     answer = str(payload.get("answer", ""))
-    wanted = str(expected.get("mode", ""))
+    wanted = wanted_mode
+    outcome.actual_mode = mode
+    outcome.reason = reason or "unknown"
     cited = [str(item) for item in payload.get("source_ids") or []]
     supplied = {str(item.get("source_id")) for item in evidence}
 
     if mode == wanted:
         report.check(True, "")
+        if wanted == "abstention" and reason not in {
+            "model_insufficient",
+            "no_evidence",
+        }:
+            # The mode matched, but for a reason this case did not test for.
+            outcome.kinds.append("unearned_pass")
     else:
-        report.check(False, f"{case['id']}: mode {mode!r} != {wanted!r} ({reason})")
-        if wanted == "abstention" and reason == "model_insufficient":
-            report.attribute("model_false_answer")
-        elif wanted == "synthesis" and reason == "model_insufficient":
-            report.attribute("model_false_abstention")
+        report.check(
+            False, f"{outcome.case_id}: mode {mode!r} != {wanted!r} ({reason})"
+        )
+        if reason == "model_insufficient":
+            outcome.kinds.append(
+                "model_false_answer"
+                if wanted == "abstention"
+                else "model_false_abstention"
+            )
         elif reason == "no_evidence":
-            report.attribute("retrieval_miss")
+            outcome.kinds.append("retrieval_miss")
+        elif reason == "invalid_model_output":
+            outcome.kinds.append("invalid_model_output")
+        elif reason == "invalid_source_ids":
+            outcome.kinds.append("invalid_source_ids")
         else:
-            report.attribute("unexpected_answer")
+            outcome.kinds.append("unexpected_answer")
 
     if reason == "invalid_model_output":
-        report.check(False, f"{case['id']}: model output was unreadable ({reason})")
-        report.attribute("invalid_model_output")
+        report.check(
+            False, f"{outcome.case_id}: model output was unreadable ({reason})"
+        )
+        if "invalid_model_output" not in outcome.kinds:
+            outcome.kinds.append("invalid_model_output")
     if reason == "invalid_source_ids":
-        report.check(False, f"{case['id']}: cited evidence it was not given")
-        report.attribute("invalid_source_ids")
+        report.check(False, f"{outcome.case_id}: cited evidence it was not given")
+        if "invalid_source_ids" not in outcome.kinds:
+            outcome.kinds.append("invalid_source_ids")
 
     stray = [item for item in cited if item not in supplied]
-    report.check(not stray, f"{case['id']}: cited evidence outside the case: {stray}")
+    report.check(
+        not stray, f"{outcome.case_id}: cited evidence outside the case: {stray}"
+    )
 
     expected_ids: list[str] = expected.get("source_ids") or []  # ty: ignore[invalid-assignment]
     for wanted_id in expected_ids:
+        present = str(wanted_id) in cited
         report.check(
-            str(wanted_id) in cited,
-            f"{case['id']}: expected {wanted_id!r} to be cited, got {cited}",
+            present,
+            f"{outcome.case_id}: expected {wanted_id!r} to be cited, got {cited}",
         )
+        if not present and mode == "synthesis":
+            outcome.kinds.append("citation_incomplete")
     for term in _terms(expected.get("must_include")):
         present = term.lower() in answer.lower()
-        report.check(present, f"{case['id']}: answer is missing {term!r}")
+        report.check(present, f"{outcome.case_id}: answer is missing {term!r}")
         if not present and mode == "synthesis":
-            report.attribute("answer_content_failure")
+            outcome.kinds.append("answer_content_failure")
     for claim in _terms(expected.get("must_not_claim")):
         present = claim.lower() in answer.lower()
-        report.check(not present, f"{case['id']}: answer claims {claim!r}")
+        report.check(not present, f"{outcome.case_id}: answer claims {claim!r}")
         if present:
-            report.attribute("answer_content_failure")
+            outcome.kinds.append("answer_content_failure")
+
+    outcome.failures = report.failures[failures_before:]
+    report.record(outcome)
 
 
 def run_live(
@@ -1127,6 +1387,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Rebuild the vector index first (opt-in: burns the AI quota)",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full result as JSON: per case, with modes and reasons.",
+    )
     args = parser.parse_args(argv)
 
     if args.mode == "live" and not args.base_url:
@@ -1145,11 +1410,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "offline"
         else run_live(args.base_url, reindex=args.reindex, suite=args.suite)
     )
+    failed = [report for report in reports if not report.ok]
+    if args.json:
+        # Machine-readable: the whole result, per case, with no rendering.
+        print(
+            json.dumps(
+                {
+                    "mode": args.mode,
+                    "suite": args.suite,
+                    "suites_passed": len(reports) - len(failed),
+                    "suites_total": len(reports),
+                    "reports": [report.as_dict() for report in reports],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1 if failed else 0
     print(f"# {args.mode.capitalize()} evals\n")
     for report in reports:
         print(report.render())
         print()
-    failed = [report for report in reports if not report.ok]
     print(f"Suites passed: {len(reports) - len(failed)}/{len(reports)}")
     return 1 if failed else 0
 
