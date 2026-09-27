@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -53,6 +53,13 @@ eval-live-frozen:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
 	uv run python -m evals.run live --suite frozen --base-url "$(BOT_BASE_URL)"
+
+# The same suite against the local stack. No authorization: a local base URL is
+# not a remote call, and the local run costs no Workers AI neurons. Same dataset
+# and same runner as eval-live-frozen, so the two results are comparable.
+eval-frozen-local:
+	docker exec knowledge-bot-local .venv/bin/python -m evals.run live \
+		--suite frozen --base-url http://127.0.0.1:8000
 
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:

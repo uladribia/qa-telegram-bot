@@ -21,7 +21,10 @@
     mode: synthesis
     source_ids: ["qa-horari-oficines"]
     must_include: ["9:00", "14:00"]
-    must_not_claim: ["24 hores", "dissabtes"]
+    # "dissabtes" was here first and was a mistake: the evidence itself says
+    # Saturday is closed, so a faithful answer mentions it and trips the check.
+    # A forbidden phrase must be something the evidence does not support.
+    must_not_claim: ["24 hores", "obertes tots els dies"]
 
 - id: only_one_of_many_answers
   question: "On es fa la prova d'equip?"

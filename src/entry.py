@@ -53,7 +53,18 @@ def _configure_observability(env: WorkerEnv, settings: Settings) -> None:
     Worker bindings are unavailable at module import, so the exporter is
     configured the first time a context is resolved, from either the request or
     the scheduled entrypoint. A missing token keeps the spans local.
+
+    This is skipped entirely when ``KB_LOGFIRE_ENABLED`` is false. The Workers
+    runtime caps an isolate at 128 MB, and importing the OpenTelemetry SDK plus
+    its protobuf exporter inside Pyodide exceeds it: the isolate then dies with
+    "Worker exceeded resource limits" on the first request that resolves a
+    context, while ``/healthz`` keeps answering because it resolves none. The
+    flag is a workaround, not a preference; production tracing needs a
+    memory-compliant transport, and until then the Worker runs untraced rather
+    than unable to answer.
     """
+    if _flag_disabled(env, "KB_LOGFIRE_ENABLED"):
+        return
     configure_observability(
         app,
         environment=RuntimeMode.CLOUDFLARE.value,
@@ -61,6 +72,25 @@ def _configure_observability(env: WorkerEnv, settings: Settings) -> None:
         send_to_logfire=settings.logfire_send_to_logfire,
         capture_content=settings.logfire_capture_content,
     )
+
+
+def _flag_disabled(env: WorkerEnv, name: str) -> bool:
+    """Return whether an environment variable is set to a false-ish value.
+
+    Args:
+        env: The Worker bindings.
+        name: The variable to read.
+
+    Returns:
+        ``True`` when the value reads as off. Anything else, including an
+        absent variable, leaves the feature on.
+    """
+    return str(getattr(env, name, "") or "").strip().lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
 
 def _defer(processing: Awaitable[str]) -> None:

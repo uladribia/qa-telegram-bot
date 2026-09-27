@@ -123,6 +123,61 @@ answer_question      mode, reason, duration, ids, question_chars
 `answer_question.reason` is the same value as `refusal_reason` in
 `trace_json`, so the durable record and the trace agree by construction.
 
+### Production tracing is disabled, and why
+
+`KB_LOGFIRE_ENABLED` is `false` in `wrangler.jsonc`. **Do not turn it on**
+until the memory problem below is solved: with it on, the Worker boots and
+`/healthz` answers, then dies with *Worker exceeded resource limits* on the
+first request that resolves a context, which means the bot cannot answer at
+all.
+
+```text
+KB_LOGFIRE_ENABLED=true   -> /healthz 200, /readyz 200, POST /internal/eval/answer 503
+KB_LOGFIRE_ENABLED=false  -> /healthz 200, /readyz 200, POST /internal/eval/answer 200
+```
+
+The cause is the import, not the export: the Workers runtime caps an isolate at
+128 MB, and pulling the OpenTelemetry SDK plus its protobuf exporter into
+Pyodide exceeds it (about 7.5 MB of vendored modules, most of it
+`logfire`, `opentelemetry`, and `google.protobuf`). A health check cannot see
+this, because `/healthz` resolves no context and therefore never imports the
+SDK. `make smoke` has the same blind spot.
+
+A `LOGFIRE_TOKEN` secret is already set on the Worker, so tracing is one flag
+away once a memory-compliant transport exists. Until then the Worker runs
+untraced rather than unable to answer, and the local runtime is unaffected:
+the flag is read from Worker bindings and exists only in `src/entry.py`.
+
+### The generator, measured on both runtimes
+
+The frozen suite carries its own evidence, so it measures the generator alone.
+Same dataset, same code, same runner, one generation call per case:
+
+| | local | production |
+|---|---|---|
+| model | `gemma3:270m` (Ollama) | `@cf/mistral-small-3.1-24b-instruct` |
+| assertions | 80/194 (41%) | **148/164 (90%)** |
+| attribution | `invalid_model_output=30` | `model_false_abstention=2`, `answer_content_failure=3`, `unexpected_answer=1` |
+
+Every local case fails the same way: the model returns
+`{"status": "answered"}` with no answer and no source ids, which fails schema
+validation. Production answers 28 of 30. The taxonomy earns its keep here:
+before it, both runs would have been reported as abstentions, and the local
+generator's inability to follow its own contract would have read as missing
+knowledge.
+
+The production failures are real, and they are all *generator* behaviour rather
+than retrieval: two false abstentions (`two_sources_needed_together`, a
+two-part question with both parts evidenced, and `conditional_answer`), one
+incomplete citation (`three_sources_only_two_answer` stated a fact from the
+second source while citing only the first), and one content miss
+(`correction_rejects_outdated_detail` omitted the time).
+
+One earlier production run returned `invalid_model_output` on a single case
+that passed on the re-run, so production is not perfect at emitting valid
+JSON either — it is rare, not absent, and the frozen suite is how you would
+catch it.
+
 ### Runtime
 
 Both runtimes export OpenTelemetry traces to Logfire, project `oleguer-sagarra/qa-telegram` in the EU region: `environment=local` from the local entrypoint, `environment=cloudflare` from the Worker. Each HTTP request is a span named `POST /telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.

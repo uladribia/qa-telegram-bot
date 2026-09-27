@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -1080,6 +1081,22 @@ def run_live(
     ]
 
 
+def _is_local_url(base_url: str) -> bool:
+    """Return whether a base URL points at the developer's own stack.
+
+    A local run costs no shared Workers AI quota, so it needs no
+    authorization. This mirrors the rule the app CLI applies to its own
+    remote commands.
+
+    Args:
+        base_url: The base URL the eval will call.
+
+    Returns:
+        ``True`` for localhost, ``127.0.0.1``, ``::1``, or a bare host.
+    """
+    return urlparse(base_url).hostname in {"localhost", "127.0.0.1", "::1", None}
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run evals and print a report.
 
@@ -1112,10 +1129,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.mode == "live" and (
-        not args.base_url or os.getenv("ALLOW_CLOUDFLARE_LIVE_TESTS") != "1"
+    if args.mode == "live" and not args.base_url:
+        parser.error("live evals require --base-url")
+    # A local base URL is the developer stack, not the deployed Worker: it costs
+    # no shared quota, so it needs no authorization. The same suite against a
+    # deployed Worker is refused without the opt-in.
+    if (
+        args.mode == "live"
+        and not _is_local_url(args.base_url)
+        and os.getenv("ALLOW_CLOUDFLARE_LIVE_TESTS") != "1"
     ):
-        parser.error("live evals require --base-url and ALLOW_CLOUDFLARE_LIVE_TESTS=1")
+        parser.error("remote evals require ALLOW_CLOUDFLARE_LIVE_TESTS=1")
     reports = (
         run_offline()
         if args.mode == "offline"
