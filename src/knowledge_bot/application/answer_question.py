@@ -37,6 +37,7 @@ from knowledge_bot.ports.repositories import (
     ConversationRepository,
     SourceRepository,
 )
+from knowledge_bot.ports.telemetry import NoopTracer, Tracer
 
 ABSTENTION_TEXT = "No tinc prou informació fiable per respondre-ho."
 UNAVAILABLE_TEXT = (
@@ -185,6 +186,7 @@ class AnswerService:
     policy: AnswerPolicy = field(default_factory=AnswerPolicy)
     conversations: ConversationRepository | None = None
     sources: SourceRepository | None = None
+    tracer: Tracer = field(default_factory=NoopTracer)
 
     async def get_answer(self, answer_id: str) -> BotAnswer | None:
         """Return a stored answer."""
@@ -217,38 +219,76 @@ class AnswerService:
                 same decision with the same diagnostic reason.
         """
         selection = self.policy.select(retrieved.qa, retrieved.messages)
-        if trace is not None:
-            trace["selected"] = [item.source_id for item in selection.evidence]
-        if selection.abstain:
-            return self._refuse(AnswerReason.NO_EVIDENCE, trace)
+        with self.tracer.span(
+            "evidence_selection",
+            floor=self.policy.floor,
+            qa_candidates=len(retrieved.qa),
+            message_candidates=len(retrieved.messages),
+        ) as selection_span:
+            selection_span.set_attributes(
+                {
+                    "selected": [item.source_id for item in selection.evidence],
+                    "selected_count": len(selection.evidence),
+                    "abstained": selection.abstain,
+                }
+            )
+            if trace is not None:
+                trace["selected"] = [item.source_id for item in selection.evidence]
+            if selection.abstain:
+                return self._refuse(AnswerReason.NO_EVIDENCE, trace)
         evidence = list(selection.evidence)
         started = time.perf_counter()
-        try:
-            result = await self.generator.generate(
-                GenerationRequest(
-                    question=question,
-                    evidence=[
-                        EvidenceItem(
-                            source_id=item.source_id,
-                            text=item.text,
-                            label=item.label,
-                            authority=item.authority,
-                            similarity=item.similarity,
-                        )
-                        for item in evidence
-                    ],
+        with self.tracer.span(
+            "generation",
+            evidence_ids=[item.source_id for item in evidence],
+            evidence_count=len(evidence),
+            evidence_authorities=[item.authority for item in evidence],
+            prompt_chars=len(question) + sum(len(item.text) for item in evidence),
+        ) as generation_span:
+            try:
+                result = await self.generator.generate(
+                    GenerationRequest(
+                        question=question,
+                        evidence=[
+                            EvidenceItem(
+                                source_id=item.source_id,
+                                text=item.text,
+                                label=item.label,
+                                authority=item.authority,
+                                similarity=item.similarity,
+                            )
+                            for item in evidence
+                        ],
+                    )
                 )
-            )
-        except ModelUnavailableError:
-            return self._unavailable(trace)
-        except InvalidModelOutputError as error:
-            if trace is not None:
-                trace["generation"] = {
-                    "status": "invalid_output",
-                    "invalid_output_code": error.code,
+            except ModelUnavailableError:
+                generation_span.set_attributes(
+                    {"status": "unavailable", "duration_ms": _elapsed(started)}
+                )
+                return self._unavailable(trace)
+            except InvalidModelOutputError as error:
+                generation_span.set_attributes(
+                    {
+                        "status": "invalid_output",
+                        "invalid_output_code": error.code,
+                        "duration_ms": _elapsed(started),
+                    }
+                )
+                if trace is not None:
+                    trace["generation"] = {
+                        "status": "invalid_output",
+                        "invalid_output_code": error.code,
+                        "duration_ms": _elapsed(started),
+                    }
+                return self._refuse(AnswerReason.INVALID_MODEL_OUTPUT, trace)
+            generation_span.set_attributes(
+                {
+                    "status": result.status,
+                    "response_chars": len(result.answer),
+                    "model_source_ids": list(result.source_ids),
                     "duration_ms": _elapsed(started),
                 }
-            return self._refuse(AnswerReason.INVALID_MODEL_OUTPUT, trace)
+            )
         resolved = self._resolve(evidence, result.source_ids)
         if trace is not None:
             trace["generation"] = {
@@ -259,19 +299,84 @@ class AnswerService:
                 "source_ids": list(result.source_ids),
                 "duration_ms": _elapsed(started),
             }
-        if result.status != "answered" or not result.answer.strip():
-            return self._refuse(AnswerReason.MODEL_INSUFFICIENT, trace)
-        if any(item is None for item in resolved):
-            return self._refuse(AnswerReason.INVALID_SOURCE_IDS, trace)
-        cited = [item for item in resolved if item is not None]
-        if trace is not None:
-            trace["cited"] = [item.source_id for item in cited]
-        return AnswerOutcome(
-            answer=result.answer,
-            mode=AnswerMode.SYNTHESIS,
-            reason=AnswerReason.ANSWERED,
-            source_ids=[item.source_id for item in cited],
-            text=_render(result.answer, cited),
+        with self.tracer.span("answer_decision") as decision_span:
+            if result.status != "answered" or not result.answer.strip():
+                decision_span.set_attributes(
+                    {
+                        "mode": "abstention",
+                        "reason": AnswerReason.MODEL_INSUFFICIENT.value,
+                    }
+                )
+                return self._refuse(AnswerReason.MODEL_INSUFFICIENT, trace)
+            if any(item is None for item in resolved):
+                decision_span.set_attributes(
+                    {
+                        "mode": "abstention",
+                        "reason": AnswerReason.INVALID_SOURCE_IDS.value,
+                    }
+                )
+                return self._refuse(AnswerReason.INVALID_SOURCE_IDS, trace)
+            cited = [item for item in resolved if item is not None]
+            if trace is not None:
+                trace["cited"] = [item.source_id for item in cited]
+            decision_span.set_attributes(
+                {
+                    "mode": "synthesis",
+                    "reason": AnswerReason.ANSWERED.value,
+                    "cited_source_ids": [item.source_id for item in cited],
+                }
+            )
+            return AnswerOutcome(
+                answer=result.answer,
+                mode=AnswerMode.SYNTHESIS,
+                reason=AnswerReason.ANSWERED,
+                source_ids=[item.source_id for item in cited],
+                text=_render(result.answer, cited),
+            )
+
+    async def _decide_retrieved(
+        self,
+        question: str,
+        space_id: str | None,
+        trace: dict[str, object],
+        started: float,
+    ) -> AnswerPreview:
+        """Retrieve and decide, with the retrieval span around retrieval.
+
+        Args:
+            question: The cleaned question.
+            space_id: The logical space to search, or ``None`` for global.
+            trace: The debug trace to fill.
+            started: When the question started, for the retrieval timing.
+
+        Returns:
+            The preview, including the unavailable outcome on a provider
+            failure, which is a decision like any other.
+        """
+        try:
+            with self.tracer.span("retrieval", space_id=space_id) as retrieval_span:
+                retrieved = await self.retrieval.retrieve(question, space_id)
+                retrieval_span.set_attributes(
+                    {
+                        "qa_candidates": len(retrieved.qa),
+                        "message_candidates": len(retrieved.messages),
+                        "qa_similarities": [
+                            round(item.similarity, 4) for item in retrieved.qa
+                        ],
+                        "message_similarities": [
+                            round(item.similarity, 4) for item in retrieved.messages
+                        ],
+                    }
+                )
+        except ModelUnavailableError:
+            return AnswerPreview(self._unavailable(trace), [], trace)
+        trace["retrieval_ms"] = _elapsed(started)
+        trace["candidates"] = {
+            "qa": _candidates(retrieved.qa),
+            "message": _candidates(retrieved.messages),
+        }
+        return AnswerPreview(
+            await self.decide(question, retrieved, trace), retrieved.all(), trace
         )
 
     @staticmethod
@@ -386,20 +491,22 @@ class AnswerService:
         question = question.strip()
         started = time.perf_counter()
         trace: dict[str, object] = {"floor": self.policy.floor}
-        try:
-            retrieved = await self.retrieval.retrieve(question, space_id)
-        except ModelUnavailableError:
-            preview = AnswerPreview(self._unavailable(trace), [], trace)
-        else:
-            trace["retrieval_ms"] = _elapsed(started)
-            trace["candidates"] = {
-                "qa": _candidates(retrieved.qa),
-                "message": _candidates(retrieved.messages),
-            }
-            preview = AnswerPreview(
-                await self.decide(question, retrieved, trace), retrieved.all(), trace
+        with self.tracer.span(
+            "answer_question",
+            answer_id=answer_id,
+            conversation_id=conversation_id,
+            space_id=space_id,
+            question_chars=len(question),
+        ) as question_span:
+            preview = await self._decide_retrieved(question, space_id, trace, started)
+            trace["total_ms"] = _elapsed(started)
+            question_span.set_attributes(
+                {
+                    "mode": preview.outcome.mode.value,
+                    "reason": preview.outcome.reason.value,
+                    "duration_ms": trace["total_ms"],
+                }
             )
-        trace["total_ms"] = _elapsed(started)
         details = _source_details(preview.outcome.source_ids, preview.evidence)
         record = BotAnswer(
             id=answer_id,
@@ -454,13 +561,27 @@ class AnswerService:
         return await self.retrieval.retrieve(clean_question(question))
 
     async def dry_run(self, question: str) -> AnswerPreview:
-        """Decide an answer without persisting it."""
+        """Decide an answer without persisting it, with the same trace shape.
+
+        The evaluation path opens the same spans as a real answer, so a failed
+        evaluation case is attributable from telemetry the same way a
+        user-visible abstention is.
+        """
         cleaned = clean_question(question)
+        started = time.perf_counter()
         trace: dict[str, object] = {"floor": self.policy.floor}
-        try:
-            retrieved = await self.retrieval.retrieve(cleaned)
-        except ModelUnavailableError:
-            return AnswerPreview(self._unavailable(trace), [], trace)
-        return AnswerPreview(
-            await self.decide(cleaned, retrieved, trace), retrieved.all(), trace
-        )
+        with self.tracer.span(
+            "answer_question",
+            answer_id=None,
+            question_chars=len(cleaned),
+            evaluation=True,
+        ) as question_span:
+            preview = await self._decide_retrieved(cleaned, None, trace, started)
+            question_span.set_attributes(
+                {
+                    "mode": preview.outcome.mode.value,
+                    "reason": preview.outcome.reason.value,
+                    "duration_ms": _elapsed(started),
+                }
+            )
+            return preview

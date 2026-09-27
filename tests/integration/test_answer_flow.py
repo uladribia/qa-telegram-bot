@@ -2,6 +2,7 @@
 """Integration tests for durable answer preparation."""
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from knowledge_bot.application.answer_policy import AnswerPolicy
@@ -357,3 +358,114 @@ async def test_unreadable_output_keeps_the_invalid_code_in_the_trace() -> None:
     trace = await _trace(answers)
     assert trace["refusal_reason"] == "invalid_model_output"
     assert trace["generation"]["invalid_output_code"] == "schema_validation"
+
+
+class _RecordingTracer:
+    """A tracer that records span names and their attributes in order."""
+
+    def __init__(self) -> None:
+        """Start with an empty recording."""
+        self.spans: list[str] = []
+        self.attributes: dict[str, dict[str, object]] = {}
+        self._stack: list[str] = []
+
+    def span(self, name: str, **fields: object) -> "_RecordingSpan":
+        """Open a recorded span.
+
+        Args:
+            name: The span name.
+            **fields: The attributes recorded at open time.
+
+        Returns:
+            The span context manager.
+        """
+        self.spans.append(name)
+        self.attributes.setdefault(name, {}).update(fields)
+        return _RecordingSpan(self, name)
+
+
+class _RecordingSpan:
+    """One recorded span."""
+
+    def __init__(self, tracer: _RecordingTracer, name: str) -> None:
+        """Store the tracer and this span's name.
+
+        Args:
+            tracer: The recording tracer.
+            name: The span name.
+        """
+        self._tracer = tracer
+        self._name = name
+
+    def __enter__(self) -> "_RecordingSpan":
+        """Enter the span.
+
+        Returns:
+            The span itself.
+        """
+        self._tracer._stack.append(self._name)
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        """Leave the span.
+
+        Args:
+            *exc_info: The exception triple, if any.
+        """
+        self._tracer._stack.pop()
+
+    def set_attributes(self, fields: dict[str, object]) -> None:
+        """Record attributes discovered while the span was open.
+
+        Args:
+            fields: The attributes.
+        """
+        self._tracer.attributes.setdefault(self._name, {}).update(fields)
+
+
+async def test_a_answered_question_produces_the_documented_span_tree() -> None:
+    """One question yields the five documented spans, in order."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service(
+        [_qa_record()],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
+        ),
+    )
+    service = replace(service, tracer=tracer)
+
+    await service.dry_run("Quan entrenen?")
+
+    assert tracer.spans == [
+        "answer_question",
+        "retrieval",
+        "evidence_selection",
+        "generation",
+        "answer_decision",
+    ]
+    assert tracer.attributes["answer_question"]["reason"] == "answered"
+    assert tracer.attributes["answer_question"]["mode"] == "synthesis"
+    assert tracer.attributes["evidence_selection"]["selected"] == ["qa:web-item"]
+    assert tracer.attributes["generation"]["evidence_count"] == 1
+    assert tracer.attributes["answer_decision"]["cited_source_ids"] == ["qa:web-item"]
+
+
+async def test_an_abstention_produces_the_same_tree_and_says_why() -> None:
+    """The tree does not change shape when the answer is refused."""
+    tracer = _RecordingTracer()
+    service, _, _ = await _service(
+        [_qa_record()], GenerationOutput(status="insufficient")
+    )
+    service = replace(service, tracer=tracer)
+
+    await service.dry_run("Quan entrenen?")
+
+    assert tracer.spans == [
+        "answer_question",
+        "retrieval",
+        "evidence_selection",
+        "generation",
+        "answer_decision",
+    ]
+    assert tracer.attributes["answer_question"]["reason"] == "model_insufficient"
+    assert tracer.attributes["generation"]["status"] == "insufficient"

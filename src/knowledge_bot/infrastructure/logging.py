@@ -17,6 +17,9 @@ from types import ModuleType
 
 from fastapi import FastAPI
 
+from knowledge_bot.infrastructure.telemetry import LogfireTracer, _as_sdk
+from knowledge_bot.ports.telemetry import NoopTracer, Tracer
+
 #: Service identity in Logfire. One deployable means one service name.
 SERVICE_NAME = "qa-telegram"
 
@@ -164,6 +167,18 @@ def log_content(event: str, **fields: object) -> None:
 def content_capture_enabled() -> bool:
     """Return whether content capture is on for this process."""
     return _capture_content and _observability_configured
+
+
+def build_tracer() -> Tracer:
+    """Return the tracer for this process.
+
+    The application layer asks for spans without knowing whether telemetry was
+    configured, so a runtime that never configured the exporter still gets a
+    working tracer: the no-op one, which records nothing and cannot fail.
+    """
+    if not _observability_configured:
+        return NoopTracer()
+    return LogfireTracer(sdk=_as_sdk(_logfire()), capture=_capture_content)
 
 
 def _logfire() -> ModuleType:
