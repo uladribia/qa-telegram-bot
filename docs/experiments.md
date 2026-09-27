@@ -206,6 +206,89 @@ same five documents returned `answered` in five offline reproductions and
 `abstention` in production. The model is non-deterministic on borderline
 questions, so the suite score is noisy in both directions.
 
+## Generation model, re-measured: the axis that was missing, now measured
+
+The section above ends with a debt: mistral was screened on grounding and not
+on completeness, and "any future model comparison needs both numbers". The gold
+and frozen suites supply both, and they were run in production on 2026-09-27 for
+three models. Same cases, same knowledge base, one variable.
+
+| | frozen earned | gold earned | gold false answers | metered per call | latency |
+|---|---:|---:|---:|---:|---:|
+| `mistral-small-3.1-24b-instruct` | **22/30** | **20/26** | 1 | **~9 neurons** | ~4.7-5.9 s |
+| `qwen3-30b-a3b-fp8` (`/no_think`) | 23/30 | 21/26 | 1 | ~18 | ~3.0-4.0 s |
+| `glm-4.7-flash` (thinking disabled) | 21/30 | 20/26 | 1 | ~25 | ~3.3-3.9 s |
+
+"Frozen" measures the generator alone: every case carries its own evidence, so
+retrieval cannot affect it. "Gold" is retrieval-backed, 11 answerable cases and
+15 abstentions, and is the only suite that measures *this* knowledge base. A case
+counts only when it is **earned** — the expected mode for the expected reason,
+not an abstention that happens to match because the model emitted unreadable
+output. That distinction is why local `gemma3:270m` scores 0 of 26 gold cases
+rather than the 58% its assertion rate suggests.
+
+**The finding that decides it: all three models fail the same five gold cases.**
+
+```text
+equipment_when        equipment_size      training_where
+medical_expiry        gold_abstention_07  (the delegate's phone)
+```
+
+Two of them are false abstentions with evidence in hand; one is a retrieval miss
+answered confidently (`training_where`: "On entrenen?" retrieved the rain policy
+and the model answered *that*, fluently); one is a wrong-entity answer, where a
+question about a delegate's phone got the club's own published general line. A
+fourth model would not move any of them. They are knowledge and grounding
+problems, and no generation model fixes them.
+
+**Decision: stay on mistral.** Across three models the gold suite separates them
+by at most one case, and on every axis that is not a tie — cost, and needing no
+switch to stay inside the deadline — mistral wins. GLM is the weakest on the
+frozen suite and the only one that required a switch to be usable at all.
+
+### What rehabilitated the rejected model
+
+GLM-4.7-Flash was rejected in September for spending 53 s and 101 neurons
+returning `insufficient`. It was retested with thinking switched off, because
+Cloudflare exposes `chat_template_kwargs` — the mechanism GLM-4.5 and later
+honour — and the result is not a marginal improvement but a different model:
+
+| | latency | valid JSON | timeout |
+|---|---:|---|---|
+| thinking on (September) | 53.0 s, 2653 completion tokens | yes, eventually | past the 35 s deadline |
+| `chat_template_kwargs.enable_thinking = false` | 3.3-3.9 s | yes | none |
+
+The same shape rehabilitated qwen3 with its own template token, `/no_think`. Both
+levers are now wired, default off, and tested to assert they are inert unless
+asked for: `AI_APPEND_NO_THINK` and `AI_DISABLE_THINKING`. **The lesson is not
+that reasoning models are bad, it is that an unbounded chain of thought was
+being paid for in the user's latency.** A reasoning model behind a switch is
+fine; the same model without one does not fit a 35 s deadline.
+
+### What a future comparison must do differently
+
+The granite comparison on branch `eval/granite-vs-gemma-model-comparison`
+(measured 2026-09-26, unmerged) is the cautionary example, and its mistake is
+worth naming because this project has now made it once:
+
+- **Its headline was an artefact of the quota, not the models.** It reported
+  granite at 69/90 and mistral at 48/90, but mistral's run hit the daily Workers
+  AI ceiling at case 67, so 24 of its cases were never judged by the model. On
+  the 65 **paired** cases, mistral and granite are level: mistral 16/43 complete
+  against granite 14/43, equal on grounding. A missing 24 cases decided nothing
+  and looked decisive.
+- **Never compare runs with different evidence.** Local granite is not a proxy
+  for production granite: on 23 shared questions the two disagreed on 8, and
+  every disagreement had a different evidence set, because production returns 3
+  Q&A + 2 `msg:` items and the local runtime has no indexed messages.
+- **Check the meter before concluding.** The budget meter is character-based and
+  model-blind; it undercounts `mistral-small` by roughly 2x and charges every
+  model the same rate. Any cost claim needs real per-model measurements.
+
+With the suites in place this is now a two-hour experiment rather than a
+half-day one, and the paired-evidence rule is enforceable: the frozen suite is
+frozen precisely so that both runs see identical evidence.
+
 ## Cross-encoder reranking: measured, harmful, removed
 
 **Question.** Would a reranker fix the near-miss evidence that reaches the
