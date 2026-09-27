@@ -23,10 +23,14 @@ answers:
 - id: equipment_order
   question: Com demano l'equipament?
   expected_mode: synthesis
+  # The corpus (qa-equipament-com-demanar) says "es provin les talles" and
+  # "el delegat/da envia llavors una llista". It never says "provar", so a
+  # correct grounded answer would fail a check for that word. The terms are
+  # taken from the corpus, not from a paraphrase of it.
   must_include:
-  - provar
   - talla
   - llista
+  - delegat
   must_not_claim:
   - es compra directament a la botiga del Barça
 - id: equipment_when
@@ -83,9 +87,13 @@ answers:
 - id: minis_league
   question: Els Minis juguen lliga?
   expected_mode: synthesis
+  # The corpus (qa-mini-competicions) answers "no tenen una competició
+  # pròpia". The word "lliga" appears nowhere in it, so requiring it made the
+  # case unanswerable: the only way to pass was to be wrong.
   must_include:
-  - lliga
-  must_not_claim: []
+  - competició
+  must_not_claim:
+  - tenen una competició pròpia []
 - id: spanish_equipment
   question: ¿Cuándo hay que pedir la equipación?
   expected_mode: synthesis

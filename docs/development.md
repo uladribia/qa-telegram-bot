@@ -22,9 +22,19 @@ The eval corpus contains these offline datasets:
   `answers` must be answered and cite the expected source; `abstentions` must
   abstain and state why. A missing `must_include` fact is a hard failure, not a
   warning. There is no case-count gate.
-- `evals/frozen_generation.yaml`: 30 human-curated generator cases carrying
-  their own evidence, so `live --suite frozen` measures the generator with
-  retrieval bypassed and every failure attributed to a kind.
+- `evals/frozen_generation.yaml`: 30 generator cases carrying **their own
+  evidence**, so the frozen suite measures the generator with retrieval
+  bypassed. Its evidence is written for the case, not taken from the club
+  corpus: that is the point, since the question is "given exactly this
+  evidence, did the model decide correctly". Each case carries a `category`,
+  and the report groups by it.
+- The two sets are grounded differently, and the difference matters.
+  `gold.yaml` is about *this* knowledge base, so every required fact must be
+  something `data/seed/qa.json` actually states; the offline gate now checks
+  exactly that, in both directions: a required term the corpus never states
+  makes a case unanswerable, and a forbidden term the corpus does state fails a
+  faithful answer. Two gold cases were broken that way and the gate proves it
+  catches them.
 - `evals/classifier.yaml`: intent labels for question, knowledge update, correction, and chitchat variations (human gold; mirrored into the classifier train split).
 - `evals/answers_synthetic.yaml` and `evals/abstention_synthetic.yaml`: synthetic stress material for local experiments. They are **not** part of the default live gate; `live --suite abstention` adds them explicitly.
 - `evals/listener.yaml`: realistic WhatsApp-style windows for question detection and temporal Q→A pairing.

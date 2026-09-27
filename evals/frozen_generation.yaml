@@ -11,6 +11,7 @@
 #   - parser/provider failures are not cases here, they are unit tests;
 #   - every expected source id must appear in that case's own evidence.
 - id: single_sufficient_source
+  category: sufficient_source
   question: "Quan s'obren les oficines de recepció?"
   evidence:
     - source_id: "qa-horari-oficines"
@@ -27,6 +28,7 @@
     must_not_claim: ["24 hores", "obertes tots els dies"]
 
 - id: only_one_of_many_answers
+  category: one_of_many
   question: "On es fa la prova d'equip?"
   evidence:
     - source_id: "msg-xarramenta"
@@ -50,6 +52,7 @@
     must_not_claim: ["Nadal", "vestidors"]
 
 - id: two_sources_needed_together
+  category: complementary_pair
   question: "Quants socis actius hi ha i on es fa la renovació de la Targeta?"
   evidence:
     - source_id: "qa-socis-actius"
@@ -68,6 +71,7 @@
     must_not_claim: ["60.000 socis"]
 
 - id: topical_near_miss
+  category: near_miss
   question: "A quina hora s'obre el bar del pavelló?"
   evidence:
     - source_id: "msg-bar-generic"
@@ -80,6 +84,7 @@
     must_not_claim: ["9:00", "10:00", "obrir"]
 
 - id: irrelevant_candidates_high_overlap
+  category: irrelevant_overlap
   question: "Quant costa l'abonament anual?"
   evidence:
     - source_id: "msg-estadi"
@@ -97,6 +102,7 @@
     must_not_claim: ["33.000", "preu", "euros"]
 
 - id: equal_authority_conflict_abstains
+  category: authority_conflict
   question: "Quin és l'estadi del club?"
   evidence:
     - source_id: "msg-estadi-a"
@@ -114,6 +120,7 @@
     must_not_claim: ["Camp de la Ciutat", "Estadi del Riu"]
 
 - id: stronger_authority_correction_wins
+  category: authority_correction
   question: "Quina és la seu social del club?"
   evidence:
     - source_id: "msg-seu-antics"
@@ -132,6 +139,7 @@
     must_not_claim: ["carrer Major"]
 
 - id: spanish_question_catalan_evidence
+  category: cross_language
   question: "¿A qué hora abre la tienda del club?"
   evidence:
     - source_id: "botiga-horari"
@@ -144,6 +152,7 @@
     must_include: ["10:00", "20:00"]
 
 - id: short_ambiguous_question
+  category: short_question
   question: "I les entrades?"
   evidence:
     - source_id: "msg-entrades"
@@ -157,6 +166,7 @@
     must_include: ["18", "8"]
 
 - id: evidence_with_injection_attempt
+  category: injection
   question: "Què has de fer per demanar la Targeta?"
   evidence:
     - source_id: "msg-injeccio"
@@ -171,6 +181,7 @@
     must_not_claim: ["gratuït", "ignora"]
 
 - id: partial_support_abstains
+  category: partial_support
   question: "Com puc demanar la Targeta i com puc renewing el meu domicili bancari?"
   evidence:
     - source_id: "msg-targeta-parcial"
@@ -183,6 +194,7 @@
     must_not_claim: ["domicili bancari", "sepa"]
 
 - id: explicit_refusal_insufficient
+  category: known_abstention
   question: "Qui va ser el jugador més important de la dècada dels noranta?"
   evidence:
     - source_id: "msg-historia"
@@ -195,6 +207,7 @@
     must_not_claim: ["noranta", "1995", "més important"]
 
 - id: numeric_evidence
+  category: single_fact
   question: "Quants camps d'entrenament té el club?"
   evidence:
     - source_id: "msg-camps"
@@ -209,6 +222,7 @@
     must_not_claim: ["tres"]
 
 - id: two_sources_where_only_one_answers
+  category: one_of_many
   question: "On s'entrenen els grups?"
   evidence:
     - source_id: "msg-ciutat"
@@ -227,6 +241,7 @@
     must_not_claim: ["districte"]
 
 - id: correction_rejects_outdated_detail
+  category: authority_correction
   question: "Quin dia se celebra l'assemblea de socis?"
   evidence:
     - source_id: "qa-assemblea-antics"
@@ -244,6 +259,7 @@
     must_not_claim: ["30 de gener"]
 
 - id: single_word_question
+  category: short_question
   question: "Veterans?"
   evidence:
     - source_id: "msg-veterans"
@@ -257,6 +273,7 @@
     must_include: ["diumenges", "11:00"]
 
 - id: answerable_without_exact_phrase
+  category: paraphrase
   question: "Es pot pagar la Targeta amb targeta de crèdit?"
   evidence:
     - source_id: "qa-targeta-pagament"
@@ -270,6 +287,7 @@
     must_not_claim: ["només efectiu"]
 
 - id: message_kind_evidence_only
+  category: single_fact
   question: "Què hem de portar a la sortida?"
   evidence:
     - source_id: "msg-sortida-equip"
@@ -283,6 +301,7 @@
     must_include: ["aigua", "espardenyes"]
 
 - id: three_sources_only_two_answer
+  category: one_of_many
   question: "On es compro la samarreta i quant costa?"
   evidence:
     - source_id: "msg-riu"
@@ -306,6 +325,7 @@
     must_not_claim: ["riu"]
 
 - id: question_about_time_evidence_has_only_date
+  category: near_miss
   question: "A quina hora és l entrenament del dimecres?"
   evidence:
     - source_id: "msg-dimecres-data"
@@ -318,6 +338,7 @@
     must_not_claim: ["19:00", "20:00", "18:00"]
 
 - id: conditional_answer
+  category: conditional
   question: "Es pot visitar la botiga amb un_fill?"
   evidence:
     - source_id: "qa-botiga-fills"
@@ -331,6 +352,7 @@
     must_not_claim: ["tots els fills"]
 
 - id: list_evidence
+  category: single_fact
   question: "Què ha d'incloure la bossa de material?"
   evidence:
     - source_id: "msg-material"
@@ -345,6 +367,7 @@
     must_not_claim: ["gorra"]
 
 - id: abstention_when_only_one_of_two_subquestions_is_evidenced
+  category: partial_support
   question: "On ens trobem i quants deixebes tinc?"
   evidence:
     - source_id: "msg-trobada"
@@ -357,6 +380,7 @@
     must_not_claim: ["deixebes", "12.450", "saldo"]
 
 - id: message_with_html_noise
+  category: noisy_evidence
   question: "Quina és la data de la final?"
   evidence:
     - source_id: "msg-final"
@@ -370,6 +394,7 @@
     must_include: ["12 de maig", "21:00"]
 
 - id: authority_ignored_when_nothing_answers
+  category: single_fact
   question: "Quina és la绍兴 capitena?"
   evidence:
     - source_id: "qa-capitena-oficial"
@@ -383,6 +408,7 @@
     must_not_claim: ["capitana de l'equip B"]
 
 - id: evidence_says_it_is_outdated
+  category: outdated_evidence
   question: "Quina tarifa té l'abonament?"
   evidence:
     - source_id: "msg-tarifa-obsoleta"
@@ -395,6 +421,7 @@
     must_not_claim: ["60 euros", "tarifa actual és"]
 
 - id: multi_part_fully_evidenced
+  category: complementary_pair
   question: "On i quan es venen les entrades per al partit?"
   evidence:
     - source_id: "msg-entrades-lloc"
@@ -412,6 +439,7 @@
     must_include: ["botiga", "dilluns", "10:00"]
 
 - id: near_duplicate_sources_same_fact
+  category: redundant_sources
   question: "A quina hora.training comença l entrenament?"
   evidence:
     - source_id: "msg-entrenament-a"
@@ -430,6 +458,7 @@
     must_include: ["19:00"]
 
 - id: abstention_when_evidence_is_only_a_definition
+  category: definition_only
   question: "Quant paguen els socis de l'any passat?"
   evidence:
     - source_id: "msg-quota-definicio"
@@ -442,6 +471,7 @@
     must_not_claim: ["euros", "mitjana", "import"]
 
 - id: number_with_separator
+  category: numeric_evidence
   question: "Quants membres té el club?"
   evidence:
     - source_id: "qa-membres"
