@@ -32,12 +32,17 @@ pylock.toml
 *.sqlite
 *.sqlite3
 
-# Data artifacts are generated locally and never committed; the bot's
-# self-explanation Q&A is versioned and ships with the repo.
+# Raw exports are generated locally and never committed. The knowledge base
+# itself is versioned: the bot's self-explanation Q&A and the website Q&A seed
+# are the only reproducible record of what was ever seeded, so losing them makes
+# the knowledge base unrebuildable from the repo. The WhatsApp imports stay
+# ignored: they are large parsed copies of data/raw/*, and the knowledge they
+# produced is already in the seed and in D1.
 data/raw/*
 !data/raw/.gitkeep
 data/seed/*
 !data/seed/bot_self_qa.json
+!data/seed/qa.json
 
 # IDE / OS
 .idea/
