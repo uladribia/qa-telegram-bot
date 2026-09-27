@@ -177,6 +177,33 @@ test asserting the token is only sent when asked for. It is the only thing from
 this experiment worth carrying, because the model will need it if it is ever
 adopted.
 
+## glm-4.7-flash, thinking disabled: the final model decision
+
+The model rejected in September for spending 53 s and 101 neurons on one
+`insufficient`. Retested 2026-09-27 with `chat_template_kwargs.enable_thinking
+= false`, which Cloudflare exposes and GLM honours: **3.3-3.9 s per call, valid
+JSON, no timeout.** The deliberation is fully gone.
+
+| | mistral | qwen3 + /no_think | glm-4.7 thinking off |
+|---|---|---|---|
+| frozen earned | **22/30** | 23/30 | 21/30 |
+| gold earned | **20/26** | 21/26 | 20/26 |
+| metered per call | **~9** | ~18 | ~25 |
+
+All three fail **the same five gold cases**. Those are knowledge and grounding
+problems, not model problems. **Decision: stay on mistral-small-3.1-24b-instruct.**
+Cheapest, no thinking switch needed, and the model swap would buy at most one
+case. Production was restored to mistral and re-verified.
+
+Kept from the experiment: `WorkersAIGenerator(disable_thinking=True)` wired to
+`AI_DISABLE_THINKING`, default off, with a test asserting
+`chat_template_kwargs` is only sent when asked for. If a reasoning model is ever
+adopted, that switch is what makes it fit the deadline — it is the same lever
+that rehabilitated GLM here.
+
+Today's meter after all three model runs: ~5,277 of 10,000, so the eval ceiling
+(7,500) is still open but the real quota is the binding constraint, not ours.
+
 ## The gold set, run on both runtimes
 
 The suite that measures this knowledge base, run 2026-09-27 on both runtimes:

@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     ai_append_no_think: bool = Field(
         default=False, validation_alias=AliasChoices("AI_APPEND_NO_THINK")
     )
+    # GLM-4.5 and later think by default and the deliberation does not fit the
+    # adapter deadline. Sent as chat_template_kwargs.enable_thinking.
+    ai_disable_thinking: bool = Field(
+        default=False, validation_alias=AliasChoices("AI_DISABLE_THINKING")
+    )
 
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5

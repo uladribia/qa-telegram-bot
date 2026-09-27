@@ -238,6 +238,40 @@ Nothing here justifies switching. The gold suite is the measuring instrument
 this project lacked all week, and on it the two models are within one case of
 each other, with the same five known failures on both.
 
+### glm-4.7-flash with thinking disabled, the final comparison
+
+The model this project rejected in September: left to think, it spent **53 s and
+101 neurons** returning `insufficient` for one question, which is what made users
+report that the bot did not answer. Cloudflare exposes `chat_template_kwargs`,
+the switch GLM-4.5 and later honour, so it was retested with
+`enable_thinking: false` on every call.
+
+**The switch works, completely.** 3.3-3.9 s per call, valid JSON, no timeout.
+The unbounded deliberation is gone and the model is now comparable to a
+non-reasoning one.
+
+| | mistral-small-3.1-24b | qwen3-30b-a3b (`/no_think`) | glm-4.7-flash (thinking off) |
+|---|---|---|---|
+| frozen cases earned | **22 / 30** | 23 / 30 | 21 / 30 |
+| gold cases earned | **20 / 26** | 21 / 26 | 20 / 26 |
+| gold assertions | 75/80 (94%) | 80/85 (94%) | 80/85 (94%) |
+| gold false answers | 1 | 1 | 1 |
+| metered cost per call | ~9 neurons | ~18 | ~25 |
+| latency (probe) | ~4.7-5.9 s | ~3.0-4.0 s | ~3.3-3.9 s |
+
+GLM fails **the same five gold cases as mistral**, and they are the same five
+qwen failed. On the frozen suite it is the weakest of the three (21/30) and
+fails a shape the others pass: `redundant_sources`, where two near-identical
+sources must both be cited and it cites one. It is also the most expensive per
+call on the meter while offering nothing the others do not.
+
+**The final decision: stay on `mistral-small-3.1-24b-instruct`.** Across three
+models the gold suite separates them by at most one case, and the same five
+failures are common to all of them: those are knowledge and grounding problems,
+not model problems. On the axes that are not a tie, mistral is cheapest and
+needs no switch to stay inside its deadline. Swapping would cost a deployment, a
+prompt re-tune and the shared daily quota to buy one case.
+
 ### The gold set, measured on both runtimes
 
 `evals/gold.yaml` is the only suite that measures *this* knowledge base: 11

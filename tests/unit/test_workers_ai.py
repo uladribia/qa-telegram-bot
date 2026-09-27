@@ -301,3 +301,28 @@ async def test_no_think_switch_is_appended_to_the_user_message() -> None:
 
     assert "/no_think" not in user_message(plain)
     assert user_message(with_switch).rstrip().endswith("/no_think")
+
+
+async def test_disable_thinking_sends_the_chat_template_switch() -> None:
+    """GLM's thinking switch is sent only when it is asked for.
+
+    GLM-4.7-Flash left to think spent 53 s and 101 neurons on a single
+    ``insufficient``, past the adapter deadline. ``chat_template_kwargs`` is
+    the switch that family honours, and it must not go out by default: the
+    payload is shared with every other model.
+    """
+    thinking = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
+    quiet = _Runner(
+        {"choices": [{"message": {"content": '{"status": "insufficient"}'}}]}
+    )
+    request = GenerationRequest(question="q", evidence=[])
+
+    await WorkersAIGenerator(thinking, "glm", timeout_seconds=1.0).generate(request)
+    await WorkersAIGenerator(
+        quiet, "glm", timeout_seconds=1.0, disable_thinking=True
+    ).generate(request)
+
+    assert "chat_template_kwargs" not in thinking.inputs
+    assert quiet.inputs["chat_template_kwargs"] == {"enable_thinking": False}

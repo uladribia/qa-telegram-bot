@@ -165,6 +165,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             settings.ai_generation_timeout_seconds,
             settings.ai_generation_max_tokens,
             settings.ai_append_no_think,
+            settings.ai_disable_thinking,
         ),
         budget,
     )
