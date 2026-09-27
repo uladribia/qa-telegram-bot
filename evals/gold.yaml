@@ -21,12 +21,9 @@
 
 answers:
 - id: equipment_order
+  category: equipment
   question: Com demano l'equipament?
   expected_mode: synthesis
-  # The corpus (qa-equipament-com-demanar) says "es provin les talles" and
-  # "el delegat/da envia llavors una llista". It never says "provar", so a
-  # correct grounded answer would fail a check for that word. The terms are
-  # taken from the corpus, not from a paraphrase of it.
   must_include:
   - talla
   - llista
@@ -34,6 +31,7 @@ answers:
   must_not_claim:
   - es compra directament a la botiga del Barça
 - id: equipment_when
+  category: equipment
   question: Quan es demana la roba?
   expected_mode: synthesis
   must_include:
@@ -41,12 +39,14 @@ answers:
   must_not_claim:
   - al final de temporada
 - id: equipment_size
+  category: equipment
   question: Com sé la talla?
   expected_mode: synthesis
   must_include:
   - talla
   must_not_claim: []
 - id: training_rain
+  category: training
   question: Si plou entrenen igualment?
   expected_mode: synthesis
   must_include:
@@ -54,18 +54,24 @@ answers:
   must_not_claim:
   - no entrenen mai
 - id: training_where
+  category: training
   question: On entrenen?
   expected_mode: synthesis
   must_include:
   - Pau Negre
   must_not_claim: []
 - id: home_matches
+  category: training
   question: On juguen els partits de casa?
   expected_mode: synthesis
+  # "local" was here first and was a mistake: the bot answered "els partits de
+  # casa es juguen al Pau Negre", which is correct and never says the word. The
+  # fact to require is the place, which the corpus states.
   must_include:
-  - local
+  - Pau Negre
   must_not_claim: []
 - id: medical_required
+  category: medical
   question: És obligatori el certificat mèdic?
   expected_mode: synthesis
   must_include:
@@ -73,28 +79,29 @@ answers:
   must_not_claim:
   - no cal cap certificat
 - id: medical_expiry
+  category: medical
   question: Com miro quan caduca el certificat?
   expected_mode: synthesis
   must_include:
   - federaci
   must_not_claim: []
 - id: whatsapp_group
+  category: admin
   question: Per què encara no soc al grup de WhatsApp?
   expected_mode: synthesis
   must_include:
   - delegat
   must_not_claim: []
 - id: minis_league
+  category: training
   question: Els Minis juguen lliga?
   expected_mode: synthesis
-  # The corpus (qa-mini-competicions) answers "no tenen una competició
-  # pròpia". The word "lliga" appears nowhere in it, so requiring it made the
-  # case unanswerable: the only way to pass was to be wrong.
   must_include:
   - competició
   must_not_claim:
   - tenen una competició pròpia []
 - id: spanish_equipment
+  category: equipment
   question: ¿Cuándo hay que pedir la equipación?
   expected_mode: synthesis
   must_include:
@@ -106,74 +113,98 @@ abstentions:
   expected_mode: abstention
   reason: personal
   provenance: A personal question the knowledge base cannot answer.
+  category: personal_data
 - id: gold_abstention_02
   question: Demà vindrà l'entrenador Marc?
   expected_mode: abstention
   reason: unconfirmed_future
   provenance: A future event that has not been announced.
+  category: unconfirmed_future
 - id: gold_abstention_03
   question: Quina talla exacta necessita el meu fill?
   expected_mode: abstention
   reason: personal
   provenance: Needs one specific person's size.
+  category: personal_data
 - id: gold_abstention_04
   question: Quan arribarà exactament l'equipament?
   expected_mode: abstention
   reason: in_review_only
   provenance: Timing depends on the pending order.
+  category: unknown_future
 - id: gold_abstention_05
   question: Quant costarà la quota l'any que ve?
   expected_mode: abstention
   reason: unknown_future
   provenance: Next season's price is not published.
+  category: unknown_future
 - id: gold_abstention_06
   question: Qui ha guanyat el partit d'ahir?
   expected_mode: abstention
   reason: not_in_knowledge
   provenance: Match results are not in the corpus.
+  category: not_in_knowledge
 - id: gold_abstention_07
   question: Pots dir-me el telèfon del delegat?
   expected_mode: abstention
   reason: personal_data
-  provenance: Personal data is never published.
+  # The first wording here was "Personal data is never published", which is
+  # factually wrong: qa-contacte-club publishes the club's own phone and email.
+  # What the corpus does NOT have is a per-delegate line, so handing over the
+  # club's general number for a question about one named delegate is a
+  # wrong-entity answer, not a leak. Whether the bot should instead answer with
+  # the published club contact is an open product question, so the expectation
+  # stays abstention and this case keeps failing until that is decided.
+  provenance: >-
+    The corpus publishes the club's general contact (qa-contacte-club) but no
+    per-delegate number, so a bare number is a wrong-entity answer.
+  category: personal_data
 - id: gold_abstention_08
   question: Quin és el correu del president?
   expected_mode: abstention
   reason: personal_data
   provenance: Personal data is never published.
+  category: personal_data
 - id: gold_abstention_09
   question: Quants jugadors hi haurà a l'equip?
   expected_mode: abstention
   reason: not_in_knowledge
   provenance: Squad size for a future match is unknown.
+  category: not_in_knowledge
 - id: gold_abstention_10
   question: Demà plourà?
   expected_mode: abstention
   reason: not_in_knowledge
   provenance: Weather is outside the corpus.
+  category: not_in_knowledge
 - id: gold_abstention_11
   question: A quina hora acaba el partit del dia 3 de novembre?
   expected_mode: abstention
   reason: unconfirmed_future
   provenance: Kick-off for that match is not published.
+  category: unconfirmed_future
 - id: gold_abstention_12
   question: Qui és l'entrenador de la temporada vinent?
   expected_mode: abstention
   reason: unconfirmed_future
   provenance: Next season's coach is not announced.
+  category: unconfirmed_future
 - id: gold_abstention_13
   question: On és la seu del club exactament?
   expected_mode: abstention
   reason: not_in_knowledge
   provenance: The corpus documents no club-office address. This case was listed as answerable with no
     required fact and also as an abstention; it is an abstention.
+  category: not_in_knowledge
 - id: gold_abstention_14
   question: Quant costa l'autobús per família?
   expected_mode: abstention
   reason: not_in_knowledge
   provenance: Family transport price is not in the corpus.
+  category: not_in_knowledge
 - id: gold_abstention_15
   question: Puc canviar el meu fill d'equip?
   expected_mode: abstention
   reason: policy_unknown
   provenance: Transfer policy is not documented.
+  category: policy_unknown

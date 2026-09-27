@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -46,6 +46,14 @@ eval-live-reindex:
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
 	uv run python -m evals.run live --reindex --base-url "$(BOT_BASE_URL)"
 
+# The human gold set against the deployed Worker: 11 answerable cases and 15
+# abstentions, retrieval included. Roughly 800-1000 neurons, the same cost as
+# the frozen suite but measuring this knowledge base rather than the generator.
+eval-live-gold:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	uv run python -m evals.run live --suite gold --base-url "$(BOT_BASE_URL)"
+
 # Generator-only gate: every case carries its own evidence, so retrieval does not
 # participate and a failure is the model's. One generation call per case, so it
 # is the cheapest live suite: run it before touching anything else.
@@ -60,6 +68,13 @@ eval-live-frozen:
 eval-frozen-local:
 	docker exec knowledge-bot-local .venv/bin/python -m evals.run live \
 		--suite frozen --base-url http://127.0.0.1:8000
+
+# The human gold set against the local stack: 11 answerable cases and 15
+# abstentions, retrieval included, so it is the only suite that measures this
+# knowledge base rather than the generator.
+eval-gold-local:
+	docker exec knowledge-bot-local .venv/bin/python -m evals.run live \
+		--suite gold --base-url http://127.0.0.1:8000
 
 # Rebuild the derived vector index from D1 (D1 stays the source of truth).
 reindex:
