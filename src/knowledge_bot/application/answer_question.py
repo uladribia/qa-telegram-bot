@@ -260,6 +260,9 @@ class AnswerService:
                                 label=item.label,
                                 authority=item.authority,
                                 similarity=item.similarity,
+                                provenance=item.provenance,
+                                source_kind=item.source_kind,
+                                question=item.question,
                             )
                             for item in evidence
                         ],

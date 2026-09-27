@@ -18,6 +18,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
@@ -198,6 +199,7 @@ def build_test_context(
             "telegram:1",
         ),
         reverter=CorrectionReverter(backend.qa_items, backend.qa_versions),
+        promoter=QAPromoter(backend.qa_items, backend.qa_versions, clock),
         budget=budget,
         telegram=TelegramChannel(identity=identity, client=transport),
         delivery_receipts=backend.delivery_receipts,

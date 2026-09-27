@@ -236,8 +236,8 @@ async def test_group_variant_suppresses_a_better_scoring_global_match() -> None:
     assert [item.source_id for item in retrieved.qa] == ["qa-group"]
 
 
-async def test_default_width_is_three_qa_and_two_context_candidates() -> None:
-    """Retrieval returns at most three Q&A and two group candidates."""
+async def test_default_width_is_five_qa_and_two_context_candidates() -> None:
+    """Retrieval returns at most five Q&A and two group candidates."""
     store = FakeVectorStore()
     await store.upsert(
         [
@@ -272,5 +272,5 @@ async def test_default_width_is_three_qa_and_two_context_candidates() -> None:
 
     retrieved = await service.retrieve("pregunta")
 
-    assert len(retrieved.qa) == 3
+    assert len(retrieved.qa) == 5
     assert len(retrieved.messages) == 2

@@ -248,6 +248,45 @@ def review(
 
 
 @app.command()
+def promote(
+    targets: list[str] = typer.Argument(
+        help="Q&A item id, or the canonical question as shown in kb review."
+    ),
+    base_url: str = _BASE_URL,
+) -> None:
+    """Publish seeded Q&A marked in_review so the bot can answer from it.
+
+    A snapshot entry seeded as ``in_review`` is stored as ``under_review``:
+    retrieval filters on active, nothing embeds it, and no feedback record
+    exists to approve it, so it can never reach the base on its own. This
+    publishes it and projects it. Approving a correction does not need this.
+    """
+    _require_live_allowed(base_url)
+    settings = Settings()
+    failed = False
+    for target in targets:
+        response = httpx.post(
+            f"{base_url}/internal/promote",
+            json={"target": target},
+            headers=_internal_headers(settings),
+            timeout=120.0,
+        )
+        if response.status_code == 404:
+            typer.echo(f"No such Q&A item: {target}")
+            failed = True
+            continue
+        response.raise_for_status()
+        body = response.json()
+        typer.echo(
+            f"Promoted {body['qa_item_id']} "
+            f"({body['canonical_question']}) -> {body['status']}, "
+            f"projection={body['projection_status']}"
+        )
+    if failed:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def revert(
     qa_item_id: str = typer.Argument(help="The qa item id to roll back one version."),
     base_url: str = _BASE_URL,

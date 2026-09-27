@@ -22,6 +22,7 @@ from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
 from knowledge_bot.application.revert import CorrectionReverter
@@ -324,6 +325,11 @@ async def build_context(
         reverter=CorrectionReverter(
             qa_items=D1QAItemRepository(binding),
             qa_versions=D1QAVersionRepository(binding),
+        ),
+        promoter=QAPromoter(
+            qa_items=D1QAItemRepository(binding),
+            qa_versions=D1QAVersionRepository(binding),
+            clock=clock,
         ),
         budget=budget,
         telegram=TelegramChannel(

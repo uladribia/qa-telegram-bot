@@ -36,6 +36,12 @@ class Evidence:
     text: str
     authority: int
     similarity: float
+    #: Whether the club published this or it was inferred from conversation.
+    #: ``official`` is curated knowledge, ``reported`` is group evidence that
+    #: may be noise, hearsay or out of date. The generator is told which is
+    #: which so it can prefer the club's own words, but the distinction never
+    #: licenses an answer the text does not support.
+    provenance: str = "official"
     question: str | None = None
     qa_item_id: str | None = None
     qa_version_id: str | None = None
@@ -43,6 +49,8 @@ class Evidence:
     url: str | None = None
     date: str | None = None
     author: str | None = None
+    #: Connector-declared source type, passed through without interpretation.
+    source_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +102,11 @@ def _question_key(match: VectorMatch) -> str | None:
 def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
     metadata = match.metadata
     question = metadata.get("question")
+    official = kind == QA_KIND
     return Evidence(
         source_id=match.id,
-        label="Q&A" if kind == QA_KIND else "Grup",
+        label="Q&A" if official else "Grup",
+        provenance="official" if official else "reported",
         text=str(metadata.get("text", "")),
         authority=_as_int(metadata.get("authority")),
         similarity=match.score,
@@ -108,6 +118,7 @@ def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
         url=_opt_text(metadata.get("url")),
         date=_opt_text(metadata.get("date")),
         author=_opt_text(metadata.get("author")),
+        source_kind=_opt_text(metadata.get("source_kind")),
     )
 
 
@@ -117,7 +128,7 @@ class RetrievalService:
 
     embedder: Embedder
     vectors: VectorStore
-    qa_top_k: int = 3
+    qa_top_k: int = 5
     message_top_k: int = 2
 
     async def retrieve(
