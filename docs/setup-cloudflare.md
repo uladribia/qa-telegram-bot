@@ -8,10 +8,10 @@ This is an explicit production/staging procedure. Commands that call Workers AI 
 4. Configure the D1, Vectorize, and AI bindings in `wrangler.jsonc`. The Worker loads the linear classifier head from the generated module `src/knowledge_bot/infrastructure/classifier_head_data.py` (a Python Worker isolate cannot read repository-relative data files); that module is regenerated from `data/classifier/model.json` by `uv run python scripts/train_classifier.py`.
 5. Set secrets with `wrangler secret put`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_TELEGRAM_USER_ID`, and `INTERNAL_ADMIN_KEY`. Add `LOGFIRE_TOKEN` (a send-only Logfire write token) to enable production traces; without it the Worker starts normally and keeps its spans local. Never put it in `wrangler.jsonc`.
 6. Apply shared migrations in numeric order. The derived FTS5 projection is created by `0021_search_fts.sql` and dropped again by `0022_drop_search_fts.sql`; applying both is a no-op on the table.
-7. Deploy the Worker.
+7. Deploy the Worker with `make deploy` (`ALLOW_CLOUDFLARE_LIVE_TESTS=1`). It runs `pywrangler`, which vendors the Python dependencies into `src/vendor` before building; a bare `npx wrangler deploy` ships a Worker with no vendored code.
 8. Check `/healthz` and `/readyz` where applicable. `/healthz` is served by the static asset layer (`public/healthz`, deployed with `run_worker_first: false`) and answers from the edge even if the Python interpreter cannot start; `/readyz` runs inside Python and is the application-side probe. Monitor both. Neither resolves the application context, so neither exercises telemetry: after any observability change, POST a webhook and read the logs.
 9. Seed committed data and register logical spaces/channel bindings.
-10. Register the Telegram webhook at `/adapters/telegram/webhook` (`uv run kb set-webhook` does this for you). The path changed with the adapter split; re-register after deploying, or Telegram keeps posting to the old URL and the bot goes silent.
+10. Register the Telegram webhook at `/adapters/telegram/webhook` (`make set-webhook` does this for you). The path changed with the adapter split in v1.2.0; re-register after deploying, or Telegram keeps posting to the old URL and the bot goes silent. Deploy first — repointing Telegram at a route the Worker does not serve yet is a `404` and a silent bot.
 11. Run the guarded tiny smoke only after explicit authorization:
 
 ```bash

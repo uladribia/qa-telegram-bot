@@ -52,8 +52,7 @@ For production, follow [docs/setup-cloudflare.md](docs/setup-cloudflare.md):
 uv sync
 cp .env.example .env          # fill it in; .env is never committed
 make all
-uv run pywrangler sync
-uv run pywrangler deploy
+make deploy                   # ALLOW_CLOUDFLARE_LIVE_TESTS=1
 ```
 
 ---

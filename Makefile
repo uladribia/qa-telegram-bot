@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -81,6 +81,28 @@ reindex:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
 	uv run kb reindex --base-url "$(BOT_BASE_URL)"
+
+# Ship the Worker to Cloudflare. This is the only supported deploy command:
+# `pywrangler` vendors the Python dependencies into src/vendor before building,
+# and a bare `npx wrangler deploy` ships a Worker with no vendored code. Needs
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the environment.
+#
+# Run the gates before this, not after: `make all` and `make smoke`.
+#
+# After a deploy that moves or adds a route, confirm it is live BEFORE
+# repointing anything at it. `make set-webhook` does not wait for you.
+deploy:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	uv run pywrangler deploy
+
+# Point Telegram at the deployed webhook. Telegram keeps whatever URL it was
+# last given, so a deploy that moves the webhook path leaves the old URL
+# registered and the new route unused. Order matters: deploy first, then this.
+# A wrong order points Telegram at a 404 and the bot fails silently.
+set-webhook:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
+	uv run kb set-webhook
 
 # Seed the bot's self-explanation Q&A (data/seed/bot_self_qa.json) into the
 # deployed Worker as global knowledge. Idempotent: run it after every release
