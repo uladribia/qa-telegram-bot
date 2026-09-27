@@ -250,6 +250,101 @@ Prefer explicit content events (`log_content` at a flow boundary) over blanket
 body capture: they are searchable, they are scrubbed by the same rules, and they
 say what the code decided rather than what a client happened to send.
 
+### Debugging with Logfire
+
+Logs are a tool, not a post-mortem ritual. When something looks wrong, query
+before you speculate, and prefer a trace to an inference.
+
+**The target never changes:** organization `oleguer-sagarra`, project
+`qa-telegram`, **EU** region. Pass `--region eu --org oleguer-sagarra` to every
+command, and `--project qa-telegram` to every query or link. Never query another
+project, region, or organization to "see if it has data": a span that exists
+elsewhere is a bug, not a finding.
+
+**Two ways in.** Prefer the hosted Logfire MCP server when the agent has one
+configured (`query_run` for SQL, `link project` / `link trace` for URLs).
+Otherwise use the CLI, which reuses the saved OAuth profile:
+
+```bash
+uvx logfire-cli --region eu --org oleguer-sagarra --no-input --output json \
+  mcp query run "SELECT ..." --project qa-telegram
+```
+
+If it is not authenticated, `uvx logfire-cli --region eu --org oleguer-sagarra
+auth` opens a browser login — that is the human step, relay the URL and wait.
+The Python SDK's own `uv run logfire` CLI **cannot query**; it only does `auth`,
+`projects`, and `whoami`. Do not try to make it.
+
+**The `records` view** has typed columns — use them instead of digging in
+`attributes`: `start_timestamp`, `end_timestamp`, `duration` (**seconds**, as a
+float), `trace_id`, `span_id`, `parent_span_id`, `span_name`, `message`,
+`service_name`, `http_route`, `http_method`, `http_response_status_code`,
+`is_exception`, `exception_type`, `otel_status_code`, `otel_resource_attributes`
+(which carries `deployment.environment.name`), and `attributes` (a map, for
+everything custom). There is no `kind`, `record_type`, `body`, `otel_parent_id`,
+or `resource_attributes` column; guessing names costs a round trip each.
+Filter with `service_name = 'qa-telegram'` and
+`start_timestamp > now() - interval '<N> minutes'`, and `ORDER BY
+start_timestamp DESC LIMIT <n>`.
+
+**Recipes.** These answer the questions that actually come up:
+
+```sql
+-- what just happened, newest first, with timings and failures
+SELECT start_timestamp, duration, span_name, http_route, http_response_status_code, is_exception
+FROM records WHERE service_name = 'qa-telegram' AND start_timestamp > now() - interval '30 minutes'
+ORDER BY start_timestamp DESC LIMIT 50
+
+-- one conversation end to end: every span of one trace, parents included
+SELECT start_timestamp, duration, span_name, parent_span_id, message
+FROM records WHERE trace_id = '<full trace id>' ORDER BY start_timestamp
+
+-- what a user actually said, and who said it
+SELECT start_timestamp, attributes->>'text' AS text, attributes->>'sender_name' AS sender,
+       attributes->>'conversation_id' AS chat, attributes->>'message_id' AS message_id
+FROM records WHERE service_name = 'qa-telegram' AND span_name = 'telegram_inbound_message'
+  AND start_timestamp > now() - interval '7 days' ORDER BY start_timestamp DESC LIMIT 50
+
+-- what the bot answered
+SELECT start_timestamp, attributes->>'conversation_id' AS chat, attributes->>'text' AS answer
+FROM records WHERE service_name = 'qa-telegram' AND span_name = 'telegram_outbound'
+  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 50
+
+-- what the model was asked and what it said back
+SELECT start_timestamp, span_name, attributes->>'model' AS model, attributes
+FROM records WHERE service_name = 'qa-telegram'
+  AND span_name IN ('ai_generation_prompt', 'ai_generation_response', 'ai_embedding_input')
+  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 20
+
+-- anything that failed
+SELECT start_timestamp, span_name, exception_type, otel_status_code, message
+FROM records WHERE service_name = 'qa-telegram' AND is_exception
+  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 50
+```
+
+**Discipline around the query.**
+
+- An empty result usually means the flow never reached that stage, not that the
+  query is wrong. An update from an unregistered chat is answered `ignored`
+  before any model call, so `telegram_outbound` and the `ai_*` events are empty
+  while `telegram_inbound_message` has a row: that pairing is the diagnosis.
+- A link is not evidence and a generated URL is not ingestion. Prove
+  instrumentation by querying a span you just produced, then hand over
+  `mcp link project` or `mcp link trace <full trace id>` (full 32-character
+  trace id, not a prefix — a prefix is rejected).
+- A missing span is not a missing event. Loguru records are **not** forwarded
+  yet, so the Worker's own structured logs are still the place for
+  `workers_ai_call_*` and `scheduled_*`; the Logfire project is the place for
+  request spans and content events. Once the Loguru migration lands this stops
+  being true and this paragraph is the first thing to delete.
+- Answering "why did this question abstain" is a trace question, not an eval
+  question. Live evals and reindexing burn the shared daily AI budget
+  (~1.5-3k and ~9k neurons) and need explicit authorization; a query is free.
+  Reach for `make eval-live` only when the trace cannot answer it, and see
+  [operations.md](operations.md#traces-logfire) for the project link, the
+  event table, and the content/credential boundary. That document is the
+  operator's view; the recipes above are the agent's.
+
 Until the Loguru migration lands, Loguru still writes the process logs and
 Logfire still owns the traces. Two systems, deliberately, for a short time: do
 not add a third, and do not treat the absence of Logfire records as evidence

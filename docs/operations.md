@@ -78,6 +78,8 @@ logfire --region eu --org oleguer-sagarra mcp query run \
 
 The `records` view carries span attributes only; the environment and service identity are resource attributes, visible in the UI and on the service page.
 
+Agents debugging a live flow should use the verified query recipes in [AGENTS.md](../AGENTS.md#debugging-with-logfire) rather than inventing their own: that section records which `records` columns exist, which names are traps, and how to get a trace link back to a user.
+
 - **No token is required to run.** The SDK is configured with `if-token-present`: without a write token the app starts normally and spans stay local. Telemetry failure never breaks the answer path.
 - **Where the token comes from:** `LOGFIRE_TOKEN` (env var, read by the SDK) or the gitignored `.logfire/logfire_credentials.json`, created by `logfire init use --name qa-telegram --permission send`. It is send-only: never commit it, never print it, never widen it. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container or the deployed Worker needs `LOGFIRE_TOKEN` in its environment (a Cloudflare secret, never in `wrangler.jsonc`).
 - **Worker timing:** bindings are not available at import, so the Worker configures the exporter the first time a context is resolved, from either the request or the scheduled handler. Two Worker-specific traps, both verified with `make smoke` plus a webhook request against the booted Worker:
