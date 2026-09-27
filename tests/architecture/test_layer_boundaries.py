@@ -12,16 +12,16 @@ FORBIDDEN_PREFIXES: dict[str, tuple[str, ...]] = {
     "domain": (
         "fastapi",
         "workers",
-        "loguru",
         "httpx",
+        "logfire",
         "knowledge_bot.infrastructure",
         "knowledge_bot.adapters",
     ),
     "application": (
         "fastapi",
         "workers",
-        "loguru",
         "httpx",
+        "logfire",
         "knowledge_bot.infrastructure",
         "knowledge_bot.adapters",
     ),

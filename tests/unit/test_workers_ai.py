@@ -3,12 +3,12 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import cast
 
 import pytest
-from loguru import logger
 
 from knowledge_bot.domain.errors import (
     InvalidModelOutputError,
@@ -18,6 +18,7 @@ from knowledge_bot.infrastructure.cloudflare.workers_ai import (
     WorkersAIEmbedder,
     WorkersAIGenerator,
 )
+from knowledge_bot.infrastructure.logging import _RESERVED_RECORD_FIELDS
 from knowledge_bot.ports.generator import EvidenceItem, GenerationRequest
 
 
@@ -44,7 +45,7 @@ class _Runner:
 
 @dataclass(frozen=True, slots=True)
 class _Call:
-    """One captured Workers AI call log line, reduced to asserted fields."""
+    """One captured Workers AI call log record, reduced to asserted fields."""
 
     message: str
     operation: str
@@ -61,27 +62,35 @@ class _Call:
 
 @pytest.fixture
 def calls() -> Iterator[list[_Call]]:
-    """Capture the Workers AI call log lines emitted during the test."""
+    """Capture the Workers AI call log records emitted during the test."""
     captured: list[_Call] = []
 
-    def sink(raw: str) -> None:
-        record = cast("dict[str, object]", raw.record)  # ty: ignore[unresolved-attribute]
-        extra = cast("dict[str, object]", record["extra"])
-        captured.append(
-            _Call(
-                message=cast("str", record["message"]),
-                operation=cast("str", extra.get("operation", "")),
-                model=cast("str", extra.get("model", "")),
-                characters=cast("int", extra.get("characters", 0)),
-                duration_ms=cast("float", extra.get("duration_ms", 0.0)),
-                error=cast("str", extra.get("error", "")),
-                extra=extra,
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(
+                _Call(
+                    message=record.getMessage(),
+                    operation=cast("str", getattr(record, "operation", "")),
+                    model=cast("str", getattr(record, "model", "")),
+                    characters=cast("int", getattr(record, "characters", 0)),
+                    duration_ms=cast("float", getattr(record, "duration_ms", 0.0)),
+                    error=cast("str", getattr(record, "error", "")),
+                    extra={
+                        key: value
+                        for key, value in record.__dict__.items()
+                        if key not in _RESERVED_RECORD_FIELDS
+                    },
+                )
             )
-        )
 
-    sink_id = logger.add(sink, level="DEBUG")
+    handler = _Capture()
+    target = logging.getLogger("knowledge_bot.ai")
+    previous_level = target.level
+    target.setLevel(logging.DEBUG)
+    target.addHandler(handler)
     yield captured
-    logger.remove(sink_id)
+    target.removeHandler(handler)
+    target.setLevel(previous_level)
 
 
 def _only(captured: list[_Call], message: str) -> _Call:

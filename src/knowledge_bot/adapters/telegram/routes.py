@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 """Telegram webhook HTTP adapter."""
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated, cast
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from loguru import logger
 
 from knowledge_bot.adapters.inbound.telegram import (
     is_valid_webhook_secret,
@@ -55,8 +55,9 @@ def register_telegram_routes(
         processing = handle_update(context, update)
         if defer is None:
             return {"status": await processing}
-        logger.bind(use_case="telegram_webhook", update_id=update.update_id).info(
-            "telegram_webhook_accepted"
+        logging.getLogger("knowledge_bot.webhook").info(
+            "telegram_webhook_accepted",
+            extra={"use_case": "telegram_webhook", "update_id": update.update_id},
         )
         defer(processing)
         return {"status": "accepted"}

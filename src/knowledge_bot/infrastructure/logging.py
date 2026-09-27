@@ -1,20 +1,21 @@
 # SPDX-License-Identifier: MIT
-"""Central logging configuration: the only place sinks and telemetry are set up.
+"""Central logging and telemetry configuration.
 
-Loguru remains the application's own logger; Logfire exports the request spans
-and the content of a debugging session. Content capture is on while the project
-is under test: message text, sender identity, prompts, and answers are exported
-so a flow can be reconstructed end to end. Credentials are never exported — see
-``SECRET_VALUE_PATTERNS`` and the scrubbing note in ``configure_observability``.
+There is one logging system: the standard library. Application events are
+emitted with contextual fields, printed to stderr (structured JSON in the
+Worker, human-readable locally), and forwarded to Logfire as spans. Loguru is
+gone; this module is the only place handlers and the exporter are configured.
 """
 
+import json
+import logging
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 from logging import Logger, getLogger
 from types import ModuleType
 
 from fastapi import FastAPI
-from loguru import logger
 
 #: Service identity in Logfire. One deployable means one service name.
 SERVICE_NAME = "qa-telegram"
@@ -26,29 +27,55 @@ SERVICE_NAME = "qa-telegram"
 #: no key name reveals it.
 SECRET_VALUE_PATTERNS = (r"\b\d{8,12}:[A-Za-z0-9_-]{30,}\b",)
 
+#: Attributes every ``LogRecord`` carries; everything else came from the caller.
+_RESERVED_RECORD_FIELDS = frozenset(
+    {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "taskName",
+        "thread",
+        "threadName",
+    }
+)
+
 _configured = False
 _observability_configured = False
 _capture_content = False
 
 
 def configure_logging(*, json_logs: bool = False) -> None:
-    """Configure the process-wide Loguru sink.
+    """Configure the process-wide stderr sink for the standard library.
 
     Args:
-        json_logs: Emit structured JSON (production) instead of human text
-            (development).
+        json_logs: Emit structured JSON for the Worker instead of human text.
     """
     global _configured
     if _configured:
         return
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level="INFO" if json_logs else "DEBUG",
-        serialize=json_logs,
-        backtrace=False,
-        diagnose=False,
-    )
+    root = getLogger()
+    root.handlers.clear()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_JsonFormatter() if json_logs else _TextFormatter())
+    root.addHandler(handler)
+    root.setLevel(logging.INFO if json_logs else logging.DEBUG)
     _configured = True
 
 
@@ -81,10 +108,7 @@ def configure_observability(
         capture_content: Export message text, sender identity, prompts, and
             answers. On while testing, so a flow can be reconstructed; the
             scrubbing that hides credentials is unaffected and always on. The
-            content itself comes from ``log_content`` at the flow boundaries,
-            not from body capture: the SDK's ``record_send_receive`` emits
-            extra ASGI event spans per request but attaches no payload to them
-            in this version, which is three spans of noise for nothing.
+            content itself comes from ``log_content`` at the flow boundaries.
     """
     global _observability_configured, _capture_content
     if _observability_configured:
@@ -105,10 +129,7 @@ def configure_observability(
     )
     _isolated(
         "fastapi",
-        lambda: logfire.instrument_fastapi(
-            app,
-            capture_headers=capture_content,
-        ),
+        lambda: logfire.instrument_fastapi(app, capture_headers=capture_content),
     )
     if instrument_client:
         _isolated(
@@ -140,21 +161,9 @@ def log_content(event: str, **fields: object) -> None:
     _isolated(event, lambda: _logfire().info(event, **fields))
 
 
-def _isolated(step: str, action: Callable[[], None]) -> None:
-    """Run one telemetry step, logging and swallowing any failure.
-
-    Args:
-        step: Name of the step, recorded in the warning.
-        action: The step itself.
-    """
-    try:
-        action()
-    except Exception as error:
-        logger.bind(
-            use_case="configure_observability",
-            step=step,
-            error=type(error).__name__,
-        ).warning("logfire_step_failed")
+def content_capture_enabled() -> bool:
+    """Return whether content capture is on for this process."""
+    return _capture_content and _observability_configured
 
 
 def _logfire() -> ModuleType:
@@ -169,8 +178,23 @@ def _logfire() -> ModuleType:
     return logfire
 
 
+def _isolated(step: str, action: Callable[[], None]) -> None:
+    """Run one telemetry step, logging and swallowing any failure.
+
+    Args:
+        step: Name of the step, recorded in the warning.
+        action: The step itself.
+    """
+    try:
+        action()
+    except Exception as error:
+        getLogger("knowledge_bot.telemetry").warning(
+            "logfire_step_failed", extra={"step": step, "error": type(error).__name__}
+        )
+
+
 def _bridge_standard_library_logging(logfire: ModuleType) -> None:
-    """Forward standard-library records to Logfire without changing levels.
+    """Send standard-library records to Logfire without changing levels.
 
     Uvicorn and the ASGI stack log through the standard library. Adding the
     handler here leaves the existing console output and the configured
@@ -182,3 +206,53 @@ def _bridge_standard_library_logging(logfire: ModuleType) -> None:
         isinstance(handler, logfire.LogfireLoggingHandler) for handler in root.handlers
     ):
         root.addHandler(logfire.LogfireLoggingHandler())
+
+
+def _fields(record: logging.LogRecord) -> dict[str, object]:
+    """Return the contextual fields a caller attached to one record."""
+    return {
+        name: value
+        for name, value in record.__dict__.items()
+        if name not in _RESERVED_RECORD_FIELDS and not name.startswith("_")
+    }
+
+
+class _TextFormatter(logging.Formatter):
+    """Render a record as ``LEVEL message key=value`` for local development."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format one record.
+
+        Args:
+            record: The record to render.
+
+        Returns:
+            The human-readable line.
+        """
+        fields = " ".join(f"{k}={v}" for k, v in sorted(_fields(record).items()))
+        base = f"{record.levelname} {record.name} {record.getMessage()}"
+        return f"{base} {fields}".rstrip()
+
+
+class _JsonFormatter(logging.Formatter):
+    """Render a record as one structured JSON object for the Worker."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format one record.
+
+        Args:
+            record: The record to render.
+
+        Returns:
+            The JSON line, with the exception text when the call failed.
+        """
+        payload: dict[str, object] = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "event": record.getMessage(),
+            **_fields(record),
+        }
+        if record.exc_info is not None:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str, separators=(",", ":"))

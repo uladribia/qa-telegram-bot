@@ -5,6 +5,7 @@ The Worker bindings are only available per request (in ``request.scope["env"]``)
 so the app resolves its context through a callable rather than at import time.
 """
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -12,7 +13,6 @@ from datetime import timedelta
 from typing import Annotated, cast
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
-from loguru import logger
 
 from knowledge_bot.adapters.http.api_routes import build_api_router
 from knowledge_bot.adapters.inbound.telegram import (
@@ -252,8 +252,10 @@ def _log_inbound_message(message: NormalizedMessage) -> None:
 async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
     """Normalize one Telegram update and dispatch its channel flow."""
     started = time.perf_counter()
-    logger.bind(use_case="telegram_webhook", update_id=update.update_id).info(
-        "telegram_webhook_received"
+    log = logging.getLogger("knowledge_bot.webhook")
+    log.info(
+        "telegram_webhook_received",
+        extra={"use_case": "telegram_webhook", "update_id": update.update_id},
     )
     try:
         await _escalate_overdue_reviews(context)
@@ -280,18 +282,24 @@ async def _handle_telegram_update(context: AppContext, update: TelegramUpdate) -
                     else await _handle_message(context, message)
                 )
     except Exception:
-        logger.bind(
-            use_case="telegram_webhook",
-            update_id=update.update_id,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
-        ).exception("telegram_webhook_failed")
+        log.exception(
+            "telegram_webhook_failed",
+            extra={
+                "use_case": "telegram_webhook",
+                "update_id": update.update_id,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            },
+        )
         raise
-    logger.bind(
-        use_case="telegram_webhook",
-        update_id=update.update_id,
-        action=result,
-        duration_ms=round((time.perf_counter() - started) * 1000, 2),
-    ).info("telegram_webhook_processed")
+    log.info(
+        "telegram_webhook_processed",
+        extra={
+            "use_case": "telegram_webhook",
+            "update_id": update.update_id,
+            "action": result,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        },
+    )
     return result
 
 

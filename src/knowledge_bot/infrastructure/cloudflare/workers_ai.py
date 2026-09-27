@@ -2,12 +2,11 @@
 """Workers AI adapters for embeddings and grounded text generation."""
 
 import asyncio
+import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Protocol, cast
-
-from loguru import logger
 
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.infrastructure.logging import log_content
@@ -43,23 +42,22 @@ def _timed(operation: str, model: str, characters: int) -> Iterator[None]:
         characters: Request size in characters, a size proxy for the prompt.
     """
     started = time.perf_counter()
+    fields = {
+        "operation": operation,
+        "model": model,
+        "characters": characters,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
     try:
         yield
     except Exception as error:
-        logger.bind(
-            operation=operation,
-            model=model,
-            characters=characters,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
-            error=type(error).__name__,
-        ).warning("workers_ai_call_failed")
+        logging.getLogger("knowledge_bot.ai").warning(
+            "workers_ai_call_failed", extra={**fields, "error": type(error).__name__}
+        )
         raise
-    logger.bind(
-        operation=operation,
-        model=model,
-        characters=characters,
-        duration_ms=round((time.perf_counter() - started) * 1000, 2),
-    ).info("workers_ai_call_completed")
+    logging.getLogger("knowledge_bot.ai").info(
+        "workers_ai_call_completed", extra=fields
+    )
 
 
 class WorkersAIEmbedder:

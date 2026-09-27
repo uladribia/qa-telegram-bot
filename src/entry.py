@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Cloudflare Worker entrypoint for fetch requests and scheduled reports."""
 
+import logging
 import os
 
 # Pydantic imports every installed ``pydantic`` entry point, which pulls in the
@@ -15,7 +16,6 @@ from collections.abc import Awaitable
 from typing import cast
 
 from fastapi import Request
-from loguru import logger
 from pyodide.ffi import create_proxy
 from workers import Request as WorkerRequest
 from workers import WorkerEntrypoint, asgi, wait_until
@@ -95,9 +95,9 @@ class Default(WorkerEntrypoint):
         del controller, ctx
         global _scheduled_context
         started = time.perf_counter()
-        logger.bind(use_case="scheduled_daily_report", trigger="cron").info(
-            "scheduled_started"
-        )
+        log = logging.getLogger("knowledge_bot.scheduled")
+        fields = {"use_case": "scheduled_daily_report", "trigger": "cron"}
+        log.info("scheduled_started", extra=fields)
         try:
             if _scheduled_context is None:
                 scheduled_env = cast("WorkerEnv", env)
@@ -105,15 +105,19 @@ class Default(WorkerEntrypoint):
                 _configure_observability(scheduled_env, _scheduled_context.settings)
             sent = await _scheduled_context.daily_report.run()
         except Exception:
-            logger.bind(
-                use_case="scheduled_daily_report",
-                trigger="cron",
-                duration_ms=round((time.perf_counter() - started) * 1000, 2),
-            ).exception("scheduled_failed")
+            log.exception(
+                "scheduled_failed",
+                extra={
+                    **fields,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                },
+            )
             raise
-        logger.bind(
-            use_case="scheduled_daily_report",
-            trigger="cron",
-            sent=sent,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
-        ).info("scheduled_finished")
+        log.info(
+            "scheduled_finished",
+            extra={
+                **fields,
+                "sent": sent,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            },
+        )
