@@ -30,9 +30,8 @@ eval-consolidation pass._
   (30 cases) measures the generator with retrieval bypassed; synthetic sets are
   experiment material and are not in the default gate. `must_include` is a
   hard failure now, and both arbitrary size gates are gone.
-- **Production export is still unverified.** The Worker needs `LOGFIRE_TOKEN`
-  as a Cloudflare secret; nothing has been deployed with one, so only the local
-  runtime has proven ingestion.
+- **Production tracing is off** because of the isolate memory limit, not for
+  lack of a token. The local runtime is the only one exporting today.
 - One branch is deliberately **not merged**: `feat/pairing-head` (learned
   pairing head, disabled). See [experiments.md](experiments.md).
 - The lexical projection is still present in production D1 (95 rows in
@@ -153,6 +152,45 @@ old-vector baseline MRR of 0.455.
 measured figure, 38/86, was at floor 0.45 with a reranker and a five-candidate
 width. One run is ~1900 neurons.
 
+## The frozen suite, run on both runtimes
+
+Same dataset, same code, same runner, one generation call per case, run on
+2026-09-27 against the deployed Worker and the local stack:
+
+| | local | production |
+|---|---|---|
+| model | `gemma3:270m` (Ollama) | `@cf/mistralai/mistral-small-3.1-24b-instruct` |
+| assertions | 80/194 (41%) | **148/164 (90%)** |
+| attribution | `invalid_model_output=30` | `model_false_abstention=2`, `answer_content_failure=3`, `unexpected_answer=1` |
+
+`make eval-frozen-local` (no authorization needed) and `make eval-live-frozen`
+(explicit opt-in) run the same suite against the two targets.
+
+The six remaining production failures are all generator behaviour, none
+retrieval: two false abstentions (`two_sources_needed_together`,
+`conditional_answer`), one incomplete citation where a stated fact was not
+cited (`three_sources_only_two_answer`), one content miss
+(`correction_rejects_outdated_detail`), and the two citation assertions of the
+first case. One earlier run produced `invalid_model_output` on a case that
+passed on the re-run, so production also emits unreadable JSON occasionally.
+
+One case in the dataset was wrong and was fixed: `single_sufficient_source`
+forbade the word "dissabtes", which its own evidence says is closed, so a
+faithful answer tripped the check. A forbidden phrase must be something the
+evidence does not support.
+
+## Production deployment state
+
+Deployed `a86453e1-3330-4201-adac-f28d7181a341` with the reason taxonomy, the
+semantic spans, and the frozen endpoint. **`KB_LOGFIRE_ENABLED` is `false`**:
+with the Logfire SDK enabled the Worker returns *Worker exceeded resource
+limits* on the first request that resolves a context, because the 128 MB
+isolate limit cannot hold the OpenTelemetry SDK and its protobuf exporter.
+`/healthz` and `/readyz` answer 200 either way, which is why smoke did not
+catch it. A `LOGFIRE_TOKEN` secret is set and unused, so tracing is one flag
+away once a memory-compliant transport exists. Details in
+[operations.md](operations.md#production-tracing-is-disabled-and-why).
+
 ## The finding this pass produced
 
 **The local generation model cannot answer anything, and until this pass that
@@ -209,9 +247,11 @@ trusting `make eval-local` for anything about answers.
    untested candidate (3/3 grounded, 2.9 s, 31 neurons).
 6. **No daily report arrives** until an external scheduler is wired to the
    route. This is the only broken thing left.
-7. **Production telemetry has never been proven.** `LOGFIRE_TOKEN` is a secret
-   that was never set on the deployed Worker. The local path works; nobody has
-   watched a production span arrive.
+7. **The Worker cannot host the Logfire SDK.** It exceeds the 128 MB isolate
+   limit on import, which 503s every real question. The Worker therefore runs
+   with `KB_LOGFIRE_ENABLED=false` and exports nothing. A memory-compliant
+   transport is the only way to get production traces; the token and the
+   wiring are already in place behind the flag.
 
 ## Things that are not problems
 
@@ -244,8 +284,17 @@ easy to plot. Also: the *documentation* was the last thing to become true —
 "hybrid retrieval, MRR 0.973" was repeated across four files and in a merge
 commit hours after the leg was measured dead.
 
-The same pattern showed up in observability twice. `/healthz` answering 200 was
-read as "the Worker is fine" while the first real request 500'd on a missing
-client library, because the health check resolves no context. And "a clean
-exporter log" was read as ingestion until a query returned the span. A gate that
-does not execute the path is not evidence about the path.
+The same pattern showed up in observability three times, and the third one cost
+a production incident. `/healthz` answering 200 was read as "the Worker is
+fine" while the first real request 500'd on a missing client library, because
+the health check resolves no context. "A clean exporter log" was read as
+ingestion until a query returned the span. Then the tracing pass passed
+`make smoke`, deployed, and returned *Worker exceeded resource limits* to every
+real question — again only a route that resolves a context would have shown it,
+and again only a live probe did. A gate that does not execute the path is not
+evidence about the path, and a deployment is the last place to discover it.
+
+The companion lesson is from the eval: the frozen suite reported
+`invalid_model_output=30` locally and `90%` in production in one run each. The
+number was the whole finding. Two teams reading the same abstention rate in
+their logs would have argued about knowledge for a week.

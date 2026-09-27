@@ -75,7 +75,8 @@ uv run pywrangler deploy
 | `make test-e2e-local` | Explicit local-only Ollama smoke test |
 | `make reindex` | Clean and batch-rebuild the derived vector index; requires explicit remote authorization |
 | `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
-| `make eval-live-frozen` | Generator-only live gate: frozen evidence, no retrieval (one model call per case) |
+| `make eval-frozen-local` | Same frozen suite against the local stack (no authorization, no quota) |
+| `make eval-live-frozen` | Generator-only live gate on the deployed Worker: frozen evidence, no retrieval (one model call per case) |
 | `make eval-live` | Live quality gate on the human gold set (real model calls; costs AI quota) |
 | `make eval-live-reindex` | Same, after the explicitly authorized bounded reindex |
 | `uv run pywrangler dev --local --ip 0.0.0.0 --port 8787` | Run the Worker locally |
