@@ -236,6 +236,45 @@ async def test_model_echoing_a_prefixless_source_id_is_answered() -> None:
     assert trace["cited"] == ["qa:web-item"]
 
 
+async def test_model_citing_a_scope_suffixed_evidence_by_bare_id_is_answered() -> None:
+    """A space-local evidence id cites cleanly despite its scope suffix.
+
+    A space-local vector id is ``qa:qa-<id>:space:<space>``. The production
+    model cited ``qa-<id>`` and the citation resolver could not strip the
+    scope segment, so every space-local grounded answer became an abstention.
+    The resolver now strips the scope suffix the same way it strips the kind
+    prefix.
+    """
+    scope = f"space:{SPACE_ID}"
+    record = VectorRecord(
+        id=f"qa:web-item:{scope}",
+        values=[1.0, 0.0],
+        metadata={
+            "kind": "qa",
+            "object_id": "web-item",
+            "version_id": f"qav:web-1:{scope}",
+            "canonical_key": "equipment",
+            "status": "active",
+            "scope_key": scope,
+            "text": "Els dimarts.",
+            "authority": 90,
+            "question": "Quan entrenen?",
+        },
+    )
+    service, _, _ = await _service(
+        [record],
+        GenerationOutput(
+            status="answered", answer="Els dimarts.", source_ids=["web-item"]
+        ),
+    )
+    response = await service.answer_message(_message("/ask quan entrenen?"))
+
+    assert response is not None
+    assert response.mode is AnswerMode.SYNTHESIS
+    assert response.answer == "Els dimarts."
+    assert [source.source_id for source in response.sources] == [f"qa:web-item:{scope}"]
+
+
 async def test_both_spellings_of_one_id_cite_the_item_once() -> None:
     """A model citing one id twice, spelled two ways, yields one source."""
     service, answers, _ = await _service(

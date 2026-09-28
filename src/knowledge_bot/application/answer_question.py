@@ -99,10 +99,14 @@ def _object_id(source_id: str) -> str:
     """Return the object id behind a ``kind:``-namespaced vector id.
 
     Evidence ids reach the model as ``qa:qa-<id>`` / ``msg-<id>``; it commonly
-    echoes the object id alone, dropping the kind prefix. Citation matching
-    resolves both spellings instead of discarding the answer over the prefix.
+    echoes the object id alone, dropping the kind prefix. A space-local item's
+    vector id carries the scope as a further segment, ``qa:qa-<id>:space:<sp>``,
+    which the model also shortens to the bare object id. Citation matching
+    resolves all of these spellings instead of discarding the answer over a
+    prefix or a scope suffix.
     """
-    return source_id.split(":", 1)[-1]
+    without_kind = source_id.split(":", 1)[-1]
+    return without_kind.split(":space:", 1)[0]
 
 
 def render_source_line(source: Evidence) -> str:
