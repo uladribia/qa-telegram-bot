@@ -23,6 +23,31 @@ Use a test bot and two test groups. The canonical local webhook route is `/adapt
 
 A reviewer who cannot receive a private message leaves the review pending and is escalated to the admin after the configured timeout.
 
+### What the offline tier already proves
+
+Steps 6 to 9 run without a human, in `make test-integration`, against the
+in-process app with in-memory fakes:
+
+- reviewer nomination (local, global, and replacing one), removal, the
+  bot-as-reviewer refusal, the non-admin refusal, and the routing ladder from
+  the group reviewer to the global reviewer to the admin:
+  `tests/integration/test_reviewers_flow.py`.
+- reject, re-flag the same answer, and approve the re-opened correction
+  locally; a forged global callback and a stranger's confirmation refused; an
+  unreachable reviewer escalating to the admin:
+  `tests/integration/test_reviewers_flow.py`.
+- two groups holding different corrections, retrieved separately, and a global
+  correction that leaves a group's local override answering:
+  `tests/integration/test_two_group_correction_scenario.py`.
+- a failed index after an approval keeping the correction and warning the
+  approver, and `POST /internal/revert` restoring the superseded version and its
+  projection: `tests/integration/test_reviewers_flow.py`.
+
+What only the manual gate proves is what the fakes cannot: real Telegram
+delivery, the D1 and Vectorize bindings, and the deployed Worker (steps 1 to 4,
+10 to 12). The local-only AI run (`make test-e2e-local`) additionally proves
+the same flows over SQLite and Ollama.
+
 ## Cloudflare acceptance
 
 Only after local acceptance and explicit authorization, deploy test resources, apply migrations, verify the three Vectorize metadata indexes, bind the test groups, and run the smallest direct-answer and correction subset. Do not run a full live eval or full remote reindex as routine setup.

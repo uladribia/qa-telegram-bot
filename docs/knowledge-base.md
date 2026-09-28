@@ -330,8 +330,10 @@ BOT_BASE_URL=https://<worker>.workers.dev uv run kb review --out review.md
 
 The report lists, per question: the current answer of each scope, group
 variants that differ from the global answer, approved corrections, in-review
-entries, and renewals that overwrote recent corrections. It is read-only; acting
-on it goes through the normal Telegram correction flow.
+entries, and renewals that overwrote recent corrections. A group variant is
+labelled with the title the group was registered with (`grup Prebenjamins`),
+falling back to its scope key when the space has no title. It is read-only;
+acting on it goes through the normal Telegram correction flow.
 
 ---
 

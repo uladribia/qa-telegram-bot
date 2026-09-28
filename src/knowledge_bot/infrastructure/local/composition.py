@@ -306,7 +306,7 @@ async def build_context(
         ),
         review=ReviewService(
             source=D1ReviewSource(binding),
-            conversations=conversations,
+            spaces=D1SpaceRepository(binding),
         ),
         feedback=FeedbackService(
             answers=answers,

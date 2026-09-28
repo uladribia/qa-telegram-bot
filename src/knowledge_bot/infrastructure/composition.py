@@ -289,7 +289,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         ),
         review=ReviewService(
             source=D1ReviewSource(database),
-            conversations=D1ConversationRepository(database),
+            spaces=D1SpaceRepository(database),
         ),
         feedback=FeedbackService(
             answers=answers,

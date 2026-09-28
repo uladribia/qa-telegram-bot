@@ -15,8 +15,8 @@ report itself changes nothing.
 
 from dataclasses import dataclass, field
 
-from knowledge_bot.domain.scope import Scope, is_global
-from knowledge_bot.ports.repositories import ConversationRepository
+from knowledge_bot.domain.scope import Scope, is_global, is_space_id
+from knowledge_bot.ports.repositories import SpaceRepository
 from knowledge_bot.ports.review import ReviewItem, ReviewSource
 
 CORRECTION_ORIGIN = "human_approved"
@@ -115,7 +115,7 @@ class ReviewService:
     """Build the human knowledge review report."""
 
     source: ReviewSource
-    conversations: ConversationRepository | None = None
+    spaces: SpaceRepository | None = None
 
     async def review(self) -> list[ReviewEntry]:
         """Return the review entries worth human attention.
@@ -138,13 +138,20 @@ class ReviewService:
         return [entry for entry in entries if _has_finding(entry)]
 
     async def _scope_label(self, scope: Scope) -> str:
-        """Label a scope for the report: group title, or the id as fallback."""
+        """Label a scope for the report: the space title, or the scope as fallback.
+
+        A variant is keyed by scope, not by conversation, and the space is what
+        carries the human name: a group can have several conversations, and
+        none of them stores the title the admin registered. A scope that is not
+        a space falls back to itself rather than failing the whole report.
+        """
         if is_global(scope):
             return "global"
-        if self.conversations is not None:
-            conversation = await self.conversations.get(scope)
-            if conversation is not None and conversation.title:
-                return f"grup {conversation.title}"
+        space_id = scope.removeprefix("space:")
+        if is_space_id(space_id) and self.spaces is not None:
+            space = await self.spaces.get(space_id)
+            if space is not None and space.title:
+                return f"grup {space.title}"
         return f"grup {scope}"
 
 
