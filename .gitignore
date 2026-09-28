@@ -5,6 +5,11 @@
 !.env.local.example
 .dev.vars
 
+# Real Telegram E2E (Telethon session and settings are credential material)
+.e2e/
+.env.e2e
+!.env.e2e.example
+
 # Python
 __pycache__/
 *.py[cod]

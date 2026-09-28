@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local telegram-e2e-login test-e2e-telegram eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
 
 all: lint test
 
@@ -150,3 +150,16 @@ dev-seed:
 # Explicit local-only AI check; ordinary tests never call Ollama.
 test-e2e-local:
 	bash scripts/local-dev.sh e2e-local
+
+# One-time interactive login of the existing human admin account for the
+# real-Telegram E2E harness. The session lives under .e2e/ (gitignored).
+telegram-e2e-login:
+	uv run --group e2e python -m e2e.telegram.bootstrap
+
+# Real black-box E2E against the deployed Worker over real Telegram.
+# Never runs from CI or other make targets; needs explicit live authorization.
+test-e2e-telegram:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || \
+		(echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	uv run --group e2e ty check e2e/*.py e2e/telegram/*.py
+	uv run --group e2e python -m e2e.telegram.run

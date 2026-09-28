@@ -26,7 +26,7 @@ fallback exists anywhere in the code.
 | [docs/development.md](docs/development.md) | Layout, rules, gates, how to change the code |
 | [docs/experiments.md](docs/experiments.md) | Measured experiments and the decisions they justify |
 | [docs/session-handoff.md](docs/session-handoff.md) | Current hardening state and next-session starting point |
-| [docs/e2e-telegram.md](docs/e2e-telegram.md) | Manual Telegram acceptance flow |
+| [docs/e2e-telegram.md](docs/e2e-telegram.md) | Automated real-Telegram E2E (Telethon) |
 | [AGENTS.md](AGENTS.md) | How to write code here |
 | [instructions/](instructions/) | The binding implementation plan and current status |
 
@@ -72,6 +72,8 @@ make deploy                   # ALLOW_CLOUDFLARE_LIVE_TESTS=1
 | `make dev-up` / `make dev-down` | Start or stop the local app and Ollama containers |
 | `make dev-migrate` | Apply shared and local SQLite migrations |
 | `make test-e2e-local` | Explicit local-only Ollama smoke test |
+| `make telegram-e2e-login` | One-time login of the human account for the real-Telegram E2E (interactive) |
+| `make test-e2e-telegram` | Real black-box E2E against the deployed Worker over real Telegram; needs `ALLOW_CLOUDFLARE_LIVE_TESTS=1`, `.env.e2e`, and the `[E2E]` groups |
 | `make reindex` | Clean and batch-rebuild the derived vector index; requires explicit remote authorization |
 | `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
 | `make eval-frozen-local` | Same frozen suite against the local stack (no authorization, no quota) |

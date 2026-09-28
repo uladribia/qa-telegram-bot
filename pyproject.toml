@@ -36,6 +36,10 @@ local = [
     "scikit-learn>=1.9.1",
     "uvicorn>=0.40.0",
 ]
+e2e = [
+    "httpx>=0.28.1",
+    "telethon>=1,<2",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.0,<1.0"]
@@ -57,6 +61,7 @@ include = [
   "tests/**/*.py",
   "evals/**/*.py",
   "scripts/**/*.py",
+  "e2e/**/*.py",
 ]
 
 [tool.ruff.lint]
@@ -97,6 +102,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# The E2E harness follows the plan's public names (E2EFailure) and reports
+# failures through long, human-readable messages at the raise site.
+"e2e/**/*.py" = ["N818", "TRY003"]
 "src/knowledge_bot/cli.py" = ["B008"]
 # The Vectorize binding method mirrors the JS API name.
 "src/knowledge_bot/infrastructure/cloudflare/vectorize.py" = ["N802"]
