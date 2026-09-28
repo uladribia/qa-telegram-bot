@@ -77,10 +77,11 @@ against 22/30, and a new `redundant_sources` failure. Numbers in
   feedback record existed to approve it, so it could never answer. Two
   production entries were stuck that way. Approving a reviewer correction does
   not need it — that path already writes `active`.
-- Two branches are deliberately **not merged**: `feat/pairing-head` (learned
-  pairing head, disabled, see [experiments.md](experiments.md)) and
-  `spike/lexical-answer-retrieval` (the BM25 leg, measured and disabled, see
-  below).
+- **The BM25 leg is merged but disabled** (`QA_ANSWER_TOP_K=0`). It measured
+  neutral-to-negative on the live gold set, so it does not run; the code, the
+  migration and the FTS projection stay so it can be revived behind a generator
+  fix. One branch is deliberately not merged: `feat/pairing-head` (learned
+  pairing head, disabled, see [experiments.md](experiments.md)).
 
 ## The deployed configuration
 
@@ -359,13 +360,20 @@ cost no precision on unanswerable questions; it cost one answerable case. For
 and the generator answered *the rain policy* without ever mentioning the venue.
 
 So the leg is **disabled** (`QA_ANSWER_TOP_K=0`) and the code, migration and
-62-row FTS projection are kept on `spike/lexical-answer-retrieval`, unmerged.
+62-row FTS projection are all on `main`, with the leg off.
 The finding worth keeping is the diagnosis, not the code: **on the questions
 that fail, retrieval is not the binding constraint — the generator picking the
 wrong one of two plausible candidates is.** The doc had predicted this for
 `training_where` ("retrieval returns the rain policy for a question about where
 they train, and the model answers it confidently") and it is still true after
 the retrieval was fixed.
+
+It is merged rather than parked, and that is deliberate. The leg runs at width 0
+so it changes no answer behaviour, prod was already running the same code, and
+`migrations/0024_answer_fts.sql` is already applied to production D1 — deleting
+it from `main` would leave the repository's schema history disagreeing with the
+database it describes. Keeping the projection also keeps the 62 rows current, so
+the experiment stays reproducible.
 
 **A correction to earlier reasoning in this file:** the previous session's claim
 that the lexical leg "does not pay for the port, the adapter, the fuser, the

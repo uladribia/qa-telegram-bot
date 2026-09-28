@@ -58,13 +58,17 @@ A single cosine threshold decides what evidence exists: candidates at or above
 suppresses the global answer for the same canonical question, and authority
 breaks remaining ties.
 
-A second, subordinate leg runs BM25 over **answer** text. It exists because the
-distinctive terms of this knowledge base live in the answers: measured in
-production, `Cluber` was in 5 answers and 0 canonical questions, and the venue
-entry's answer says `camp` while its question does not. It only runs when the
-semantic pool already cleared the floor, so it can add context but never
-authorise an answer on its own. Searching costs no AI budget, and both
-projections are written together from the same metadata, so they cannot drift. The answer model (Mistral) and correction workflow are
+A second, subordinate leg can run BM25 over **answer** text, and it is
+**disabled** (`QA_ANSWER_TOP_K=0`): it measured 23/26 on the live gold set
+against 24/26 without it. It exists because the distinctive terms of this
+knowledge base live in the answers — measured in production, `Cluber` was in 5
+answers and 0 canonical questions, and the venue entry's answer says `camp`
+while its question does not — and because a lexical index over questions cannot
+reach those facts at all. It only runs when the semantic pool already cleared
+the floor, so it can add context but never authorise an answer on its own.
+Searching costs no AI budget, and both projections are written together from
+the same metadata, so they cannot drift. It is worth reviving behind a generator
+fix, not a retrieval one: see [operations.md](operations.md#retrieval). The answer model (Mistral) and correction workflow are
 unchanged.
 
 There is no lexical (BM25/FTS5) ranking. It was measured, found to be returning
