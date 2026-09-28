@@ -4,8 +4,12 @@
 from datetime import UTC, datetime
 
 from knowledge_bot.application.review import ReviewService, render_review_report
+from knowledge_bot.domain.entities import Space
+from knowledge_bot.domain.scope import scope_for_space
 from knowledge_bot.ports.review import ReviewItem
 from tests.fakes.ai import FakeReviewSource
+from tests.fakes.context import SPACE_A, SPACE_B
+from tests.fakes.repositories import InMemorySpaceRepository
 
 NOW = datetime(2026, 9, 19, 9, 32, tzinfo=UTC)
 
@@ -98,3 +102,35 @@ async def test_empty_report_when_nothing_diverges() -> None:
     """With no findings the report says so."""
     text = render_review_report([])
     assert "Cap trobada per revisar" in text
+
+
+async def test_a_variant_is_labelled_with_its_space_title() -> None:
+    """A group variant is named after the space, not after its scope key."""
+    source = FakeReviewSource(
+        [
+            _item("k1", "global", "Resposta global"),
+            _item("k1", scope_for_space(SPACE_A), "Resposta del grup"),
+        ]
+    )
+    spaces = InMemorySpaceRepository()
+    await spaces.add(Space(SPACE_A, NOW, "Prebenjamins"))
+    entries = await ReviewService(source, spaces).review()
+    assert entries[0].variants == [("grup Prebenjamins", "Resposta del grup")]
+
+
+async def test_an_unnamed_or_unknown_space_falls_back_to_its_scope() -> None:
+    """A space with no title, and an unknown one, still label the report."""
+    source = FakeReviewSource(
+        [
+            _item("k1", "global", "Resposta global"),
+            _item("k1", scope_for_space(SPACE_A), "Sense titol"),
+            _item("k1", scope_for_space(SPACE_B), "Sense espai"),
+        ]
+    )
+    spaces = InMemorySpaceRepository()
+    await spaces.add(Space(SPACE_A, NOW))
+    entries = await ReviewService(source, spaces).review()
+    assert [label for label, _ in entries[0].variants] == [
+        f"grup {scope_for_space(SPACE_A)}",
+        f"grup {scope_for_space(SPACE_B)}",
+    ]

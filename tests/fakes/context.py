@@ -177,7 +177,7 @@ def build_test_context(
             backend.bindings,
             clock,
         ),
-        review=ReviewService(FakeReviewSource(), backend.conversations),
+        review=ReviewService(FakeReviewSource(), backend.spaces),
         feedback=FeedbackService(
             backend.answers,
             backend.feedback,

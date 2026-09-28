@@ -14,6 +14,11 @@ make test-integration
 
 Cloudflare live tests, remote reindexing, live evals, and real Telegram operations are explicit external acceptance steps and are never part of the offline loop. `.github/workflows/ci.yml` runs only the offline gates: lint, unit/architecture, integration, and offline evals.
 
+### Two fakes that decide what a flow test can prove
+
+- `RepositorySearchIndexSource` (`tests/fakes/search_index.py`) reads the Q&A the application stored, the way `D1SearchIndexSource` reads SQL. Any flow whose last step is "project the version that was just written" needs it: the approve-and-reindex path resolves a version id that does not exist until the approval commits, so a hand-fed `FakeSearchIndexSource` reports it as not current and the correction silently never reaches retrieval. `tests/integration/test_two_group_correction_scenario.py` shows the wiring.
+- `FrozenClock` is advanceable. Two corrections on one answer get ids derived from the clock, so a test that re-flags within the same second needs `advance_to`, or it measures nothing.
+
 ## Synthetic evaluation datasets
 
 The eval corpus contains these offline datasets:

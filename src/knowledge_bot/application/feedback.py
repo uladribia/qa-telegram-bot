@@ -237,7 +237,7 @@ class FeedbackService:
         )
         feedback = Feedback(
             id=(
-                f"fb:{answer_id}:{int(self.clock.now().timestamp())}"
+                await self._next_resolved_id(answer_id)
                 if existing is not None
                 else f"fb:{answer_id}"
             ),
@@ -251,6 +251,28 @@ class FeedbackService:
         )
         await self.feedback.add(feedback)
         return feedback
+
+    async def _next_resolved_id(self, answer_id: str) -> str:
+        """Return a fresh id for a re-flag of an already-resolved answer.
+
+        Re-flagging keeps the resolved row and opens a new correction beside it,
+        so the id has to be one no row uses. The timestamp alone is not enough:
+        two flags on the same answer in the same second produce the same id and
+        the insert collides. Probing upwards costs one read per stored
+        correction of that answer and keeps the id readable.
+
+        Args:
+            answer_id: The answer being re-flagged.
+
+        Returns:
+            An unused ``fb:`` id for the new correction.
+        """
+        stamp = int(self.clock.now().timestamp())
+        candidate = f"fb:{answer_id}:{stamp}"
+        while await self.feedback.get(candidate) is not None:
+            stamp += 1
+            candidate = f"fb:{answer_id}:{stamp}"
+        return candidate
 
     async def _update(
         self,

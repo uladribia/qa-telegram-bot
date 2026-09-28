@@ -369,6 +369,14 @@ class InMemoryQAItemRepository:
             raise KeyError(message)
         self._items[item.id] = item
 
+    async def all(self) -> list[QAItem]:
+        """Return every stored item, in id order.
+
+        Not part of ``QAItemRepository``: production reads these rows through a
+        SQL query, and only the derived search source needs to enumerate them.
+        """
+        return sorted(self._items.values(), key=lambda item: item.id)
+
 
 class InMemoryQAVersionRepository:
     """Dict-backed implementation of ``QAVersionRepository``."""
@@ -387,6 +395,15 @@ class InMemoryQAVersionRepository:
     async def get(self, version_id: str) -> QAVersion | None:
         """Return a Q&A version by id, if present."""
         return self._items.get(version_id)
+
+    async def all(self) -> list[QAVersion]:
+        """Return every stored version, in id order.
+
+        Not part of ``QAVersionRepository``: it exists so a test-only search
+        source can resolve the current version of every item, which production
+        does with one SQL join.
+        """
+        return sorted(self._items.values(), key=lambda version: version.id)
 
 
 class InMemoryQAEvidenceRepository:
