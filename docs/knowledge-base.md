@@ -56,7 +56,15 @@ A single cosine threshold decides what evidence exists: candidates at or above
 `ANSWER_SIMILARITY_FLOOR` (0.35) are kept, the best `QA_TOP_K` (5) Q&A and
 `MESSAGE_TOP_K` (2) group candidates go to the model, a group's own variant
 suppresses the global answer for the same canonical question, and authority
-breaks remaining ties. The answer model (Mistral) and correction workflow are
+breaks remaining ties.
+
+A second, subordinate leg runs BM25 over **answer** text. It exists because the
+distinctive terms of this knowledge base live in the answers: measured in
+production, `Cluber` was in 5 answers and 0 canonical questions, and the venue
+entry's answer says `camp` while its question does not. It only runs when the
+semantic pool already cleared the floor, so it can add context but never
+authorise an answer on its own. Searching costs no AI budget, and both
+projections are written together from the same metadata, so they cannot drift. The answer model (Mistral) and correction workflow are
 unchanged.
 
 There is no lexical (BM25/FTS5) ranking. It was measured, found to be returning

@@ -92,6 +92,21 @@ class Settings(BaseSettings):
     answer_similarity_floor: float = 0.35
     qa_top_k: int = 5
     message_top_k: int = 2
+    # Lexical leg over Q&A answer text. Its own width, because BM25 scores are
+    # unbounded and not comparable with the cosine floor above. Zero disables
+    # the leg: it measured neutral-to-negative on the live gold set, so shipping
+    # it is an explicit decision, not the default. See docs/operations.md.
+    qa_answer_top_k: int = 0
+    # Minimum BM25 strength. SQLite's bm25 zeroes a term's contribution as its
+    # document frequency rises, so a near-zero total means the query matched
+    # only ubiquitous words and nothing discriminative.
+    qa_answer_min_strength: float = 0.5
+    # Keep hits scoring at least this fraction of the query's own best hit.
+    qa_answer_relative_cut: float = 0.5
+    # Authority given to a lexical hit. Provenance stays official: the text is
+    # the club's own. Only the match is unverified, and rule 4 of the prompt
+    # keeps authority from ever licensing an answer.
+    lexical_authority: int = 45
     ai_daily_neuron_budget: float = 10_000.0
     ai_neuron_reserve_fraction: float = 0.25
     ai_background_budget_fraction: float = 0.50
@@ -126,6 +141,14 @@ class Settings(BaseSettings):
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.qa_top_k < 1 or self.message_top_k < 1:
+            message = "qa_top_k and message_top_k must be at least 1"
+            raise ValueError(message)
+        if self.qa_answer_top_k < 0:
+            message = "qa_answer_top_k must not be negative"
+            raise ValueError(message)
+        if not 0.0 <= self.qa_answer_relative_cut <= 1.0:
+            message = "qa_answer_relative_cut must be between 0 and 1"
+            raise ValueError(message)
             raise ValueError("top-k values must be at least 1")
         if (
             self.reviewer_escalation_timeout_seconds < 0

@@ -73,6 +73,7 @@ from knowledge_bot.infrastructure.metering import (
     MeteredGenerator,
 )
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.sql.lexical import SqlLexicalIndex
 
 
 class WorkerEnv(Protocol):
@@ -177,6 +178,7 @@ def build_context(env: WorkerEnv) -> AppContext:
     listener_sources = D1SourceRepository(database)
     listener_conversations = D1ConversationRepository(database)
     projection_manifest = D1SearchProjectionRepository(database)
+    lexical_index = SqlLexicalIndex(database)
     projector = SearchProjectionService(
         source=D1SearchIndexSource(database),
         embedder=embedder,
@@ -184,6 +186,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         manifest=projection_manifest,
         clock=clock,
         budget=budget,
+        lexical=lexical_index,
     )
     runtime_smoke = RuntimeSmokeService(
         embedder, generator, vectors, projection_manifest, clock
@@ -243,8 +246,14 @@ def build_context(env: WorkerEnv) -> AppContext:
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
+                lexical=lexical_index,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
+                floor=settings.answer_similarity_floor,
+                qa_answer_top_k=settings.qa_answer_top_k,
+                qa_answer_min_strength=settings.qa_answer_min_strength,
+                qa_answer_relative_cut=settings.qa_answer_relative_cut,
+                lexical_authority=settings.lexical_authority,
             ),
             generator=generator,
             answers=answers,

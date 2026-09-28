@@ -9,7 +9,12 @@ from knowledge_bot.domain.entities import SearchProjectionEntry
 from knowledge_bot.domain.enums import ProjectionState
 from knowledge_bot.domain.errors import ModelUnavailableError
 from knowledge_bot.ports.generator import GenerationOutput, GenerationRequest
-from knowledge_bot.ports.index import IndexableMessage, IndexableQA
+from knowledge_bot.ports.index import (
+    IndexableMessage,
+    IndexableQA,
+    LexicalMatch,
+    LexicalRecord,
+)
 from knowledge_bot.ports.review import ReviewItem
 from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 
@@ -319,3 +324,37 @@ class FakeReviewSource:
     async def list_current(self) -> list[ReviewItem]:
         """Return the fixed review items."""
         return list(self.items)
+
+
+class FakeLexicalIndex:
+    """An in-memory lexical index returning a scripted BM25 result."""
+
+    def __init__(self, matches: list[LexicalMatch] | None = None) -> None:
+        """Create an index returning ``matches`` for every search.
+
+        Args:
+            matches: Rows to return, best first. ``None`` returns nothing.
+        """
+        self.matches = matches or []
+        self.queries: list[str] = []
+        self.upserted: list[LexicalRecord] = []
+        self.deleted: list[str] = []
+
+    async def upsert(self, records: list[LexicalRecord]) -> None:
+        """Record the projected rows."""
+        self.upserted.extend(records)
+
+    async def search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: dict[str, object] | None = None,
+    ) -> list[LexicalMatch]:
+        """Return the scripted rows, truncated to ``top_k``."""
+        self.queries.append(query)
+        return self.matches[:top_k]
+
+    async def delete(self, ids: list[str]) -> None:
+        """Record the deleted ids."""
+        self.deleted.extend(ids)

@@ -1,15 +1,34 @@
 # Session handoff
 
-_Last updated: 2026-09-27, after the failure-attribution, Loguru-removal, and
-eval-consolidation pass._
+_Last updated: 2026-09-28, after the evidence-question, seed, and lexical-leg
+pass._
+
+## Read this first: production is down
+
+**Every Workers AI call has been failing since ~05:54 UTC on 2026-09-28, so the
+bot cannot answer anything.** `model_unavailable` with an empty evidence set on
+every question, and `POST /internal/smoke/runtime` — a direct AI call with no
+retrieval — returns 500. The worker log shows `workers_ai_call_failed` on the
+embedding call with `"error":"JsException"` at `duration_ms: 0.0` and no
+`workers_ai_call_completed` events at all. The app's `ai_budget` table is frozen
+at 1 981 neurons across every attempt, so the calls fail before being metered:
+the platform is refusing them, not the local guard (which sits at 7 500).
+`/healthz` still answers 200 because it resolves no context and never touches
+AI. **There is no fallback by design** — the zero-cost policy forbids an
+alternative provider. Re-run `make eval-live-gold` to confirm recovery before
+trusting any measurement taken while this was open. It is **not** caused by the
+lexical revert, which only sets `QA_ANSWER_TOP_K=0` and returns from the leg
+before any query.
 
 ## The model decision, in one line
 
-`@cf/mistralai/mistral-small-3.1-24b-instruct` stays. Three models were measured
-in production on 2026-09-27 across both suites; they separate by at most one
-gold case and fail the *same five* cases, so the remaining failures are
-knowledge and grounding work, not model work. Full numbers and method in
-[experiments.md](experiments.md#generation-model-re-measured-the-axis-that-was-missing-now-measured).
+`@cf/zai-org/glm-4.7-flash` **with thinking disabled** now ships, reversing the
+mistral decision on completeness grounds: six consecutive abstentions on 09-26
+and two on 09-27 with complete evidence. `AI_DISABLE_THINKING=true` is
+**mandatory** — without it this is the 53-second timeout that started all of
+this. Accepted knowingly: ~25 neurons a call against mistral's ~9, 21/30 frozen
+against 22/30, and a new `redundant_sources` failure. Numbers in
+[operations.md](operations.md#the-generator-measured-on-both-runtimes).
 
 ## Current state
 
@@ -40,28 +59,49 @@ knowledge and grounding work, not model work. Full numbers and method in
   hard failure now, and both arbitrary size gates are gone.
 - **Production tracing is off** because of the isolate memory limit, not for
   lack of a token. The local runtime is the only one exporting today.
-- One branch is deliberately **not merged**: `feat/pairing-head` (learned
-  pairing head, disabled). See [experiments.md](experiments.md).
-- The lexical projection is still present in production D1 (95 rows in
-  `search_fts`). `migrations/0022_drop_search_fts.sql` drops it but has **not
-  been applied**; that is a live DDL write and needs explicit authorization.
+- **The generator now sees the question each answer was written for.** Evidence
+  renders as `Q:` (the question) and `A:` (the text, every line prefixed). The
+  question used to be dropped at the `EvidenceItem` port boundary, so the model
+  received bare assertions. The `A:` prefix also fixed a real ambiguity:
+  multi-line answers used to run into the next item with only the `[id]` header
+  marking a boundary.
+- **Provenance reaches the prompt** as `official` or `reported`, plus the
+  connector-declared `source_kind`, which had been indexed and never read.
+  Official outranks reported on conflict, and rule 4 keeps authority from ever
+  licensing an answer.
+- **`data/seed/qa.json` is now tracked** (it was gitignored, so the repo could
+  not rebuild what production was running). The WhatsApp imports and
+  `data/raw/*` stay ignored.
+- **`kb promote` exists for seeded `under_review` Q&A.** That state was
+  write-only: retrieval filters on `active`, nothing embedded it, and no
+  feedback record existed to approve it, so it could never answer. Two
+  production entries were stuck that way. Approving a reviewer correction does
+  not need it — that path already writes `active`.
+- Two branches are deliberately **not merged**: `feat/pairing-head` (learned
+  pairing head, disabled, see [experiments.md](experiments.md)) and
+  `spike/lexical-answer-retrieval` (the BM25 leg, measured and disabled, see
+  below).
 
 ## The deployed configuration
 
 | | |
 |---|---|
 | Embeddings | `@cf/google/embeddinggemma-300m` |
-| Generation | `@cf/mistralai/mistral-small-3.1-24b-instruct` |
+| Generation | `@cf/zai-org/glm-4.7-flash` with `AI_DISABLE_THINKING=true` |
 | Retrieval | one embedding, one cosine ranking, candidate pool 15 |
-| Selection | top **3** Q&A + top **2** group candidates at or above the floor |
+| Selection | top **5** Q&A + top **2** group candidates at or above the floor |
 | Floor | `ANSWER_SIMILARITY_FLOOR=0.35` |
+| Lexical leg | `QA_ANSWER_TOP_K=0` — **disabled**, see the finding below |
 | Caps | 35 s deadline, 1024 max tokens, no `response_format` |
 | Delivery | webhook acks `accepted` immediately, work runs in `waitUntil` |
-| Cost | ~2.6-8 s and ~30 neurons per question, two model calls |
+| Cost | ~7-9 s and ~25 neurons per question, two model calls |
 
-`ALLOWED_AI_MODELS` holds exactly these two models. Anything outside it is a
-configuration error at startup. There is no lexical (BM25/FTS5) ranking and no
-cross-encoder reranker; both were measured and removed.
+`ALLOWED_AI_MODELS` now holds the embedder, mistral, and glm-4.7-flash. Anything
+outside it is a configuration error at startup. There is no cross-encoder
+reranker; one was measured and removed.
+
+`search_fts` **does** exist in production D1 again, with 62 rows, created by
+`migrations/0024_answer_fts.sql`. The leg that reads it is off.
 
 ## What shipped in this pass
 
@@ -177,9 +217,13 @@ variable. Canonical numbers and method:
 | metered cost per call | **~9** | ~18 | ~25 |
 | needs a thinking switch | no | yes | yes |
 
-All three fail the same five gold cases. Production was restored to mistral
-after each run and re-verified; the deployed Worker and `main` agree, and the
-allowlist holds only mistral and the embedder.
+All three fail the same five gold cases, which is what makes those five
+knowledge defects rather than model defects. That comparison was run with
+mistral in production and is left as the record of how the models were
+separated. **Production has since moved to `glm-4.7-flash` with thinking
+disabled** (see the model decision at the top of this file), so the deployed
+Worker and `main` no longer agree with the table above; the allowlist now holds
+the embedder, mistral and glm-4.7-flash.
 
 **Kept from the experiments, both default off and tested to be inert unless
 asked for:** `AI_APPEND_NO_THINK` (Qwen3's `/no_think` template token) and
@@ -224,7 +268,8 @@ confirming it is not only the local model.
 ## The frozen suite, run on both runtimes
 
 Same dataset, same code, same runner, one generation call per case, run on
-2026-09-27 against the deployed Worker and the local stack:
+2026-09-27 against the deployed Worker and the local stack. **This was measured
+with mistral in production and has not been re-run since the move to GLM:**
 
 | | local | production |
 |---|---|---|
@@ -274,77 +319,6 @@ catch it. A `LOGFIRE_TOKEN` secret is set and unused, so tracing is one flag
 away once a memory-compliant transport exists. Details in
 [operations.md](operations.md#production-tracing-is-disabled-and-why).
 
-## The finding this pass produced
-
-**The local generation model cannot answer anything, and until this pass that
-was invisible.** Measured against the real local stack on 2026-09-27:
-
-```text
-gemma3:270m       -> InvalidModelOutputError(schema_validation)
-                     raw='{"status": "answered"}'
-granite4:micro-h  -> OK  status=answered answer='La botiga obre de 10:00 al 20:00.'
-```
-
-`gemma3:270m` returns an object with a `status` and nothing else, which fails
-`GenerationOutput` validation. Every question therefore ended in
-`invalid_model_output`, whatever the evidence was. Before this pass the same
-event was recorded as a model abstention and read as a knowledge or retrieval
-problem; the frozen suite now names it in one line
-(`invalid_model_output=30`).
-
-This is a local-runtime problem, not a production one: production runs
-`mistral-small-3.1-24b-instruct`, which does answer. `granite4:micro-h` handles
-the schema correctly but is **not** in `LOCAL_ALLOWED_AI_MODELS`, and the
-zero-cost policy correctly refused it when tried; changing the local model is a
-separate, explicitly authorized decision, not part of this pass.
-
-Consequence for the local loop: any local measurement of answer quality is
-currently a measurement of a broken generator. Fix the local model before
-trusting `make eval-local` for anything about answers.
-
-## Open issues, in the order they will bite
-
-1. **The local generation model is broken** (above). Every local answer ends in
-   `invalid_model_output` with `gemma3:270m`. Either allow and adopt a local
-   model that honours the schema, or stop trusting local answer measurements.
-   This blocks every other local quality question.
-2. **The five gold failures that every model shares.** `equipment_when`,
-   `equipment_size`, `training_where`, `medical_expiry`, and
-   `gold_abstention_07` fail on mistral, qwen3 and GLM alike. Three models
-   moving them by at most one case between them is the evidence: these are
-   knowledge and grounding defects, not model defects. The two worth starting
-   with are `training_where` (retrieval returns the rain policy for a question
-   about where they train, and the model answers it confidently) and
-   `gold_abstention_07` (a question about a delegate's phone answered with the
-   club's published general line, which is also a product decision nobody has
-   made).
-3. **The generator is non-deterministic on borderline questions.** The same
-   prompt over the same five documents returned `answered` in five offline
-   reproductions and `abstention` in production. The live suite score is
-   therefore noisy in both directions, and any single measurement of it is weak
-   evidence. The fix is a model whose willingness to answer is stable, which has
-   not been searched for.
-4. **Retrieval recall is now the binding constraint, and it just got worse.**
-   0.860 of answerable questions have their answer in the three candidates the
-   model sees. The ceiling was already known; the width cut lowered it. The
-   cheapest recovery is not a reranker — it is putting the question text *and*
-   the answer text into whatever retrieval exists, or raising `QA_TOP_K` back
-   and measuring what the extra candidates do to abstention.
-5. **Completeness is still only a rate over repeats.** The three-model
-   comparison closed the "which model" question but not this one: the frozen
-   suite is 30 cases, and on borderline questions the same prompt has answered
-   differently across runs. A rate needs repeats — 10 questions x 3 repeats x 3
-   models is ~2700 neurons for one day — and nobody has spent it. The gold
-   numbers in [experiments.md](experiments.md) are single runs and should be
-   read with that in mind.
-6. **No daily report arrives** until an external scheduler is wired to the
-   route. This is the only broken thing left.
-7. **The Worker cannot host the Logfire SDK.** It exceeds the 128 MB isolate
-   limit on import, which 503s every real question. The Worker therefore runs
-   with `KB_LOGFIRE_ENABLED=false` and exports nothing. A memory-compliant
-   transport is the only way to get production traces; the token and the
-   wiring are already in place behind the flag.
-
 ## Things that are not problems
 
 - **Qwen is not a better Mistral here.** The only attractive Qwen generator,
@@ -362,7 +336,114 @@ trusting `make eval-local` for anything about answers.
   failed, not that the bot is out of quota; a quota-exhausted question also
   degrades to it.
 
-## The pattern to remember
+## The finding this pass produced: better retrieval did not make the bot answer
+
+The payment family was the most-asked question in the group — eight attempts
+across four phrasings, one success. Investigating why turned up the real
+mechanism, and it was not what anyone assumed.
+
+**The distinctive terms of this knowledge base live in the answers, not in the
+canonical questions.** Measured in production: `Cluber` appeared in **5 Q&A
+answers and 0 canonical questions**, and the venue entry's answer contains
+`camp` while its question does not. Retrieval only ever embedded the question,
+so those facts were unreachable no matter how good the embedding was. A
+lexical (BM25) leg over answer text was built to fix exactly that, and it
+worked at its job: `on és el camp?` retrieved the venue answer as its top
+lexical hit at BM25 3.72, having missed all five semantic slots before.
+
+**And the bot still got the answer wrong.** Same 26 gold cases, same
+generator: **24/26 earned and 88/90 assertions without the leg, 23/26 and
+82/85 with it.** All 15 abstention cases still passed in both runs, so the leg
+cost no precision on unanswerable questions; it cost one answerable case. For
+`On entrenen?` the venue answer arrived at rank 2, the rain policy at rank 1,
+and the generator answered *the rain policy* without ever mentioning the venue.
+
+So the leg is **disabled** (`QA_ANSWER_TOP_K=0`) and the code, migration and
+62-row FTS projection are kept on `spike/lexical-answer-retrieval`, unmerged.
+The finding worth keeping is the diagnosis, not the code: **on the questions
+that fail, retrieval is not the binding constraint — the generator picking the
+wrong one of two plausible candidates is.** The doc had predicted this for
+`training_where` ("retrieval returns the rain policy for a question about where
+they train, and the model answers it confidently") and it is still true after
+the retrieval was fixed.
+
+**A correction to earlier reasoning in this file:** the previous session's claim
+that the lexical leg "does not pay for the port, the adapter, the fuser, the
+projection and the migration" was right about the conclusion and wrong about
+the reason. The leg was removed because it had a bug — it joined tokens with
+spaces, which FTS5 reads as an implicit AND, so every stopword had to be
+present and it returned rows for 2 of 91 questions. The BM25 *recall* figures
+were never contaminated by the generator, because recall is computed from the
+candidate lists before any generation. What *was* contaminated was the
+reranker removal, which was judged on "the model declined" while a reasoning
+model was timing out at 53 s. That evidence is void.
+
+Three defects found while building it, two of which no fake could have seen:
+
+- `batched(..., strict=True)` raises unless the count is an exact multiple, so
+  every single-row projection failed. Only a test against real SQLite caught
+  it; Ruff's `B911` had been trying to warn me.
+- `project_qa` reported the lexical failure as `vector_write_failed`, which
+  swallowed the cause and cost a deploy cycle to diagnose. The try blocks are
+  now split.
+- The FTS tokenizer folds diacritics and the query did not, so `llicència` could
+  never match the indexed `llicencia`.
+
+And a self-inflicted one worth remembering: **rule 2 of the prompt, added hours
+earlier in the same session, silently defeated the entire leg.** It demanded
+that an item's question match the user's, which is precisely what a lexical hit
+never has. Two correct changes cancelling each other, and only a live probe
+caught it. Rule 2 now judges by subject, never by wording.
+
+## Open issues, in the order they will bite
+
+1. **Production is down.** See the top of this file. Nothing else matters until
+   Workers AI recovers.
+2. **The generator answers the wrong one of two plausible candidates.** This is
+   now the measured binding constraint, ahead of retrieval. `training_where`
+   has the venue answer at rank 2 and the rain policy at rank 1 and the bot
+   describes the rain policy. The fix is a generator or prompt change — for
+   instance making the model read each candidate's `Q:` before choosing — and
+   it is worth more than any further retrieval work.
+3. **The local generation model is broken.** `gemma3:270m` returns
+   `{"status": "answered"}` and fails schema validation on every question, so
+   any local measurement of answer quality is a measurement of a broken
+   generator. `make eval-local` needs Ollama, which is not running, which is
+   why the Recall@5 gate is still unmeasured in either direction.
+4. **The bot's own meta Q&A pollutes every query.** `Què saps fer?`, `D'on
+   treus la informació per respondre?` and `Per què de vegades dus que no ho
+   saps?` are official, authority 90, and outrank real club knowledge. For
+   `on és el camp?` the semantic top five were the rain policy and three meta
+   answers, none mentioning the venue. No retrieval change fixes this; it is a
+   knowledge-base design problem, and the most likely reason so many group
+   questions abstain.
+5. **Training days are 0-for-7** and remain so: asked seven times, answered
+   never, because Prebenjamí trains dimarts/dimecres/divendres and Minis
+   dilluns/dimarts, and neither is in the knowledge base. The candidates are
+   written up in `qa_candidates_review.md`; the Prebenjamí days are
+   high-confidence and the Minis days rest on two parents rather than the club.
+6. **Five gold failures every model shares.** `equipment_when`,
+   `equipment_size`, `training_where`, `medical_expiry`, and
+   `gold_abstention_07` fail on mistral, qwen3 and GLM alike. Three models
+   moving them by at most one case is the evidence: knowledge and grounding
+   defects, not model defects. `training_where` is now understood (issue 2);
+   `equipment_size` and `medical_expiry` are not.
+7. **The generator is non-deterministic on borderline questions.** The same
+   prompt returned `answered` once and `insufficient` three times in four
+   repeats of `medical_expiry`. Completeness is currently a rate over single
+   runs, which makes any one-case comparison weak evidence — including the
+   lexical-leg comparison above.
+8. **Retrieval recall is the ceiling.** 0.860 of answerable questions have the
+   answer in three candidates, 0.907 in five. The lexical leg was meant to lift
+   that and did not move the end-to-end number.
+9. **No daily report arrives** until an external scheduler is wired to the
+   route.
+10. **The Worker cannot host the Logfire SDK.** It exceeds the 128 MB isolate
+    limit on import, so production exports nothing and `trace_json` is the only
+    durable record of a retrieval decision. A memory-compliant transport is the
+    only way to get production traces.
+
+
 
 Five attempts at learned selection (answer relevance, pairing, cross-encoder
 reranking, lexical fusion) passed their gates in isolation and failed in the

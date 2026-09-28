@@ -641,6 +641,9 @@ class AnswerService:
         trace["candidates"] = {
             "qa": _candidates(retrieved.qa),
             "message": _candidates(retrieved.messages),
+            # Recorded separately because production tracing is off, so
+            # trace_json is the only durable record of which leg surfaced what.
+            "qa_lexical": _candidates(retrieved.lexical_qa),
         }
         return retrieved
 

@@ -11,6 +11,8 @@ from knowledge_bot.ports.embedder import Embedder
 from knowledge_bot.ports.index import (
     IndexableMessage,
     IndexableQA,
+    LexicalIndex,
+    LexicalRecord,
     SearchIndexSource,
     SearchProjectionRepository,
 )
@@ -27,6 +29,18 @@ class ProjectionRepairReport:
     stopped_by_budget: bool = False
 
 
+def _as_int(value: object) -> int:
+    """Coerce a metadata value to int, defaulting to zero."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float | str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
 @dataclass(frozen=True, slots=True)
 class SearchProjectionService:
     """Own the only vector and manifest ordering used by the app."""
@@ -37,6 +51,7 @@ class SearchProjectionService:
     manifest: SearchProjectionRepository
     clock: Clock
     budget: AiBudget | None = None
+    lexical: LexicalIndex | None = None
 
     async def project_qa(self, item: IndexableQA) -> None:
         """Replace a stable Q&A vector without retaining stale truth."""
@@ -75,11 +90,20 @@ class SearchProjectionService:
                 vector_id, item.version_id, "model_unavailable", self.clock.now()
             )
             raise
-        except (RuntimeError, ValueError):
+        except (RuntimeError, ValueError) as error:
             await self.manifest.mark_failed(
                 vector_id, item.version_id, "vector_write_failed", self.clock.now()
             )
-            raise ProjectionError("vector_write_failed") from None
+            raise ProjectionError("vector_write_failed") from error
+        # Deliberately outside the vector block: a lexical failure must not be
+        # reported as a vector failure. Sharing one try meant a bad batch size
+        # in the FTS writer surfaced as vector_write_failed, which cost a deploy
+        # cycle to find. The vector is already active, so the leg is a
+        # degradation, not a lost projection.
+        try:
+            await self._project_lexical(vector_id, item.scope_key, metadata)
+        except (RuntimeError, ValueError) as error:
+            raise ProjectionError("lexical_write_failed") from error
 
     async def project_message(
         self,
@@ -126,10 +150,41 @@ class SearchProjectionService:
             raise ProjectionError("vector_write_failed") from None
 
     async def remove(self, vector_ids: list[str]) -> None:
-        """Delete vectors and their manifest entries."""
+        """Delete vectors, their lexical rows, and their manifest entries."""
         if vector_ids:
             await self.vectors.delete(vector_ids)
+            if self.lexical is not None:
+                await self.lexical.delete(vector_ids)
             await self.manifest.delete(vector_ids)
+
+    async def _project_lexical(
+        self,
+        vector_id: str,
+        scope_key: str,
+        metadata: dict[str, object],
+    ) -> None:
+        """Write the BM25 row beside the vector, over the answer text.
+
+        The lexical projection is derived from the same metadata the vector
+        carries, so the two cannot drift: both are written in the same call and
+        both are rebuildable from SQL. Indexing the answer rather than the
+        question is the whole point of the leg.
+        """
+        if self.lexical is None:
+            return
+        await self.lexical.upsert(
+            [
+                LexicalRecord(
+                    id=vector_id,
+                    kind=str(metadata.get("kind", "")),
+                    scope_key=scope_key,
+                    canonical_key=str(metadata.get("canonical_key", "")),
+                    authority=_as_int(metadata.get("authority")),
+                    text=str(metadata.get("text", "")),
+                    metadata=metadata,
+                )
+            ]
+        )
 
     async def repair(self, limit: int = 100) -> ProjectionRepairReport:
         """Repair a bounded batch of pending or failed projections."""

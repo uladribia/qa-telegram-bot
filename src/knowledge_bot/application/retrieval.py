@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: MIT
-"""Retrieval: one embedding per question, one cosine threshold.
+"""Retrieval: one embedding per question, plus a lexical leg over answer text.
 
 The question is embedded once and the vector index returns its nearest Q&A and
 group-evidence candidates. A single cosine threshold decides what evidence
 exists at all, and the nearest few above it are what the model is given. Local
 Q&A variants suppress global ones for the same canonical question.
 
-There is deliberately no lexical (BM25/FTS5) leg and no cross-encoder. As
-written the lexical leg fired for 2 of 91 eval questions, and a fixed
-OR-of-tokens query was worth +2 questions in 43 at Recall@5; the cross-encoder
-thinned the prompt enough to make the bot worse. See
-[docs/experiments.md](docs/experiments.md).
+A second, subordinate leg runs BM25 over Q&A **answer** text. It exists because
+the distinctive terms of this knowledge base live in the answers, not in the
+canonical questions: measured in production, "Cluber" appeared in 5 answers and
+0 questions, and the venue entry's answer contains "camp" while its question
+does not. A lexical index over questions cannot reach those facts. It is
+subordinate on purpose: it only runs when the semantic pool already cleared the
+floor, so it can add context but can never authorise an answer on its own.
+
+There is no cross-encoder. One was measured and removed: it thinned the prompt
+enough to make the bot worse. See [docs/experiments.md](docs/experiments.md).
 """
 
 import re
@@ -18,12 +23,16 @@ from dataclasses import dataclass, field
 
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.ports.embedder import Embedder
+from knowledge_bot.ports.index import LexicalIndex, LexicalMatch
 from knowledge_bot.ports.vector_store import VectorMatch, VectorStore
 
 QA_KIND = "qa"
 MESSAGE_KIND = "message_evidence"
 
 _CANDIDATE_POOL = 15
+#: The lexical leg filters after the database returns rows, so it asks for more
+#: than it may keep and discards the rest locally.
+_LEXICAL_OVERSAMPLE = 4
 _TOKEN = re.compile(r"\w+", flags=re.UNICODE)
 
 
@@ -59,6 +68,9 @@ class RetrievedEvidence:
 
     qa: list[Evidence] = field(default_factory=list)
     messages: list[Evidence] = field(default_factory=list)
+    #: Lexical hits kept after the gates, kept separately for the durable trace
+    #: so a retrieval decision can be attributed after the fact.
+    lexical_qa: list[Evidence] = field(default_factory=list)
 
     def all(self) -> list[Evidence]:
         """Return all evidence."""
@@ -99,6 +111,40 @@ def _question_key(match: VectorMatch) -> str | None:
     return key if isinstance(key, str) and key else None
 
 
+def _merge_lexical(
+    semantic: list[VectorMatch],
+    lexical: list[VectorMatch],
+) -> list[VectorMatch]:
+    """Union both Q&A lists, keeping one copy of each item.
+
+    A Q&A found by both legs is one fact, and two near-identical sources is the
+    ``redundant_sources`` shape the production generator already fails. The
+    semantic copy wins: its score is the cosine the floor and the gated recall
+    metric are calibrated on.
+    """
+    merged = list(semantic)
+    seen = {match.id for match in semantic}
+    for match in lexical:
+        if match.id in seen:
+            continue
+        seen.add(match.id)
+        merged.append(match)
+    return merged
+
+
+def _to_vector_match(match: LexicalMatch, authority: int) -> VectorMatch:
+    """Present a lexical hit as an evidence candidate with its own authority.
+
+    Provenance stays official because the text is the club's own curated answer;
+    only the match is unverified, and the prompt keeps authority from ever
+    licensing an answer. The id is left clean so a Q&A found by both legs
+    deduplicates to one citable source.
+    """
+    metadata = dict(match.metadata)
+    metadata["authority"] = authority
+    return VectorMatch(id=match.id, score=match.score, metadata=metadata)
+
+
 def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
     metadata = match.metadata
     question = metadata.get("question")
@@ -128,8 +174,14 @@ class RetrievalService:
 
     embedder: Embedder
     vectors: VectorStore
+    lexical: LexicalIndex | None = None
     qa_top_k: int = 5
     message_top_k: int = 2
+    floor: float = 0.35
+    qa_answer_top_k: int = 3
+    qa_answer_min_strength: float = 0.5
+    qa_answer_relative_cut: float = 0.5
+    lexical_authority: int = 45
 
     async def retrieve(
         self,
@@ -179,6 +231,7 @@ class RetrievalService:
                     )
                 )
         qa_matches = _select_qa(qa_lists, self.qa_top_k)
+        lexical_matches = await self._lexical_qa(question, space_id, qa_lists)
         message_filters: dict[str, object] = {"kind": MESSAGE_KIND}
         if space_id is not None:
             message_scope: str | None = scope_for_space(space_id)
@@ -195,9 +248,67 @@ class RetrievalService:
             self.message_top_k,
         )
         return RetrievedEvidence(
-            qa=[_to_evidence(match, QA_KIND) for match in qa_matches],
+            qa=[
+                _to_evidence(match, QA_KIND)
+                for match in _merge_lexical(qa_matches, lexical_matches)
+            ],
             messages=[_to_evidence(match, MESSAGE_KIND) for match in message_matches],
+            lexical_qa=[_to_evidence(match, QA_KIND) for match in lexical_matches],
         )
+
+    async def _lexical_qa(
+        self,
+        question: str,
+        space_id: str | None,
+        semantic_lists: list[list[VectorMatch]],
+    ) -> list[VectorMatch]:
+        """Return BM25 hits over Q&A answer text, subject to four gates.
+
+        Gate 0, subordination: the leg only runs when the semantic pool already
+        produced a candidate at or above the floor. If nothing in the semantic
+        pool cleared it, the question is off-topic for the whole knowledge base,
+        and three lexical hits on a shared word would turn a correct abstention
+        into a confident wrong answer.
+
+        Gate 1, absolute strength: SQLite's bm25 zeroes a term's contribution as
+        its document frequency rises, so a near-zero total means the query
+        matched only ubiquitous words.
+
+        Gate 2, relative cut: keep hits within a fraction of this query's own
+        best hit, which drops the weak tail without an absolute relevance bar.
+
+        Gate 3 is ``qa_answer_top_k`` itself.
+        """
+        if self.lexical is None or self.qa_answer_top_k < 1:
+            return []
+        pooled = [match for ranked in semantic_lists for match in ranked]
+        if not any(match.score >= self.floor for match in pooled):
+            return []
+        filters: dict[str, object] = {"kind": QA_KIND}
+        if space_id is not None:
+            filters["scope_key"] = scope_for_space(space_id)
+        else:
+            filters["scope_key"] = GLOBAL_SCOPE
+        found = await self.lexical.search(
+            question,
+            top_k=self.qa_answer_top_k * _LEXICAL_OVERSAMPLE,
+            filters=filters,
+        )
+        strong = [
+            match for match in found if match.score >= self.qa_answer_min_strength
+        ]
+        if not strong:
+            return []
+        best = strong[0].score
+        kept = [
+            match
+            for match in strong
+            if match.score >= best * self.qa_answer_relative_cut
+        ]
+        return [
+            _to_vector_match(match, self.lexical_authority)
+            for match in kept[: self.qa_answer_top_k]
+        ]
 
 
 def _select_qa(lists: list[list[VectorMatch]], top_k: int) -> list[VectorMatch]:

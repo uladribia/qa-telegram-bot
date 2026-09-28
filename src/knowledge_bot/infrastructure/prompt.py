@@ -34,11 +34,14 @@ SYSTEM_PROMPT = """You answer questions using ONLY the evidence below.
 
 Rules:
 1. Do not add facts not supported by evidence.
-2. Every item shows the question it answers, prefixed Q:, and its text, whose
-   every line is prefixed A:. Answer the user's question. An item whose Q is not
-   the question the user asked does not answer it, however well it matched and
-   however official it is. Two items can look similar and still answer different
-   questions: one asking what a fee includes does not answer how to pay it.
+2. Every item shows the question it was written for, prefixed Q:, and its text,
+   whose every line is prefixed A:. Q tells you what the item is about, and it
+   is very often phrased differently from the question you were asked: the same
+   fact asked two ways is still the same fact, so an item whose Q is a
+   rephrasing of the user's question does answer it. The test is never whether
+   the wording matches, only whether the text answers what was asked. An item
+   about a different subject does not: one that says what a fee includes does
+   not tell the user how to pay it.
 2. If evidence is insufficient or materially contradictory, return insufficient.
 3. Every item is marked either official club knowledge or reported evidence taken
    from group conversation. Official evidence is the club's curated, published

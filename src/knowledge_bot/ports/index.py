@@ -126,3 +126,53 @@ class SearchIndexSource(Protocol):
     async def list_legacy_vector_ids(self) -> list[str]:
         """Return legacy vector ids that a rebuild must remove."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class LexicalRecord:
+    """One row of the derived lexical projection, keyed by its vector id."""
+
+    id: str
+    kind: str
+    scope_key: str
+    canonical_key: str
+    authority: int
+    text: str
+    metadata: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class LexicalMatch:
+    """One BM25-ranked row. ``score`` is a positive strength, larger is better.
+
+    SQLite's ``bm25()`` returns a negative number where more negative is a
+    better match; this port normalizes that to a positive strength so callers
+    can apply a relative cut without reasoning about the sign.
+    """
+
+    id: str
+    score: float
+    metadata: dict[str, object]
+
+
+@runtime_checkable
+class LexicalIndex(Protocol):
+    """Derived BM25 projection, queryable without spending AI budget."""
+
+    async def upsert(self, records: list[LexicalRecord]) -> None:
+        """Replace the lexical row of every given vector id."""
+        ...
+
+    async def search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: dict[str, object] | None = None,
+    ) -> list[LexicalMatch]:
+        """Return BM25-ranked matches above zero strength, best first."""
+        ...
+
+    async def delete(self, ids: list[str]) -> None:
+        """Delete lexical rows by their stable projection ids."""
+        ...
