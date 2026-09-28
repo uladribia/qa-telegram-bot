@@ -467,6 +467,8 @@ class Scenario:
             (self.group_a, "group A"),
             (self.group_b, "group B"),
         ):
+            if chat is None:
+                continue  # preflight never resolved it; nothing to clean up
             try:
                 await self.client.send(chat, "/reviewer off")
                 before = await self._last_message_id(chat)
@@ -580,6 +582,7 @@ async def main() -> None:
     scenario = Scenario(settings, client)
     failure: BaseException | None = None
     try:
+        await client.connect()
         for index, (label, method) in enumerate(STEPS, start=1):
             print(f"[{index:02d}/{len(STEPS)}] {label:<40}", end="", flush=True)
             started = time.perf_counter()

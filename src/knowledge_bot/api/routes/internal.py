@@ -119,6 +119,7 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
         question = body.question
         preview = await context.answer.dry_run(
             question,
+            space_id=body.space_id,
             evidence=(
                 context.answer.frozen_evidence(
                     [item.model_dump() for item in body.evidence]

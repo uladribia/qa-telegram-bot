@@ -549,7 +549,11 @@ class AnswerService:
         return await self.retrieval.retrieve(clean_question(question))
 
     async def dry_run(
-        self, question: str, *, evidence: list[Evidence] | None = None
+        self,
+        question: str,
+        *,
+        space_id: str | None = None,
+        evidence: list[Evidence] | None = None,
     ) -> AnswerPreview:
         """Decide an answer without persisting it, with the same trace shape.
 
@@ -559,6 +563,9 @@ class AnswerService:
 
         Args:
             question: The question to decide.
+            space_id: The logical space to search, or ``None`` for the global
+                scope only. A case attributed to one group's answer must use
+                that group's scope, not a widened search.
             evidence: Frozen evidence for a generator-only evaluation. When
                 given, retrieval is bypassed and this exact set is selected, so
                 the case measures the generator and not the index. The path
@@ -581,7 +588,7 @@ class AnswerService:
             retrieved = (
                 RetrievedEvidence(qa=list(evidence))
                 if evidence is not None
-                else await self._retrieve(cleaned, None, trace, started)
+                else await self._retrieve(cleaned, space_id, trace, started)
             )
             preview = (
                 AnswerPreview(self._unavailable(trace), [], trace)

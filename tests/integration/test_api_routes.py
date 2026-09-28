@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from knowledge_bot.api.app import create_app
 from knowledge_bot.domain.entities import BotAnswer
 from knowledge_bot.domain.enums import AnswerMode
+from knowledge_bot.domain.scope import scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.context import build_test_context
@@ -174,3 +175,54 @@ def test_eval_answer_frozen_mode_bypasses_retrieval() -> None:
     assert payload["evidence_ids"] == ["qa-frozen-botiga"]
     assert payload["reason"] != "no_evidence"
     assert payload["candidates"][0]["similarity"] == 1.0
+
+
+def test_eval_answer_scope_is_the_requested_space_not_global() -> None:
+    """A scoped eval answer searches the asking space, never a widened scope.
+
+    ``space_id`` on the request is binding: an answer attributed to one group
+    must be decided with that group's scope. A space-local Q&A the global-only
+    run cannot see answers when the space is passed, and the global-only run
+    abstains.
+    """
+    space_id = "sp_" + "a1" * 16
+    scope = scope_for_space(space_id)
+    context, _ = build_test_context()
+    asyncio.run(
+        context.answer.retrieval.vectors.upsert(
+            [
+                VectorRecord(
+                    id="qa:item-space",
+                    values=[1.0, 0.0],
+                    metadata={
+                        "kind": "qa",
+                        "object_id": "item-space",
+                        "version_id": f"v1:{scope}",
+                        "canonical_key": "local",
+                        "status": "active",
+                        "scope_key": scope,
+                        "authority": 90,
+                        "question": "Quan entrena el local?",
+                        "text": "Dijous",
+                    },
+                )
+            ]
+        )
+    )
+    client = TestClient(create_app(lambda request: context))
+
+    scoped = client.post(
+        "/internal/eval/answer",
+        json={"question": "Quan entrena el local?", "space_id": space_id},
+        headers=KEY,
+    )
+    global_only = client.post(
+        "/internal/eval/answer",
+        json={"question": "Quan entrena el local?"},
+        headers=KEY,
+    )
+
+    assert scoped.status_code == 200
+    assert scoped.json()["reason"] != "no_evidence"
+    assert global_only.status_code == 200
+    assert global_only.json()["reason"] == "no_evidence"
