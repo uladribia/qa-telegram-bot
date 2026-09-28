@@ -36,6 +36,15 @@
     "ANSWER_SIMILARITY_FLOOR": "0.35",
     "QA_TOP_K": "5",
     "MESSAGE_TOP_K": "2",
+    // Lexical (BM25) leg over Q&A answer text. DISABLED: 0 means the leg does
+    // not run. It measured 23/26 on the live gold set against 24/26 without
+    // it, so it is not shipped by default. The projection and the code stay,
+    // because the finding worth keeping is that retrieval improved and the
+    // generator still answered the wrong candidate. See docs/operations.md.
+    "QA_ANSWER_TOP_K": "0",
+    "QA_ANSWER_MIN_STRENGTH": "0.5",
+    "QA_ANSWER_RELATIVE_CUT": "0.5",
+    "LEXICAL_AUTHORITY": "45",
     "BACKGROUND_LISTENER_ENABLED": "true",
     "AI_EMBED_TIMEOUT_SECONDS": "10",
     "AI_GENERATION_TIMEOUT_SECONDS": "35",

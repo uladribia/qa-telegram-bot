@@ -81,11 +81,11 @@ def test_every_answer_line_is_prefixed() -> None:
 
 
 def test_the_rules_tie_an_item_to_its_question() -> None:
-    """The model answers the user's question, not the evidence's question."""
+    """The model answers the user's question, judged by subject not wording."""
     assert "prefixed Q:" in SYSTEM_PROMPT
-    assert "Answer the user's question" in SYSTEM_PROMPT
-    assert "does not answer it" in SYSTEM_PROMPT
-    assert "does not answer how to pay it" in SYSTEM_PROMPT
+    assert "test is never whether" in SYSTEM_PROMPT
+    assert "rephrasing of the user" in SYSTEM_PROMPT
+    assert "not tell the user how to pay" in SYSTEM_PROMPT
 
 
 def test_reported_evidence_is_labelled_as_unverified() -> None:

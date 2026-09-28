@@ -47,6 +47,7 @@ from knowledge_bot.infrastructure.metering import (
     MeteredGenerator,
 )
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.sql.lexical import SqlLexicalIndex
 from knowledge_bot.infrastructure.sql.repositories import (
     SqlAiUsageRepository,
     SqlAttachmentRepository,
@@ -202,6 +203,7 @@ async def build_context(
     conversations = D1ConversationRepository(binding)
     feedback = D1FeedbackRepository(binding)
     manifest = D1SearchProjectionRepository(binding)
+    lexical_index = SqlLexicalIndex(binding)
     projector = SearchProjectionService(
         source=D1SearchIndexSource(binding),
         embedder=embedder,
@@ -209,6 +211,7 @@ async def build_context(
         manifest=manifest,
         clock=clock,
         budget=budget,
+        lexical=lexical_index,
     )
     runtime_smoke = RuntimeSmokeService(embedder, generator, vectors, manifest, clock)
     pair_candidates = D1MessagePairCandidateRepository(binding)
@@ -260,8 +263,14 @@ async def build_context(
             retrieval=RetrievalService(
                 embedder=embedder,
                 vectors=vectors,
+                lexical=lexical_index,
                 qa_top_k=settings.qa_top_k,
                 message_top_k=settings.message_top_k,
+                floor=settings.answer_similarity_floor,
+                qa_answer_top_k=settings.qa_answer_top_k,
+                qa_answer_min_strength=settings.qa_answer_min_strength,
+                qa_answer_relative_cut=settings.qa_answer_relative_cut,
+                lexical_authority=settings.lexical_authority,
             ),
             generator=generator,
             answers=answers,

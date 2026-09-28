@@ -183,6 +183,10 @@ async def test_trace_records_why_a_model_refused() -> None:
     assert trace["candidates"] == {
         "qa": [{"id": "qa:web-item", "similarity": 1.0}],
         "message": [],
+        # Recorded so a retrieval decision can be attributed after the fact:
+        # production tracing is off, so this is the only durable record of
+        # which leg surfaced what.
+        "qa_lexical": [],
     }
     assert trace["generation"]["status"] == "insufficient"
     assert trace["generation"]["source_ids"] == []
