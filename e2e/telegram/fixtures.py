@@ -85,13 +85,22 @@ class InternalWorker:
         """Close the HTTP connection pool."""
         await self._http.aclose()
 
-    async def register_group(self, chat_id: str, title: str, space_id: str) -> str:
+    async def register_group(
+        self,
+        chat_id: str,
+        title: str,
+        space_id: str,
+        *,
+        bot_mode: str | None = None,
+    ) -> str:
         """Bind a dedicated E2E group into its fixed logical space.
 
         Args:
             chat_id: The Bot-API-compatible signed chat id.
             title: The exact group title (must start with `[E2E]`).
             space_id: The fixed logical space id.
+            bot_mode: Optional mode to set at the same time; omitting it keeps
+                whatever the group already had.
 
         Returns:
             The space id the Worker reports back.
@@ -101,7 +110,12 @@ class InternalWorker:
         """
         response = await self._http.post(
             "/internal/groups",
-            json={"chat_id": chat_id, "title": title, "space_id": space_id},
+            json={
+                "chat_id": chat_id,
+                "title": title,
+                "space_id": space_id,
+                "bot_mode": bot_mode,
+            },
         )
         if response.status_code != 200:
             raise E2ERuntimeError("group_bind_failed", str(response.status_code))
