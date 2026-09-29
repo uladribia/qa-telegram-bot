@@ -18,6 +18,7 @@ from tests.fakes.repositories import (
     InMemoryReviewerEventRepository,
     InMemoryReviewerRepository,
     InMemorySourceRepository,
+    InMemorySpaceMembershipRepository,
     InMemorySpaceRepository,
     InMemoryTelegramInteractionRepository,
 )
@@ -34,6 +35,9 @@ class InMemoryBackend:
 
     sources: InMemorySourceRepository = field(default_factory=InMemorySourceRepository)
     spaces: InMemorySpaceRepository = field(default_factory=InMemorySpaceRepository)
+    memberships: InMemorySpaceMembershipRepository = field(
+        default_factory=InMemorySpaceMembershipRepository
+    )
     bindings: InMemoryChannelBindingRepository = field(
         default_factory=InMemoryChannelBindingRepository
     )

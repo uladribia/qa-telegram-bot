@@ -12,7 +12,7 @@ The main operational signal is unchanged: precision is favored over recall. Do n
 
 ## Quota
 
-Direct user questions are never refused by the estimate guard. Background classification and maintenance work are lower priority and check admission before each AI-consuming unit. Live evals, remote reindexing, and Cloudflare smoke require explicit authorization and an explicit `BOT_BASE_URL`.
+Direct user questions are never refused by the estimate guard. Uninvited answers in a proactive group, background classification, and maintenance work are lower priority and check admission before each AI-consuming unit, in that order: `AI_PROACTIVE_BUDGET_FRACTION` (0.35) stops the answers nobody asked for before `AI_BACKGROUND_BUDGET_FRACTION` (0.50) stops the classification and indexing. Live evals, remote reindexing, and Cloudflare smoke require explicit authorization and an explicit `BOT_BASE_URL`.
 
 Do not schedule live evals or automatically retry a failed remote operation. A full reindex is not a routine repair.
 
@@ -31,6 +31,29 @@ Observed on the v1.1.0 release (2026-09-25); each one has bitten a real operatio
 - **Truncated reasoning returns `content: null`, not partial JSON.** With `finish_reason: length` the model can return no content at all, which the adapter already degrades to `insufficient`. That is the intended safe direction, but it means a low cap silently increases abstentions rather than producing wrong answers. Watch the abstention count when changing it.
 - **Some requests hit a Pyodide runtime bug** (`SystemError: Cannot enter a promising task from inside another running promising task`) and return `500` with no application traceback. It is intermittent: the same request usually succeeds on retry.
 - **Vectorize is eventually consistent.** Right after a batch, a write-then-query of the same id can return zero matches; the runtime smoke reporting `vector_matches: 0` immediately after its write is expected, not a failure.
+
+## Bot modes
+
+A served group's behaviour is stored in `channel_bindings.bot_mode` and changed
+with `kb group add --chat-id <id> --mode <mode>`. Omitted options keep what is
+already registered, so a mode change never renames the group and a rename never
+changes the mode. There is no environment switch for it: `BACKGROUND_LISTENER_ENABLED`
+was removed when the mode arrived, and two switches that can disagree are one
+too many.
+
+The control plane is never gated by a mode. If a group is `off` and a member
+replies to a correction prompt, the correction is still taken. A mode decides
+what happens to a question, never whether the bot keeps a promise.
+
+## Membership
+
+The bot has no admin rights and never calls `getChatMember`, so
+`space_memberships` only ever contains people the bot has actually seen:
+through a message in a served group, or through Telegram's join and leave
+service messages. There is no backfill and no admin endpoint to add one; a
+group's membership starts empty and fills in as people talk. When debugging
+"the bot does not know me", check whether the user has written in a served
+group at all, rather than looking for a sync that never runs.
 
 ## Answer delivery
 

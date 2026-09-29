@@ -29,6 +29,7 @@ class AiSpend:
     evaluation_ceiling: float
     background_ceiling: float
     maintenance_ceiling: float
+    proactive_ceiling: float
 
     @property
     def exhausted(self) -> bool:
@@ -51,6 +52,7 @@ class AiBudget:
     reserve_fraction: float = 0.25
     background_fraction: float = 0.50
     maintenance_fraction: float = 0.70
+    proactive_fraction: float = 0.35
     embed_neurons_per_char: float = 0.015
     chat_neurons_per_char: float = 0.020
 
@@ -71,6 +73,7 @@ class AiBudget:
             evaluation_ceiling=self._ceiling(),
             background_ceiling=self.daily_neurons * self.background_fraction,
             maintenance_ceiling=self.daily_neurons * self.maintenance_fraction,
+            proactive_ceiling=self.daily_neurons * self.proactive_fraction,
         )
 
     def estimate_embedding(self, characters: int) -> float:
@@ -104,10 +107,17 @@ class AiBudget:
         return (await self.spend()).evaluation_allowed
 
     async def work_allowed(self, work_class: AiWorkClass) -> bool:
-        """Return whether estimated spend permits one work class."""
+        """Return whether estimated spend permits one work class.
+
+        The classes are ordered by how optional they are: an uninvited answer is
+        the first thing to stop, before the background classification and
+        indexing that make tomorrow's answers possible at all.
+        """
         spend = await self.spend()
         if work_class is AiWorkClass.USER:
             return True
+        if work_class is AiWorkClass.PROACTIVE:
+            return spend.neurons < spend.proactive_ceiling
         if work_class is AiWorkClass.BACKGROUND:
             return spend.neurons < spend.background_ceiling
         return spend.neurons < spend.maintenance_ceiling

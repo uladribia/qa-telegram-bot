@@ -20,9 +20,11 @@ import typer
 from knowledge_bot.adapters.inbound.web_snapshot import fetch_html, parse_qa_html
 from knowledge_bot.adapters.inbound.whatsapp_export import parse_export
 from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
+from knowledge_bot.domain.enums import BotMode
 from knowledge_bot.infrastructure.settings import Settings
 
 MIN_QA_COUNT = 30
+_MODE_CHOICES = ", ".join(mode.value for mode in BotMode)
 
 app = typer.Typer(no_args_is_help=True, help="Knowledge bot operations.")
 _BASE_URL = typer.Option(
@@ -187,14 +189,27 @@ def group_add(
         ..., "--chat-id", help="Telegram group chat id (negative for groups)."
     ),
     title: str = typer.Option(None, "--title", help="Human-readable group name."),
+    mode: BotMode = typer.Option(
+        None,
+        "--mode",
+        help="Bot behaviour in the group. One of: " + _MODE_CHOICES + ".",
+    ),
     base_url: str = _BASE_URL,
 ) -> None:
-    """Register a served Telegram group (idempotent; refreshes the title)."""
+    """Register a served Telegram group (idempotent).
+
+    Omitted options keep what is already registered, so this is also how a
+    group's name or its bot mode is changed.
+    """
     _require_live_allowed(base_url)
     settings = Settings()
     response = httpx.post(
         f"{base_url}/internal/groups",
-        json={"chat_id": chat_id, "title": title},
+        json={
+            "chat_id": chat_id,
+            "title": title,
+            "bot_mode": str(mode) if mode else None,
+        },
         headers=_internal_headers(settings),
         timeout=60.0,
     )

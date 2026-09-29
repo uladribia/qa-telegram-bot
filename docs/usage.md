@@ -4,9 +4,54 @@ The bot answers addressed questions from global and space-scoped knowledge, cite
 
 ## Addressing the bot
 
-The bot answers mentions, replies to its messages, direct messages, and `/ask` questions. Unaddressed group traffic is not answered. With `BACKGROUND_LISTENER_ENABLED=true`, accepted background messages are stored and eligible evidence is indexed without answering the group.
+The bot answers mentions, replies to its messages, direct messages, and `/ask` questions. What it does with everything else depends on the mode of the conversation.
 
-Private DMs are restricted to the admin and `ALLOWED_TELEGRAM_USER_IDS`. A correction proposal is accepted when it replies to the bot's own correction prompt, even when the reporter is not allowlisted.
+## Bot modes
+
+Each served group has one mode, and the modes are cumulative:
+
+| Mode | Answers a mention | Answers an unasked question | Stores and indexes what is said |
+| --- | --- | --- | --- |
+| `off` | no | no | no |
+| `silent` | no | no | yes |
+| `active` | yes | no | yes |
+| `proactive` | yes | yes, when it is a confident question and the answer is grounded | yes |
+
+`proactive` never answers "I don't know": an unaddressed question that comes
+back as an abstention or a provider failure produces nothing at all. It also
+has its own share of the daily AI budget
+(`AI_PROACTIVE_BUDGET_FRACTION`, below the background share), so uninvited
+answers are the first thing to stop when the quota runs low.
+
+A mode never disables the control plane. Reviewer commands, replies to
+correction prompts, and pending reviews keep working in a group set to `off` or
+`silent`.
+
+Private chats have their own mode, `TELEGRAM_DM_BOT_MODE`, with the same four
+values. A private message always addresses the bot, so `proactive` behaves like
+`active` there and `off` means the bot answers nothing in private at all. A
+private message is never turned into knowledge: it is stored when the mode
+allows, and never goes through the listener.
+
+Change a group's mode with the same command that registers it. Omitted options
+keep what is already registered, so a mode change never renames the group:
+
+```bash
+kb group add --chat-id <chat-id> --mode proactive
+```
+
+## Who the bot knows in a group
+
+The bot cannot list a group's members without admin rights, and it does not try.
+It learns them as it sees them: any message in a served group marks its human
+sender as a member, and Telegram's join and leave service messages mark
+everyone who arrived or departed. Members who never interact with the bot stay
+unknown, and a private message from someone it has never seen in a served group
+is refused with a message explaining how to introduce themselves.
+
+## Addressing the bot
+
+Private DMs are restricted to the admin, `ALLOWED_TELEGRAM_USER_IDS`, and the people the bot has observed in a served group. A correction proposal is accepted when it replies to the bot's own correction prompt, even when the reporter is not allowlisted.
 
 A Telegram group is served only when its chat is bound to a logical space. There is no static group allowlist.
 

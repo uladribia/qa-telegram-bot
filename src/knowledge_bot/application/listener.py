@@ -25,6 +25,22 @@ from knowledge_bot.models.messages import NormalizedMessage
 # Longest parent question text stored on a matched pair reply.
 MAX_LISTENER_QUESTION_CHARS = 500
 
+INGEST_STATUS = "ingest"
+INGEST_PAIR_STATUS = "ingest_pair"
+
+
+@dataclass(frozen=True, slots=True)
+class ListenerResult:
+    """What the listener did, and whether it saw a confident question.
+
+    ``status`` is the observable outcome and never changes shape. The flag
+    exists so a proactive conversation can decide to answer without paying for
+    a second classification of the same message.
+    """
+
+    status: str
+    confident_question: bool = False
+
 
 @dataclass(frozen=True, slots=True)
 class ListenerIngestor:
@@ -36,7 +52,7 @@ class ListenerIngestor:
     pairing: MessagePairingService
     background_indexer: BackgroundIndexer
 
-    async def handle(self, message: NormalizedMessage) -> str:
+    async def handle(self, message: NormalizedMessage) -> ListenerResult:
         """Classify and ingest an unaddressed group message.
 
         Only clear-cut chitchat is discarded; everything else is kept as
@@ -44,11 +60,16 @@ class ListenerIngestor:
         question-answer pair. Media-only messages carry no text to score, so
         they are kept unlabeled.
 
+        A message is a confident question only when the classifier says so.
+        Every early return below is a message the classifier never saw as one:
+        no text, no background budget, or a classification that did not clear
+        the confidence and margin thresholds.
+
         Args:
             message: The unaddressed inbound message.
 
         Returns:
-            A short status string.
+            The ingest outcome and whether the message was a confident question.
         """
         text = (message.text or "").strip()
         if not text:
@@ -57,14 +78,14 @@ class ListenerIngestor:
                 classification_status=ClassificationStatus.NO_TEXT,
                 index_status=IndexStatus.NOT_ELIGIBLE,
             )
-            return "ingest"
+            return ListenerResult(INGEST_STATUS)
         if not await self.budget.work_allowed(AiWorkClass.BACKGROUND):
             await self.ingestor.ingest(
                 message,
                 classification_status=ClassificationStatus.DEFERRED_BUDGET,
                 index_status=IndexStatus.NOT_INDEXED,
             )
-            return "ingest"
+            return ListenerResult(INGEST_STATUS)
         classification = await self.classifier.classify(text)
         scores = classification.scores
         label = classification.best_label.value
@@ -93,7 +114,8 @@ class ListenerIngestor:
         if result.created:
             await self.pairing.on_message(message.id)
             await self.background_indexer.process(message.id, classification.embedding)
-        return "ingest_pair" if context_question is not None else "ingest"
+        status = INGEST_PAIR_STATUS if context_question is not None else INGEST_STATUS
+        return ListenerResult(status, self.classifier.is_question(classification))
 
     async def match_parent_question(
         self, message: NormalizedMessage, classification: Classification

@@ -49,6 +49,21 @@ UNAVAILABLE_TEXT = (
 FROZEN_SIMILARITY = 1.0
 
 
+def addressed_answer_id(message_id: str) -> str:
+    """Return the answer id of the answer a user explicitly asked for."""
+    return f"ans:{message_id}"
+
+
+def proactive_answer_id(message_id: str, space_id: str) -> str:
+    """Return the answer id of an uninvited answer in one space.
+
+    Tagged with both the trigger and the space: an uninvited answer is a
+    different act from an invited one, and a replay of the same message in a
+    different scope must not reuse it.
+    """
+    return f"ans:{message_id}:proactive:{space_id}"
+
+
 def clean_question(text: str | None) -> str:
     """Strip commands and leading bot mentions from a question."""
     value = (text or "").strip()
@@ -452,20 +467,38 @@ class AnswerService:
         )
 
     async def answer_message(
-        self, message: NormalizedMessage
+        self,
+        message: NormalizedMessage,
+        *,
+        space_id: str | None,
+        answer_id: str,
     ) -> AskQuestionResponse | None:
-        """Prepare and persist the answer for an addressed message."""
+        """Answer one normalized message in one knowledge scope.
+
+        The scope and the answer id are the caller's decision, not this
+        service's: the same question can be answered once per scope, and each
+        answer is a separate record with its own idempotency key. Replaying the
+        same id returns the stored answer instead of asking again.
+
+        Args:
+            message: The message to answer.
+            space_id: The knowledge scope to search: ``None`` for global only.
+            answer_id: The idempotency key this answer is stored under.
+
+        Returns:
+            The answer, or ``None`` when the message carries no question.
+        """
         question = clean_question(message.text)
         if not question:
             return None
-        existing = await self.answers.get(f"ans:{message.id}")
+        existing = await self.answers.get(answer_id)
         if existing is not None:
             return _api_response(existing)
         return await self._prepare(
-            f"ans:{message.id}",
+            answer_id,
             question,
             message.conversation_id,
-            message.space_id,
+            space_id,
             message.id,
             None,
         )

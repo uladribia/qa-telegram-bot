@@ -16,12 +16,13 @@ from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.proactive import ProactiveResponder
 from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -68,6 +69,7 @@ from knowledge_bot.infrastructure.sql.repositories import (
     SqlSearchIndexSource,
     SqlSearchProjectionRepository,
     SqlSourceRepository,
+    SqlSpaceMembershipRepository,
     SqlSpaceRepository,
     SqlTelegramInteractionRepository,
 )
@@ -93,6 +95,7 @@ D1SearchIndexSource = SqlSearchIndexSource
 D1SearchProjectionRepository = SqlSearchProjectionRepository
 D1SourceRepository = SqlSourceRepository
 D1SpaceRepository = SqlSpaceRepository
+D1SpaceMembershipRepository = SqlSpaceMembershipRepository
 D1TelegramInteractionRepository = SqlTelegramInteractionRepository
 
 
@@ -246,6 +249,28 @@ async def build_context(
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
+    answer = AnswerService(
+        retrieval=RetrievalService(
+            embedder=embedder,
+            vectors=vectors,
+            lexical=lexical_index,
+            qa_top_k=settings.qa_top_k,
+            message_top_k=settings.message_top_k,
+            floor=settings.answer_similarity_floor,
+            qa_answer_top_k=settings.qa_answer_top_k,
+            qa_answer_min_strength=settings.qa_answer_min_strength,
+            qa_answer_relative_cut=settings.qa_answer_relative_cut,
+            lexical_authority=settings.lexical_authority,
+        ),
+        generator=generator,
+        answers=answers,
+        clock=clock,
+        policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+        conversations=conversations,
+        sources=sources,
+        tracer=build_tracer(),
+    )
+    bindings = D1ChannelBindingRepository(binding)
     context = AppContext(
         settings=settings,
         clock=clock,
@@ -259,26 +284,9 @@ async def build_context(
             background_indexer=background_indexer,
         ),
         background_indexer=background_indexer,
-        answer=AnswerService(
-            retrieval=RetrievalService(
-                embedder=embedder,
-                vectors=vectors,
-                lexical=lexical_index,
-                qa_top_k=settings.qa_top_k,
-                message_top_k=settings.message_top_k,
-                floor=settings.answer_similarity_floor,
-                qa_answer_top_k=settings.qa_answer_top_k,
-                qa_answer_min_strength=settings.qa_answer_min_strength,
-                qa_answer_relative_cut=settings.qa_answer_relative_cut,
-                lexical_authority=settings.lexical_authority,
-            ),
-            generator=generator,
-            answers=answers,
-            clock=clock,
-            policy=AnswerPolicy(floor=settings.answer_similarity_floor),
-            conversations=conversations,
-            sources=sources,
-            tracer=build_tracer(),
+        answer=answer,
+        proactive=ProactiveResponder(
+            answer=answer, budget=budget, tracer=build_tracer()
         ),
         reindex=ReindexService(
             source=D1SearchIndexSource(binding),
@@ -301,7 +309,12 @@ async def build_context(
             sources=sources,
             conversations=conversations,
             spaces=D1SpaceRepository(binding),
-            bindings=D1ChannelBindingRepository(binding),
+            bindings=bindings,
+            clock=clock,
+        ),
+        memberships=MembershipDirectory(
+            memberships=D1SpaceMembershipRepository(binding),
+            bindings=bindings,
             clock=clock,
         ),
         review=ReviewService(

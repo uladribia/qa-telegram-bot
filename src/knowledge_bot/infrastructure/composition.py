@@ -13,12 +13,13 @@ from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.proactive import ProactiveResponder
 from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -53,6 +54,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SearchIndexSource,
     D1SearchProjectionRepository,
     D1SourceRepository,
+    D1SpaceMembershipRepository,
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
@@ -118,7 +120,7 @@ def build_context(env: WorkerEnv) -> AppContext:
             env, "PAIRING_QUESTION_WINDOW_MINUTES", "5"
         ),
         pairing_max_pending_questions=_text(env, "PAIRING_MAX_PENDING_QUESTIONS", "5"),
-        background_listener_enabled=_text(env, "BACKGROUND_LISTENER_ENABLED", "false"),
+        telegram_dm_bot_mode=_text(env, "TELEGRAM_DM_BOT_MODE", "active"),
         classifier_confidence_threshold=_text(env, "CLASSIFIER_CONFIDENCE", "0.60"),
         classifier_margin_threshold=_text(env, "CLASSIFIER_MARGIN", "0.15"),
         classifier_model_path=_text(
@@ -135,6 +137,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         ai_maintenance_budget_fraction=_text(
             env, "AI_MAINTENANCE_BUDGET_FRACTION", "0.70"
         ),
+        ai_proactive_budget_fraction=_text(env, "AI_PROACTIVE_BUDGET_FRACTION", "0.35"),
         ai_embed_neurons_per_char=_text(env, "AI_EMBED_NEURONS_PER_CHAR", "0.015"),
         ai_chat_neurons_per_char=_text(env, "AI_CHAT_NEURONS_PER_CHAR", "0.020"),
         ai_embed_timeout_seconds=_text(env, "AI_EMBED_TIMEOUT_SECONDS", "10"),
@@ -153,6 +156,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         reserve_fraction=settings.ai_neuron_reserve_fraction,
         background_fraction=settings.ai_background_budget_fraction,
         maintenance_fraction=settings.ai_maintenance_budget_fraction,
+        proactive_fraction=settings.ai_proactive_budget_fraction,
         embed_neurons_per_char=settings.ai_embed_neurons_per_char,
         chat_neurons_per_char=settings.ai_chat_neurons_per_char,
     )
@@ -229,6 +233,28 @@ def build_context(env: WorkerEnv) -> AppContext:
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
+    answer = AnswerService(
+        retrieval=RetrievalService(
+            embedder=embedder,
+            vectors=vectors,
+            lexical=lexical_index,
+            qa_top_k=settings.qa_top_k,
+            message_top_k=settings.message_top_k,
+            floor=settings.answer_similarity_floor,
+            qa_answer_top_k=settings.qa_answer_top_k,
+            qa_answer_min_strength=settings.qa_answer_min_strength,
+            qa_answer_relative_cut=settings.qa_answer_relative_cut,
+            lexical_authority=settings.lexical_authority,
+        ),
+        generator=generator,
+        answers=answers,
+        clock=clock,
+        policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+        conversations=listener_conversations,
+        sources=listener_sources,
+        tracer=build_tracer(),
+    )
+    bindings = D1ChannelBindingRepository(database)
     return AppContext(
         settings=settings,
         clock=clock,
@@ -242,26 +268,9 @@ def build_context(env: WorkerEnv) -> AppContext:
             background_indexer=background_indexer,
         ),
         background_indexer=background_indexer,
-        answer=AnswerService(
-            retrieval=RetrievalService(
-                embedder=embedder,
-                vectors=vectors,
-                lexical=lexical_index,
-                qa_top_k=settings.qa_top_k,
-                message_top_k=settings.message_top_k,
-                floor=settings.answer_similarity_floor,
-                qa_answer_top_k=settings.qa_answer_top_k,
-                qa_answer_min_strength=settings.qa_answer_min_strength,
-                qa_answer_relative_cut=settings.qa_answer_relative_cut,
-                lexical_authority=settings.lexical_authority,
-            ),
-            generator=generator,
-            answers=answers,
-            clock=clock,
-            policy=AnswerPolicy(floor=settings.answer_similarity_floor),
-            conversations=listener_conversations,
-            sources=listener_sources,
-            tracer=build_tracer(),
+        answer=answer,
+        proactive=ProactiveResponder(
+            answer=answer, budget=budget, tracer=build_tracer()
         ),
         reindex=ReindexService(
             source=D1SearchIndexSource(database),
@@ -284,7 +293,12 @@ def build_context(env: WorkerEnv) -> AppContext:
             sources=D1SourceRepository(database),
             conversations=D1ConversationRepository(database),
             spaces=D1SpaceRepository(database),
-            bindings=D1ChannelBindingRepository(database),
+            bindings=bindings,
+            clock=clock,
+        ),
+        memberships=MembershipDirectory(
+            memberships=D1SpaceMembershipRepository(database),
+            bindings=bindings,
             clock=clock,
         ),
         review=ReviewService(

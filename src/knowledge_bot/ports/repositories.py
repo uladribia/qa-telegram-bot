@@ -25,6 +25,7 @@ from knowledge_bot.domain.entities import (
     ReviewerEvent,
     Source,
     Space,
+    SpaceMembership,
     TelegramInteraction,
 )
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, Scope
@@ -59,6 +60,48 @@ class ChannelBindingRepository(Protocol):
 
     async def save(self, binding: ChannelBinding) -> None:
         """Persist changes to an existing binding."""
+        ...
+
+    async def list_by_channel(self, channel: str) -> list[ChannelBinding]:
+        """Return every binding of one channel, ordered by conversation id."""
+        ...
+
+
+@runtime_checkable
+class SpaceMembershipRepository(Protocol):
+    """Persistence for observed space memberships.
+
+    There is no ``get`` by design: a membership only means something as a
+    relation between a principal and a space, and the two questions asked of it
+    are "which spaces is this person in" and "did we see them there".
+    """
+
+    async def observe(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record activity in a space, making the membership active.
+
+        Idempotent: the first observation creates the row as active, a later
+        observation refreshes ``last_seen_at``, and one after a ``LEFT``
+        reactivates it.
+        """
+        ...
+
+    async def mark_left(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record that a principal is no longer in a space.
+
+        A principal who was never observed leaves nothing behind.
+        """
+        ...
+
+    async def list_active_spaces(self, principal_id: str) -> list[str]:
+        """Return the ids of the spaces where this principal is active."""
+        ...
+
+    async def get(self, principal_id: str, space_id: str) -> SpaceMembership | None:
+        """Return one membership, whatever its status."""
+        ...
+
+    async def count_active(self, principal_id: str) -> int:
+        """Return how many spaces this principal is active in."""
         ...
 
 

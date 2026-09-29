@@ -18,6 +18,7 @@ Cloudflare live tests, remote reindexing, live evals are explicit external accep
 
 - `RepositorySearchIndexSource` (`tests/fakes/search_index.py`) reads the Q&A the application stored, the way `D1SearchIndexSource` reads SQL. Any flow whose last step is "project the version that was just written" needs it: the approve-and-reindex path resolves a version id that does not exist until the approval commits, so a hand-fed `FakeSearchIndexSource` reports it as not current and the correction silently never reaches retrieval. `tests/integration/test_two_group_correction_scenario.py` shows the wiring.
 - `FrozenClock` is advanceable. Two corrections on one answer get ids derived from the clock, so a test that re-flags within the same second needs `advance_to`, or it measures nothing.
+- `build_test_context` seeds two Telegram groups. Group behaviour is set with `group_bot_mode=BotMode.X` (or `set_bot_mode` for one group afterwards), and private chats with `dm_bot_mode`; there is no global listener switch any more. The default is `active`, which is what production does, so a test that posts unaddressed group traffic gets it stored unless it says otherwise.
 
 ## Synthetic evaluation datasets
 
@@ -87,6 +88,8 @@ confidence policy. All plan acceptance gates pass.
   answer pipeline reaches it through the `ports/telemetry.py` protocols, so
   `application/` still never imports the SDK.
 - Content capture is a testing posture, not a product decision. `KB_LOGFIRE_CAPTURE_CONTENT` defaults to `true` so a flow can be reconstructed end to end, and credentials are scrubbed regardless. Turning it off is the change to make before anything outside a private test group is connected; do not "fix" a redacted trace by assuming the redaction is the bug.
+- `AnswerService.answer_message` takes the scope and the answer id from its caller, because one question can be answered once per scope and each answer is its own record with its own idempotency key. `addressed_answer_id` and `proactive_answer_id` build them; never inline an `ans:...` string at a call site.
+- `ProactiveResponder` owns the "may the bot speak uninvited" decision, including the budget admission, because that is policy and not transport. The connector calls it and delivers what comes back; it does not check `AiWorkClass` itself.
 
 ## Models and the local/production gap
 

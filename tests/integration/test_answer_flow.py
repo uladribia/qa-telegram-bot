@@ -109,7 +109,9 @@ async def test_grounded_answer_is_persisted_before_delivery() -> None:
             status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.SYNTHESIS
     assert response.answer_id == "ans:m1"
@@ -125,8 +127,10 @@ async def test_answer_message_replay_returns_exact_response() -> None:
     """A repeated message reuses the durable answer without another decision."""
     service, _, generator = await _service([_qa_record()])
     message = _message("/ask quan entrenen?")
-    first = await service.answer_message(message)
-    second = await service.answer_message(message)
+    first = await service.answer_message(message, space_id=SPACE_ID, answer_id="ans:m1")
+    second = await service.answer_message(
+        message, space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert first == second
     assert len(generator.requests) == 1
 
@@ -139,7 +143,9 @@ async def test_synthesis_uses_generator_and_citations() -> None:
             status="answered", answer="Sí, els dimarts.", source_ids=["msg:m9"]
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.SYNTHESIS
     assert len(generator.requests) == 1
@@ -149,7 +155,9 @@ async def test_synthesis_uses_generator_and_citations() -> None:
 async def test_no_knowledge_abstains_and_persists() -> None:
     """With an empty index the bot abstains durably."""
     service, answers, generator = await _service([])
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.ABSTENTION
     assert response.answer == ABSTENTION_TEXT
@@ -160,7 +168,12 @@ async def test_no_knowledge_abstains_and_persists() -> None:
 async def test_empty_question_is_not_answered() -> None:
     """A bare ask with no question produces no answer."""
     service, _, _ = await _service([])
-    assert await service.answer_message(_message("/ask")) is None
+    assert (
+        await service.answer_message(
+            _message("/ask"), space_id=SPACE_ID, answer_id="ans:m1"
+        )
+        is None
+    )
 
 
 async def _trace(answers: InMemoryBotAnswerRepository) -> dict:
@@ -176,7 +189,9 @@ async def test_trace_records_why_a_model_refused() -> None:
     service, answers, _ = await _service(
         [_qa_record()], GenerationOutput(status="insufficient")
     )
-    await service.answer_message(_message("/ask quan entrenen?"))
+    await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     trace = await _trace(answers)
     assert trace["refusal_reason"] == "model_insufficient"
     assert trace["selected"] == ["qa:web-item"]
@@ -202,7 +217,9 @@ async def test_trace_records_an_uncited_source_as_invalid_source_ids() -> None:
             status="answered", answer="Divendres.", source_ids=["qa:other"]
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.ABSTENTION
     trace = await _trace(answers)
@@ -222,7 +239,9 @@ async def test_model_echoing_a_prefixless_source_id_is_answered() -> None:
             status="answered", answer="Els dimarts.", source_ids=["web-item"]
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.SYNTHESIS
     assert response.answer == "Els dimarts."
@@ -267,7 +286,9 @@ async def test_model_citing_a_scope_suffixed_evidence_by_bare_id_is_answered() -
             status="answered", answer="Els dimarts.", source_ids=["web-item"]
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
 
     assert response is not None
     assert response.mode is AnswerMode.SYNTHESIS
@@ -285,7 +306,9 @@ async def test_both_spellings_of_one_id_cite_the_item_once() -> None:
             source_ids=["qa:web-item", "web-item"],
         ),
     )
-    response = await service.answer_message(_message("/ask quan entrenen?"))
+    response = await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     assert response is not None
     assert response.mode is AnswerMode.SYNTHESIS
     assert len(response.sources) == 1
@@ -304,7 +327,9 @@ async def test_trace_records_a_floor_refusal_without_a_model_call() -> None:
         clock=service.clock,
         policy=AnswerPolicy(floor=1.1),
     )
-    await service.answer_message(_message("/ask quan entrenen?"))
+    await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     trace = await _trace(answers)
     assert generator.requests == []
     assert trace["refusal_reason"] == "no_evidence"
@@ -320,7 +345,9 @@ async def test_trace_records_a_synthesis_without_its_text() -> None:
             status="answered", answer="Els dimarts.", source_ids=["qa:web-item"]
         ),
     )
-    await service.answer_message(_message("/ask quan entrenen?"))
+    await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
     trace = await _trace(answers)
     assert trace["cited"] == ["qa:web-item"]
     assert "refusal_reason" not in trace
@@ -397,7 +424,9 @@ async def test_unreadable_output_keeps_the_invalid_code_in_the_trace() -> None:
         [_qa_record()], error=InvalidModelOutputError("schema_validation")
     )
 
-    await service.answer_message(_message("/ask quan entrenen?"))
+    await service.answer_message(
+        _message("/ask quan entrenen?"), space_id=SPACE_ID, answer_id="ans:m1"
+    )
 
     trace = await _trace(answers)
     assert trace["refusal_reason"] == "invalid_model_output"

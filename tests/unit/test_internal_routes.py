@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Tests for the internal operator routes."""
 
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from knowledge_bot.api.app import create_app
 from knowledge_bot.api.routes import internal as internal_module
 from knowledge_bot.application.review import ReviewService
+from knowledge_bot.domain.enums import BotMode
 from knowledge_bot.domain.scope import scope_for_space
 from knowledge_bot.ports.review import ReviewItem
 from tests.fakes.ai import FakeReviewSource
@@ -126,6 +128,41 @@ def test_groups_endpoint_registers_a_group() -> None:
         "/internal/groups", headers=headers, json={"chat_id": "-100"}
     )
     assert response.status_code == 200
+    binding = asyncio.run(context.spaces.resolve("telegram", "-100"))
+    assert binding is not None and binding.title == "Prebenjamins"
+
+
+def test_groups_endpoint_changes_the_mode_without_renaming() -> None:
+    """The mode is set through the same idempotent registration."""
+    context, _ = build_test_context()
+    client = TestClient(create_app(lambda request: context))
+    headers = {"X-Internal-Key": "internal"}
+    client.post(
+        "/internal/groups",
+        headers=headers,
+        json={"chat_id": "-100", "title": "Prebenjamins"},
+    )
+    response = client.post(
+        "/internal/groups",
+        headers=headers,
+        json={"chat_id": "-100", "bot_mode": "proactive"},
+    )
+    assert response.status_code == 200
+    binding = asyncio.run(context.spaces.resolve("telegram", "-100"))
+    assert binding is not None
+    assert binding.bot_mode is BotMode.PROACTIVE
+    assert binding.title == "Prebenjamins"
+
+
+def test_groups_endpoint_rejects_an_unknown_mode() -> None:
+    """A mode the bot does not implement is a configuration error."""
+    client = TestClient(create_app(lambda request: build_test_context()[0]))
+    response = client.post(
+        "/internal/groups",
+        headers={"X-Internal-Key": "internal"},
+        json={"chat_id": "-100", "bot_mode": "shouty"},
+    )
+    assert response.status_code == 422
 
 
 def _review_item(key: str, scope: str, answer: str, *, question: str) -> ReviewItem:
