@@ -407,7 +407,7 @@ async def _handle_group_message(
         outcome = await context.proactive.respond(
             message,
             space_id=binding.space_id,
-            answer_id=proactive_answer_id(message.id, binding.space_id),
+            answer_id=proactive_answer_id(message.id, binding.external_conversation_id),
         )
         if outcome.response is not None:
             await _deliver_answer(

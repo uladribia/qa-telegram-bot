@@ -104,16 +104,19 @@ class DirectAnswerService:
         """
         labels = _scope_labels(served)
         order = {scope: index for index, scope in enumerate(labels)}
-        targets: Sequence[str | None] = [binding.space_id for binding in served] or [
-            None
-        ]
+        # The scope the answer is searched in, and the short reference that goes
+        # into its id. They are different things: the id has to fit a Telegram
+        # callback payload, the space decides which knowledge is searched.
+        targets: Sequence[tuple[str | None, str | None]] = [
+            (binding.space_id, binding.external_conversation_id) for binding in served
+        ] or [(None, None)]
         collected: list[_Collected] = []
         by_answer: dict[tuple[object, ...], _Collected] = {}
-        for space_id in targets:
+        for space_id, scope_ref in targets:
             response = await self.answer.answer_message(
                 message,
                 space_id=space_id,
-                answer_id=scoped_answer_id(message.id, space_id),
+                answer_id=scoped_answer_id(message.id, scope_ref),
             )
             if response is None:
                 continue

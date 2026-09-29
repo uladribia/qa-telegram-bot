@@ -660,7 +660,7 @@ def test_a_proactive_group_answers_a_confident_question() -> None:
     )
     assert response.json() == {"status": "proactive_answered"}
     assert len(transport.answers) == 1
-    assert transport.answers[0][2] == f"ans:-100:10:proactive:{SPACE_A}"
+    assert transport.answers[0][2] == "ans:-100:10:p:-100"
     assert _stored(context) is not None
 
 
@@ -814,8 +814,8 @@ def test_a_private_question_is_answered_in_every_group_the_asker_belongs_to() ->
     )
     assert response.json() == {"status": "dm_answer"}
     assert [answer_id for _, _, answer_id in transport.answers] == [
-        f"ans:111:90:{SPACE_B}",
-        f"ans:111:90:{SPACE_A}",
+        "ans:111:90:-200",
+        "ans:111:90:-100",
     ]
 
 
@@ -846,11 +846,11 @@ def test_a_local_variant_is_delivered_separately_and_labelled() -> None:
     delivered = {answer_id: text for _, text, answer_id in transport.answers}
     assert len(delivered) == 2
     # The group round found both the club's answer and its own, so it says so.
-    assert delivered[f"ans:111:90:{SPACE_A}"].startswith(
+    assert delivered["ans:111:90:-100"].startswith(
         "\U0001f310 Global \u00b7 \U0001f465 Group -100\n"
     )
     # The other group found only the club's answer, and is labelled as such.
-    assert delivered[f"ans:111:90:{SPACE_B}"].startswith("\U0001f310 Global\n")
+    assert delivered["ans:111:90:-200"].startswith("\U0001f310 Global\n")
 
 
 def test_a_single_answer_carries_no_scope_heading() -> None:
@@ -872,7 +872,7 @@ def test_a_single_answer_carries_no_scope_heading() -> None:
     assert text.startswith("resposta de prova")
     assert "\U0001f310" not in text
     assert "\U0001f465" not in text
-    assert transport.answers[0][2] == f"ans:111:90:{SPACE_B}"
+    assert transport.answers[0][2] == "ans:111:90:-200"
 
 
 def test_a_retried_private_question_is_not_answered_twice() -> None:
@@ -924,9 +924,7 @@ def test_a_member_who_left_a_group_loses_that_scope() -> None:
     _client(context).post(
         TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
     )
-    assert [answer_id for _, _, answer_id in transport.answers] == [
-        f"ans:111:90:{SPACE_A}"
-    ]
+    assert [answer_id for _, _, answer_id in transport.answers] == ["ans:111:90:-100"]
 
 
 def test_an_asker_with_no_group_is_answered_from_global_knowledge() -> None:
