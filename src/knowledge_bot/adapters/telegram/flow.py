@@ -51,7 +51,6 @@ from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.logging import log_content
 from knowledge_bot.models.messages import MemberChange, NormalizedMessage
-from knowledge_bot.models.questions import AskQuestionResponse
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
@@ -62,6 +61,15 @@ REVIEWER_BOT_REFUSED = (
     "\u26a0\ufe0f No pots nomenar el bot com a revisor: respon al missatge "
     "d'una persona."
 )
+#: What a stranger is told. It has to be actionable on its own: the bot cannot
+#: list a group's members, so the only way in is the person speaking there.
+DM_ACCESS_NOTICE = (
+    "\U0001f44b Encara no et puc associar a cap dels grups on participa aquest bot.\n"
+    "Si formes part d'un d'aquests grups, envia-hi almenys un missatge i després "
+    "torna'm a escriure per privat."
+)
+#: Receipt kind for the stranger notice, keyed per sender and per day.
+DM_NOTICE_OBJECT_TYPE = "dm_access_notice"
 
 
 def _reviewer_confirmed(scope: str, name: str) -> str:
@@ -78,7 +86,12 @@ def _must_start_bot_alert(name: str) -> str:
     )
 
 
-def _log_inbound_message(message: NormalizedMessage, bot_mode: BotMode | None) -> None:
+def _log_inbound_message(
+    message: NormalizedMessage,
+    bot_mode: BotMode | None,
+    *,
+    served_spaces: int = 0,
+) -> None:
     """Record the normalized message: who said what, where, and under which mode.
 
     The webhook request body already carries the raw update, so this is the
@@ -88,6 +101,7 @@ def _log_inbound_message(message: NormalizedMessage, bot_mode: BotMode | None) -
     Args:
         message: The normalized inbound message.
         bot_mode: The mode of the conversation, or ``None`` for a private chat.
+        served_spaces: How many served groups a private asker belongs to.
     """
     log_content(
         "telegram_inbound_message",
@@ -103,6 +117,7 @@ def _log_inbound_message(message: NormalizedMessage, bot_mode: BotMode | None) -
         mentions_bot=message.mentions_bot,
         reply_to_message_id=message.reply_to_message_id,
         member_events=len(message.member_events),
+        served_spaces=served_spaces,
         text=message.text,
     )
 
@@ -134,39 +149,53 @@ async def _observe_membership(
 
 
 async def _deliver_answer(
-    context: AppContext, message: NormalizedMessage, response: AskQuestionResponse
+    context: AppContext,
+    conversation_id: str,
+    *,
+    text: str,
+    answer_id: str,
+    also: tuple[str, ...] = (),
 ) -> bool:
     """Send one answer unless a receipt says it already went out.
 
+    ``also`` carries the answers collapsed into this one. They are recorded
+    against the same Telegram message, so a webhook retry re-sends only what
+    is genuinely missing instead of repeating a group the reader already has.
+
     Args:
         context: The application context.
-        message: The message being answered, for the destination chat.
-        response: The answer to deliver.
+        conversation_id: The chat to answer in.
+        text: The rendered answer to send.
+        answer_id: The answer the feedback button will point at.
+        also: Other answer ids this same message delivers.
 
     Returns:
         Whether this call sent it.
     """
-    prior = await context.delivery_receipts.get(
-        "answer", response.answer_id, "telegram"
-    )
-    if prior is not None:
+    pending = [
+        answer
+        for answer in (answer_id, *also)
+        if await context.delivery_receipts.get("answer", answer, "telegram") is None
+    ]
+    if not pending:
         return False
     message_id = await context.telegram.client.send_answer(
-        message.conversation_id, response.rendered_text, response.answer_id
+        conversation_id, text, answer_id
     )
     if message_id is None:
         raise HTTPException(status_code=503, detail="telegram delivery failed")
-    await context.delivery_receipts.add(
-        DeliveryReceipt(
-            id=f"delivery:{response.answer_id}:telegram",
-            object_type="answer",
-            object_id=response.answer_id,
-            channel="telegram",
-            external_conversation_id=message.conversation_id,
-            external_message_id=message_id,
-            created_at=context.clock.now(),
+    for delivered in pending:
+        await context.delivery_receipts.add(
+            DeliveryReceipt(
+                id=f"delivery:{delivered}:telegram",
+                object_type="answer",
+                object_id=delivered,
+                channel="telegram",
+                external_conversation_id=conversation_id,
+                external_message_id=message_id,
+                created_at=context.clock.now(),
+            )
         )
-    )
     return True
 
 
@@ -231,15 +260,21 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
     happens to the question.
     """
     binding: ChannelBinding | None = None
+    served: list[ChannelBinding] = []
     if message.is_direct_message:
-        if not message.is_sender_allowed and not await _is_known_correction_reply(
-            context, message
-        ):
-            # A stranger's DM. Only a reply to a prompt the bot itself sent is
-            # processed; anything else is dropped before storage. A public bot
-            # username is discoverable, so an open DM would let anyone spend the
-            # shared free AI quota and buzz the admin with fake corrections.
-            return "ignored"
+        served = await _served_bindings(context, message)
+        unknown = not message.is_sender_allowed and not served
+        # Nobody the bot has seen in a group the operator still serves. Only a
+        # reply to a prompt the bot itself sent is processed; anything else is
+        # dropped before storage. A public bot username is discoverable, so an
+        # open DM would let anyone spend the shared free AI quota and buzz the
+        # admin with fake corrections.
+        if unknown and not await _is_known_correction_reply(context, message):
+            # A private mode of ``off`` means the bot is mute in private, and
+            # that outranks explaining itself to a stranger.
+            if context.settings.telegram_dm_bot_mode is BotMode.OFF:
+                return "ignored"
+            return await _notice_unknown_sender(context, message)
     else:
         binding = await context.spaces.resolve("telegram", message.conversation_id)
         if binding is None:
@@ -249,7 +284,11 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         # a served group is what later lets a member write to the bot privately,
         # and it must not depend on whether the message was a question.
         await _observe_membership(context, message, binding)
-    _log_inbound_message(message, binding.bot_mode if binding is not None else None)
+    _log_inbound_message(
+        message,
+        binding.bot_mode if binding is not None else None,
+        served_spaces=len(served),
+    )
     command_parts = (message.text or "").strip().split(maxsplit=1)
     if command_parts and command_parts[0].startswith("/reviewer"):
         return await _handle_reviewer_command(context, message)
@@ -257,9 +296,92 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         handled = await _handle_feedback_reply(context, message)
         if handled:
             return handled
+        # A reply to a prompt the bot already spent is not a new question. The
+        # proposal behind it exists, so answering the text of the correction as
+        # if it were a question would both confuse the reader and spend a
+        # generation on it.
+        if await _is_spent_correction_reply(context, message):
+            return "ignored"
     if binding is not None:
         return await _handle_group_message(context, message, binding)
-    return await _handle_direct_message(context, message)
+    return await _handle_direct_message(context, message, served)
+
+
+async def _served_bindings(
+    context: AppContext, message: NormalizedMessage
+) -> list[ChannelBinding]:
+    """Return the served groups this sender is an active member of."""
+    if message.principal_id is None:
+        return []
+    return await context.memberships.served_bindings(message.principal_id, "telegram")
+
+
+async def _observe_callback_membership(
+    context: AppContext, sender_chat_id: str | None, group_chat_id: str | None
+) -> None:
+    """Record that someone pressed one of the bot's buttons in a served group.
+
+    Pressing a button is evidence of membership just as a message is: the
+    person was in the conversation, in front of the button, at that moment. It
+    matters because the correction flow immediately moves to a private chat,
+    and a member who has never typed in the group would otherwise be told by
+    the bot it does not know them, right after it asked them a question.
+
+    Args:
+        context: The application context.
+        sender_chat_id: The raw Telegram user id that pressed the button.
+        group_chat_id: The conversation the button lives in.
+    """
+    if sender_chat_id is None or group_chat_id is None:
+        return
+    binding = await context.spaces.resolve("telegram", group_chat_id)
+    if binding is None:
+        return
+    await context.memberships.observe(
+        principal_id("telegram", sender_chat_id), binding.space_id
+    )
+
+
+async def _notice_unknown_sender(
+    context: AppContext, message: NormalizedMessage
+) -> str:
+    """Tell someone the bot does not know them, at most once a day.
+
+    Silence would leave a real member with no idea why the bot never answers
+    them, but a public bot username is discoverable, so the notice is what
+    keeps a stranger from turning it into a quota burner. One notice a day is
+    the whole throttle: enough to explain, not enough to argue with.
+
+    Args:
+        context: The application context.
+        message: The private message to answer.
+
+    Returns:
+        A short status string.
+    """
+    principal = message.principal_id or message.conversation_id
+    notice_id = f"{principal}:{context.clock.now().strftime('%Y-%m-%d')}"
+    prior = await context.delivery_receipts.get(
+        DM_NOTICE_OBJECT_TYPE, notice_id, "telegram"
+    )
+    if prior is not None:
+        return "ignored"
+    message_id = await context.telegram.client.send_message(
+        message.conversation_id, DM_ACCESS_NOTICE
+    )
+    if message_id is not None:
+        await context.delivery_receipts.add(
+            DeliveryReceipt(
+                id=f"delivery:{DM_NOTICE_OBJECT_TYPE}:{notice_id}:telegram",
+                object_type=DM_NOTICE_OBJECT_TYPE,
+                object_id=notice_id,
+                channel="telegram",
+                external_conversation_id=message.conversation_id,
+                external_message_id=message_id,
+                created_at=context.clock.now(),
+            )
+        )
+    return "dm_notice_sent"
 
 
 async def _handle_group_message(
@@ -288,7 +410,12 @@ async def _handle_group_message(
             answer_id=proactive_answer_id(message.id, binding.space_id),
         )
         if outcome.response is not None:
-            await _deliver_answer(context, message, outcome.response)
+            await _deliver_answer(
+                context,
+                message.conversation_id,
+                text=outcome.response.rendered_text,
+                answer_id=outcome.response.answer_id,
+            )
         return outcome.status
     if action is IntakeAction.INGEST:
         result = await context.listener.handle(message)
@@ -300,12 +427,19 @@ async def _handle_group_message(
         answer_id=addressed_answer_id(message.id),
     )
     if response is not None:
-        await _deliver_answer(context, message, response)
+        await _deliver_answer(
+            context,
+            message.conversation_id,
+            text=response.rendered_text,
+            answer_id=response.answer_id,
+        )
     return "answer"
 
 
 async def _handle_direct_message(
-    context: AppContext, message: NormalizedMessage
+    context: AppContext,
+    message: NormalizedMessage,
+    served: list[ChannelBinding],
 ) -> str:
     """Apply the DM mode to one private message.
 
@@ -316,6 +450,8 @@ async def _handle_direct_message(
     Args:
         context: The application context.
         message: The private message.
+        served: The served groups the sender belongs to, which are the scopes
+            the question is answered in.
 
     Returns:
         A short status string.
@@ -326,15 +462,31 @@ async def _handle_direct_message(
     await context.ingestor.ingest(message)
     if mode is BotMode.SILENT:
         return "ingest"
-    response = await context.answer.answer_message(
-        message,
-        space_id=message.space_id,
-        answer_id=addressed_answer_id(message.id),
-    )
-    if response is None:
+    bundles = await context.direct_answers.bundles_for(message, served=served)
+    if not bundles:
         return "ingest"
-    await _deliver_answer(context, message, response)
-    return "answer"
+    delivered = 0
+    for bundle in bundles:
+        if await _deliver_answer(
+            context,
+            message.conversation_id,
+            text=bundle.text,
+            answer_id=bundle.representative_answer_id,
+            also=bundle.answer_ids,
+        ):
+            delivered += 1
+    logging.getLogger("knowledge_bot.webhook").info(
+        "telegram_dm_answered",
+        extra={
+            "use_case": "telegram_dm",
+            "answer_trigger": "dm",
+            "principal_id": message.principal_id,
+            "dm_scope_count": len(served),
+            "dm_answer_count": len(bundles),
+            "dm_delivered_count": delivered,
+        },
+    )
+    return "dm_answer"
 
 
 async def _handle_reviewer_command(
@@ -406,11 +558,38 @@ async def _is_known_correction_reply(
     Returns:
         ``True`` when the message replies to a proposal or edit prompt.
     """
+    return await _pending_interaction(context, message) is not None
+
+
+async def _is_spent_correction_reply(
+    context: AppContext, message: NormalizedMessage
+) -> bool:
+    """Return whether a message answers a correction prompt already used.
+
+    Args:
+        context: The application context.
+        message: The inbound message.
+
+    Returns:
+        ``True`` when the replied-to prompt exists and has been consumed.
+    """
+    if message.reply_to_message_id is None:
+        return False
+    interaction = await context.interactions.get(message.reply_to_message_id)
+    return interaction is not None and interaction.consumed_at is not None
+
+
+async def _pending_interaction(
+    context: AppContext, message: NormalizedMessage
+) -> TelegramInteraction | None:
+    """Return the unused bot prompt this message replies to, if any."""
     reply_to = message.reply_to_message_id
     if reply_to is None:
-        return False
+        return None
     interaction = await context.interactions.get(reply_to)
-    return interaction is not None and interaction.consumed_at is None
+    if interaction is None or interaction.consumed_at is not None:
+        return None
+    return interaction
 
 
 async def _handle_feedback_reply(
@@ -502,6 +681,7 @@ async def _handle_callback(
     Returns:
         A short status string.
     """
+    await _observe_callback_membership(context, reporter_chat_id, group_chat_id)
     action = callback_action(data)
     target = callback_target(data)
     if action is None:

@@ -44,10 +44,41 @@ kb group add --chat-id <chat-id> --mode proactive
 
 The bot cannot list a group's members without admin rights, and it does not try.
 It learns them as it sees them: any message in a served group marks its human
-sender as a member, and Telegram's join and leave service messages mark
-everyone who arrived or departed. Members who never interact with the bot stay
-unknown, and a private message from someone it has never seen in a served group
-is refused with a message explaining how to introduce themselves.
+sender as a member, pressing one of the bot's buttons in a group does the same,
+and Telegram's join and leave service messages mark everyone who arrived or
+departed. Members who never interact with the bot stay unknown.
+
+That observation is what opens the private channel. A private message is
+accepted from the admin, from `ALLOWED_TELEGRAM_USER_IDS`, and from anyone the
+bot has seen in a group that is still served. Anyone else gets one short message
+explaining how to introduce themselves, once a day, and the message itself is
+never stored and never costs a model call. Turning the private mode to `off`
+emits nothing at all, the notice included.
+
+## Asking privately
+
+A private question is answered **once per group you belong to**, and never in a
+group you do not. Every one of those answers already includes the club's
+general knowledge, so there is no separate "global" pass to wait for.
+
+What comes back is collapsed to what is actually different:
+
+- Identical answers — same words, same sources — are sent **once**, with no
+  label. Two groups that know the same thing do not produce two messages.
+- When the answers differ, each one is a separate message headed by where its
+  evidence came from: `🌐 Global`, `👥 <group name>`, or both when a group round
+  used the club's answer *and* its own. A group's own correction of the club's
+  answer is headed by that group alone.
+- An answer you cannot act on is not sent twice: a group the bot has left out,
+  or a scope that produced nothing, simply does not appear.
+
+The "⚠️ Està malament?" button on each block points at the answer that is
+headed by that block, preferring the group's own record over the club's, so a
+correction lands where it belongs.
+
+A private message is never turned into knowledge. It is stored when the mode
+allows, but it never goes through the listener, because a conversation between
+two people is not knowledge about a community.
 
 ## Addressing the bot
 

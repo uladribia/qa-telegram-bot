@@ -181,6 +181,25 @@ class MembershipDirectory:
         Returns:
             Space ids ordered by title then id, so a rendered answer is stable.
         """
+        return [
+            binding.space_id
+            for binding in await self.served_bindings(principal_id, channel)
+        ]
+
+    async def served_bindings(
+        self, principal_id: str, channel: str
+    ) -> list[ChannelBinding]:
+        """Return the served bindings a principal is an active member of.
+
+        Args:
+            principal_id: The channel-qualified principal identifier.
+            channel: The channel whose bindings count as served.
+
+        Returns:
+            The bindings, ordered by name then space id. The name is what a
+            multi-scope answer labels its blocks with, so it travels with the
+            scope instead of being looked up again at render time.
+        """
         active = set(await self.memberships.list_active_spaces(principal_id))
         if not active:
             return []
@@ -189,7 +208,7 @@ class MembershipDirectory:
             for binding in await self.bindings.list_by_channel(channel)
             if binding.space_id in active
         ]
-        return [binding.space_id for binding in sorted(served, key=_display_order)]
+        return sorted(served, key=_display_order)
 
 
 def _existing_title(binding: ChannelBinding | None) -> str | None:

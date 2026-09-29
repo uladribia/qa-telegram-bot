@@ -29,6 +29,11 @@ class AnswerSource(BaseModel):
     url: str | None = None
     author: str | None = None
     date: str | None = None
+    #: The knowledge scope this source lives in: ``global`` or
+    #: ``space:<space_id>``. It is what makes a multi-scope answer explainable
+    #: to the reader, instead of implying that every group searched
+    #: contributed to it.
+    scope_key: str | None = None
 
 
 class AskQuestionResponse(BaseModel):

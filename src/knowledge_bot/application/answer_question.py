@@ -24,6 +24,7 @@ from knowledge_bot.application.retrieval import (
 from knowledge_bot.domain.entities import BotAnswer, Conversation, Source
 from knowledge_bot.domain.enums import AnswerMode, AnswerReason
 from knowledge_bot.domain.errors import InvalidModelOutputError, ModelUnavailableError
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.models.messages import NormalizedMessage
 from knowledge_bot.models.questions import (
     AnswerSource,
@@ -62,6 +63,17 @@ def proactive_answer_id(message_id: str, space_id: str) -> str:
     different scope must not reuse it.
     """
     return f"ans:{message_id}:proactive:{space_id}"
+
+
+def scoped_answer_id(message_id: str, space_id: str | None) -> str:
+    """Return the answer id of a private answer in one scope.
+
+    A private question is answered once per space, so the id carries the scope
+    it belongs to. The global round is spelled ``global`` rather than left
+    empty, so every id reads the same and none of them can collide with the
+    single-scope answer of an invited group message.
+    """
+    return f"ans:{message_id}:{space_id or GLOBAL_SCOPE}"
 
 
 def clean_question(text: str | None) -> str:
@@ -162,6 +174,7 @@ def _source_details(
             url=item.url,
             author=item.author,
             date=item.date,
+            scope_key=item.scope_key,
         )
         for item in evidence
         if item.source_id in cited

@@ -45,6 +45,26 @@ The control plane is never gated by a mode. If a group is `off` and a member
 replies to a correction prompt, the correction is still taken. A mode decides
 what happens to a question, never whether the bot keeps a promise.
 
+## Private messages
+
+Who may write to the bot privately is membership, not an allowlist alone: the
+admin and `ALLOWED_TELEGRAM_USER_IDS` are overrides, and the general rule is an
+active membership in a group that is still bound to a served channel. A group
+that is unbound stops authorizing its members immediately.
+
+Someone who is none of those gets one notice, throttled per sender per day via a
+`dm_access_notice` delivery receipt. The notice is skipped entirely when
+`TELEGRAM_DM_BOT_MODE=off`: a muted private chat emits nothing, and that
+includes explaining itself. The message is never stored and never reaches a
+model.
+
+A private question is answered once per served group and the answers are
+collapsed; see [usage.md](usage.md) for what the reader sees. Two operational
+consequences: each round is a separate generation, so a member of many groups
+spends proportionally more of the daily budget on one private question, and a
+group whose mode is `off` still answers privately, because modes govern
+participation in the group and not what its members can ask.
+
 ## Membership
 
 The bot has no admin rights and never calls `getChatMember`, so

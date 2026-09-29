@@ -90,6 +90,8 @@ confidence policy. All plan acceptance gates pass.
 - Content capture is a testing posture, not a product decision. `KB_LOGFIRE_CAPTURE_CONTENT` defaults to `true` so a flow can be reconstructed end to end, and credentials are scrubbed regardless. Turning it off is the change to make before anything outside a private test group is connected; do not "fix" a redacted trace by assuming the redaction is the bug.
 - `AnswerService.answer_message` takes the scope and the answer id from its caller, because one question can be answered once per scope and each answer is its own record with its own idempotency key. `addressed_answer_id` and `proactive_answer_id` build them; never inline an `ans:...` string at a call site.
 - `ProactiveResponder` owns the "may the bot speak uninvited" decision, including the budget admission, because that is policy and not transport. The connector calls it and delivers what comes back; it does not check `AiWorkClass` itself.
+- `DirectAnswerService` owns the private multi-scope answer: one round per served group, collapsing and labelling. It is deliberately not a rendering detail of the Telegram adapter, because the collapsing rule is a provenance decision. Its `served` bindings arrive in display order from `MembershipDirectory.served_bindings`; do not re-sort them in the caller.
+- Answer blocks are labelled from `Evidence.scope_key`, which comes from the projection metadata. If a block ever shows a raw `space:<id>` where a group name belongs, the metadata is not reaching `_to_evidence`.
 
 ## Models and the local/production gap
 

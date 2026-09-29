@@ -12,6 +12,7 @@ from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
+from knowledge_bot.application.dm import DirectAnswerService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
@@ -185,6 +186,7 @@ def build_test_context(
         background_indexer=background_indexer,
         answer=answer,
         proactive=ProactiveResponder(answer=answer, budget=budget),
+        direct_answers=DirectAnswerService(answer=answer),
         reindex=ReindexService(FakeSearchIndexSource(), projector, clock),
         seed=SeedService(
             backend.qa_items, backend.qa_versions, backend.sources, ingestor, clock

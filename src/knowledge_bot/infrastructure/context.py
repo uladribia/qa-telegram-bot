@@ -14,6 +14,7 @@ from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
+from knowledge_bot.application.dm import DirectAnswerService
 from knowledge_bot.application.feedback import FeedbackService
 from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
@@ -50,6 +51,7 @@ class AppContext:
     spaces: SpaceDirectory
     memberships: MembershipDirectory
     proactive: ProactiveResponder
+    direct_answers: DirectAnswerService
     review: ReviewService
     feedback: FeedbackService
     interactions: InteractionService
