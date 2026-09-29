@@ -79,7 +79,7 @@ make deploy                   # ALLOW_CLOUDFLARE_LIVE_TESTS=1
 | `make dev-migrate` | Apply shared and local SQLite migrations |
 | `make test-e2e-local` | Explicit local-only Ollama smoke test |
 | `make telegram-e2e-login` | One-time login of the human account for the real-Telegram E2E (interactive) |
-| `make test-e2e-telegram` | Real black-box E2E against the deployed Worker over real Telegram; needs `ALLOW_CLOUDFLARE_LIVE_TESTS=1`, `.env.e2e`, and the `[E2E]` groups |
+| `make test-e2e-telegram` | Real black-box E2E against the deployed Worker over real Telegram; needs `ALLOW_CLOUDFLARE_LIVE_TESTS=1`, `.env.e2e`, and the `[E2E]` groups. Walks the addressing, correction, bot-mode, and multi-scope private-answer flows |
 | `make reindex` | Clean and batch-rebuild the derived vector index; requires explicit remote authorization |
 | `make seed-self-qa` | Seed the bot's self-explanation Q&A (global; run after each release) |
 | `make eval-frozen-local` | Same frozen suite against the local stack (no authorization, no quota) |

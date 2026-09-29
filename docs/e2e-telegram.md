@@ -36,30 +36,61 @@ session created by `make telegram-e2e-login`. The session file lives under
 One run exercises, in order:
 
 1. preflight — resolve the bot and both `[E2E]` groups, bind them into two
-   fixed logical spaces, reset and reseed a sentinel Q&A baseline (global +
-   space A);
+   fixed logical spaces **and pin both to `active`** (a run never inherits a
+   leftover mode), reset and reseed a sentinel Q&A baseline (global + space A);
 2. addressing — mention, `/ask`, reply-to-bot, and bot DM all answer the
    sentinel question;
 3. one real abstention for an unknown question;
 4. background listener — an unaddressed human question gets no direct reply,
    an explicit human reply is paired and later retrievable;
-5. local reviewer nomination in both groups (the acting account must be the
+5. private multi-scope answer — after group traffic, a private question is
+   answered from the club's knowledge with its sources;
+6. dedup — group A's local copy is cleared, so every scope falls back to the
+   same global evidence, and the private question must be delivered **exactly
+   once** with no scope heading;
+7. local reviewer nomination in both groups (the acting account must be the
    deployed admin);
-6. reject then re-flag the **same** original answer;
-7. edit + group approval; space A answers the corrected value while space B
+8. reject then re-flag the **same** original answer;
+9. edit + group approval; space A answers the corrected value while space B
    keeps the global baseline;
-8. global correction from B; B takes the global value while A keeps its local
-   override;
-9. forced daily report delivered to the bot DM (test-only deployment).
+10. global correction from B; B takes the global value while A keeps its local
+    override;
+11. bot modes — group A is walked through `off`, `silent`, `active` and
+    `proactive`, asserting the silence of the first three and the one uninvited
+    answer of the last, then returned to `active`;
+12. forced daily report delivered to the bot DM (test-only deployment).
 
-Cleanup always runs: both local reviewers are removed and only the two
-dedicated sentinel items are reverted. Old listener messages and feedback
-history remain in the dedicated test groups; run tokens (`LOCAL-<run_id>`,
-`GLOBAL-<run_id>`, …) keep them harmless.
+Step 6 runs before the correction steps on purpose: it removes group A's own
+copy of the sentinel, and step 9 rebuilds exactly that. Step 11 runs late so a
+group left in `proactive` cannot answer the unaddressed traffic the earlier
+steps assert is silent.
+
+Cleanup always runs: both local reviewers are removed, **both groups are
+returned to `active`**, and only the two dedicated sentinel items are reverted.
+Old listener messages and feedback history remain in the dedicated test groups;
+run tokens (`LOCAL-<run_id>`, `GLOBAL-<run_id>`, …) keep them harmless.
+
+The mode matrix walks a real group, so cleanup restoring `active` is what keeps
+a failed or interrupted run from leaving a dedicated group answering
+unaddressed questions forever. If a run dies hard enough to skip cleanup, check
+the two groups' modes before the next run; the preflight pins them to `active`
+either way, but a leftover `off` would silently stop the listener in that group.
 
 The harness never inspects callback payloads (it presses the visible buttons a
 human presses), never injects webhook updates, never touches global reviewer
 configuration, and never calls the eval/reindex routes.
+
+### What the live run deliberately does not prove
+
+The membership gate on private messages cannot be proven here: the acting
+account is the deployed admin, so it is authorized whether or not it has
+memberships, and a long-lived production database already records them. What
+the live run proves is the consequence — that group traffic is what makes the
+private channel answer, and how the answers collapse and label. The gate itself
+(a sender with no observed membership gets the one-a-day notice, and is never
+stored) is pinned offline in `tests/integration/test_webhook.py`, where the
+sender is not the admin. Do not add a destructive internal endpoint to force
+this assert into the live run.
 
 ## Troubleshooting / reference: the old manual flow
 

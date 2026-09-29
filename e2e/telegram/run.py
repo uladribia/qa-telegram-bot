@@ -58,6 +58,20 @@ REVIEW_REJECTED = "❌ Correcció rebutjada."
 APPROVED = "✅ Correcció aprovada."
 REVIEWER_REMOVED = "Revisor eliminat"
 REVIEWER_ABSENT = "cap revisor per eliminar"
+
+# Quiet window proving a multi-scope private answer that should collapse to one
+# delivery does not in fact send a second, label-free duplicate.
+DM_DEDUP_QUIET_SECONDS = 12
+
+# A collapsed private answer carries no scope heading; a label here would mean
+# the scopes were not collapsed.
+GLOBAL_LABEL = "\U0001f310 Global"
+GROUP_LABEL_MARK = "\U0001f465"
+
+# Every served group goes back to this after a run. It is the production
+# default, so a run that fails to reset leaves the groups exactly as it found
+# them rather than in a state only the harness understands.
+DEFAULT_GROUP_MODE = "active"
 REVIEWER_CONFIRMED = "revisor d'aquest grup"
 REVIEWER_LIST = "Revisors:"
 REVIEW_HEADER = "Correcció proposada"
@@ -342,8 +356,12 @@ class Scenario:
 
         chat_id_a = str(utils.get_peer_id(self.group_a))
         chat_id_b = str(utils.get_peer_id(self.group_b))
-        await self.worker.register_group(chat_id_a, title_a, SPACE_A)
-        await self.worker.register_group(chat_id_b, title_b, SPACE_B)
+        await self.worker.register_group(
+            chat_id_a, title_a, SPACE_A, bot_mode=DEFAULT_GROUP_MODE
+        )
+        await self.worker.register_group(
+            chat_id_b, title_b, SPACE_B, bot_mode=DEFAULT_GROUP_MODE
+        )
 
         # Open the private channel robustly: tolerate a fresh /start that
         # produces no visible bot reply (the bot was already started).
@@ -526,6 +544,163 @@ class Scenario:
             attempts=1,
         )
 
+    async def bot_modes(self) -> None:
+        """Walk group A through all four modes and assert what each does.
+
+        This is the mode matrix driven against a real group: `off` neither
+        stores nor answers, `silent` stores a mention but stays quiet, `active`
+        answers a mention and ignores a bare question, and `proactive` answers a
+        confident unaddressed question. Only `addressed` and `proactive` produce
+        a visible bot reply; the rest are proven by the silence.
+        """
+        group = self._require(self.group_a, "group A")
+        title = self.settings.telegram_e2e_group_a_title
+        bot_username = self.settings.telegram_e2e_bot_username
+
+        # off: a mention gets nothing.
+        await self._set_group_mode(group, title, "off")
+        before = await self._last_message_id(group)
+        await self.client.send(group, f"@{bot_username} {SENTINEL_QUESTION}")
+        await self.client.assert_no_bot_message(
+            group, after_id=before, seconds=LISTENER_QUIET_SECONDS
+        )
+
+        # silent: a mention is stored but still not answered.
+        await self._set_group_mode(group, title, "silent")
+        before = await self._last_message_id(group)
+        await self.client.send(group, f"@{bot_username} {SENTINEL_QUESTION}")
+        await self.client.assert_no_bot_message(
+            group, after_id=before, seconds=LISTENER_QUIET_SECONDS
+        )
+
+        # active: a bare question is not answered, a mention is.
+        await self._set_group_mode(group, title, "active")
+        before = await self._last_message_id(group)
+        await self.client.send(group, SENTINEL_QUESTION)
+        await self.client.assert_no_bot_message(
+            group, after_id=before, seconds=LISTENER_QUIET_SECONDS
+        )
+        await self.ask_and_expect(
+            group,
+            f"@{bot_username} {SENTINEL_QUESTION}",
+            BASELINE_TOKEN,
+            after_id=await self._last_message_id(group),
+        )
+
+        # proactive: a confident unaddressed question earns an answer. Give the
+        # listener a moment to classify it and the generator a chance to run.
+        await self._set_group_mode(group, title, "proactive")
+        answered = await self.ask_and_expect_soft(
+            group,
+            SENTINEL_QUESTION,
+            BASELINE_TOKEN,
+            after_id=await self._last_message_id(group),
+        )
+        if answered is None:
+            raise E2EFailure(
+                "proactive_not_answered",
+                "a confident unaddressed question in a proactive group got no reply",
+            )
+        # A proactive group must still answer a mention normally.
+        await self.ask_and_expect(
+            group,
+            f"@{bot_username} {SENTINEL_QUESTION}",
+            BASELINE_TOKEN,
+            after_id=await self._last_message_id(group),
+        )
+        # Leave the group as it was found: a proactive group would answer
+        # unaddressed questions for the rest of the run and for every later one.
+        await self._set_group_mode(group, title, DEFAULT_GROUP_MODE)
+
+    async def private_multiscope(self) -> None:
+        """Ask privately after group traffic and require a grounded answer.
+
+        By this point the human has written in both served groups, which is
+        what the bot observes membership from, so a private question is
+        answered from the knowledge those groups share with the club.
+
+        What this step deliberately does not claim: that membership is what
+        *gated* the message. The harness account is the admin, so it would be
+        answered either way, and production already holds its memberships.
+        The gate itself is pinned by the offline integration tests, where a
+        sender with no observed membership is refused.
+        """
+        bot = self._require(self.bot, "bot")
+        before = self._dm_last_seen
+        await self.client.send(bot, SENTINEL_QUESTION)
+        answer = await self.wait_dm(after_id=before, needle=BASELINE_TOKEN)
+        if FONTS_LABEL not in (answer.text or ""):
+            raise E2EFailure(
+                "dm_answer_uncited", "the private answer carried no sources"
+            )
+        self._dm_last_seen = max(self._dm_last_seen, answer.id)
+
+    async def dedup_dm(self) -> None:
+        """Assert a question all scopes share is delivered exactly once.
+
+        A group that holds its own copy of the club's answer produces a second,
+        separately-sourced message on purpose: two provenances are two facts.
+        The collapse is for the other case, where every round falls back to the
+        same global evidence. Clearing group A's local copy is what makes that
+        the case here, and it is why this step runs before the correction steps
+        that need A's own record.
+        """
+        bot = self._require(self.bot, "bot")
+        await self.worker.reset_item(
+            qa_item_id_for(SENTINEL_QUESTION, f"space:{SPACE_A}")
+        )
+        await asyncio.sleep(PROJECTION_SETTLE_SECONDS)
+
+        before = self._dm_last_seen
+        await self.client.send(bot, SENTINEL_QUESTION)
+        first = await self.wait_dm(after_id=before, needle=BASELINE_TOKEN)
+        text = first.text or ""
+        if GLOBAL_LABEL in text or GROUP_LABEL_MARK in text:
+            raise E2EFailure(
+                "dedup_labelled",
+                "a single shared answer was delivered with a scope heading",
+            )
+        await self.client.assert_no_bot_message(
+            bot, after_id=first.id, seconds=DM_DEDUP_QUIET_SECONDS
+        )
+        self._dm_last_seen = max(self._dm_last_seen, first.id)
+
+    async def _set_group_mode(self, group: object, title: str, mode: str) -> None:
+        """Set a served group's bot mode through the internal route.
+
+        Args:
+            group: The resolved group entity.
+            title: The exact `[E2E]` title the group is registered with.
+            mode: One of `off`, `silent`, `active`, `proactive`.
+
+        Raises:
+            E2EFailure: If the Worker does not accept the mode.
+        """
+        chat_id = str(utils.get_peer_id(group))
+        await self.worker.register_group(
+            chat_id, title, self._space_id(group), bot_mode=mode
+        )
+
+    def _space_id(self, group: object) -> str:
+        """Return the fixed logical space id for a served group.
+
+        Args:
+            group: The resolved group entity.
+
+        Returns:
+            `SPACE_A` or `SPACE_B` based on the entity.
+
+        Raises:
+            E2EFailure: If the group is neither A nor B.
+        """
+        if group is self.group_a:
+            return SPACE_A
+        if group is self.group_b:
+            return SPACE_B
+        raise E2EFailure(
+            "unknown_group", "group is not one of the dedicated E2E groups"
+        )
+
     async def daily_report(self) -> None:
         """Force the daily report and require its Telegram delivery."""
         before = self._dm_last_seen
@@ -544,13 +719,18 @@ class Scenario:
     # --------------------------------------------------------------- cleanup
 
     async def cleanup(self) -> None:
-        """Remove local reviewers and revert both sentinel items.
+        """Restore modes, remove reviewers, and revert both sentinel items.
+
+        The mode reset is the part that must not be skipped: a run that leaves
+        a dedicated group in ``proactive`` or ``off`` would change the behaviour
+        every later run and every real member sees.
 
         Raises:
-            E2EFailure: If reviewer cleanup fails (stale state would change
-                future runs) or a sentinel revert fails.
+            E2EFailure: If the mode reset, reviewer cleanup, or a sentinel
+                revert fails (stale state would change future runs).
         """
         problems: list[str] = []
+        await self._reset_group_modes(problems)
         for chat, name in (
             (self.group_a, "group A"),
             (self.group_b, "group B"),
@@ -580,6 +760,23 @@ class Scenario:
             problems.append(f"sentinel revert cleanup failed: {error}")
         if problems:
             raise E2EFailure("cleanup_failed", "; ".join(problems))
+
+    async def _reset_group_modes(self, problems: list[str]) -> None:
+        """Return both served groups to ``active`` after a mode-matrix run.
+
+        Args:
+            problems: Collected cleanup failures, appended to in place.
+        """
+        for group, title, name in (
+            (self.group_a, self.settings.telegram_e2e_group_a_title, "group A"),
+            (self.group_b, self.settings.telegram_e2e_group_b_title, "group B"),
+        ):
+            if group is None:
+                continue  # preflight never resolved it; nothing to restore
+            try:
+                await self._set_group_mode(group, title, DEFAULT_GROUP_MODE)
+            except Exception as error:
+                problems.append(f"{name} mode reset failed: {error}")
 
     # --------------------------------------------------------------- helpers
 
@@ -651,10 +848,13 @@ STEPS: tuple[tuple[str, str], ...] = (
     ("mention, /ask, reply and DM", "addressing"),
     ("abstention", "abstention"),
     ("listener + reply pairing", "listener"),
+    ("private answer across served groups", "private_multiscope"),
+    ("one shared answer, one delivery", "dedup_dm"),
     ("local reviewers in A and B", "reviewer_setup"),
     ("reject and re-flag", "reject_and_reflag"),
     ("edit + local approval", "edit_and_approve_local"),
     ("global correction from B", "global_correction_from_b"),
+    ("bot modes: off/silent/active/proactive", "bot_modes"),
     ("daily report", "daily_report"),
 )
 
