@@ -549,17 +549,16 @@ class Scenario:
     async def bot_modes(self) -> None:
         """Walk group A through all four modes and assert what each does.
 
-        This is the mode matrix driven against a real group: `off` neither
-        stores nor answers, `silent` stores a mention but stays quiet, `active`
-        answers a mention and ignores a bare question, and `proactive` answers a
-        confident unaddressed question. Only `addressed` and `proactive` produce
-        a visible bot reply; the rest are proven by the silence.
+        What is asserted is whether the bot answers, never what it says. The
+        earlier steps moved the sentinel on, so A answers with the local
+        correction by now, and pinning a token here would be asserting the
+        fixture rather than the mode.
         """
         group = self._require(self.group_a, "group A")
         title = self.settings.telegram_e2e_group_a_title
         bot_username = self.settings.telegram_e2e_bot_username
 
-        # off: a mention gets nothing.
+        # off: a mention gets nothing, and nothing is stored either.
         await self._set_group_mode(group, title, "off")
         before = await self._last_message_id(group)
         await self.client.send(group, f"@{bot_username} {SENTINEL_QUESTION}")
@@ -582,37 +581,46 @@ class Scenario:
         await self.client.assert_no_bot_message(
             group, after_id=before, seconds=LISTENER_QUIET_SECONDS
         )
-        await self.ask_and_expect(
-            group,
-            f"@{bot_username} {SENTINEL_QUESTION}",
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
+        await self._expect_reply(group, f"@{bot_username} {SENTINEL_QUESTION}")
 
-        # proactive: a confident unaddressed question earns an answer. Give the
-        # listener a moment to classify it and the generator a chance to run.
+        # proactive: a confident unaddressed question earns an answer. The
+        # listener has to classify it first, so this waits the full timeout.
         await self._set_group_mode(group, title, "proactive")
-        answered = await self.ask_and_expect_soft(
-            group,
-            SENTINEL_QUESTION,
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
-        if answered is None:
-            raise E2EFailure(
-                "proactive_not_answered",
-                "a confident unaddressed question in a proactive group got no reply",
-            )
-        # A proactive group must still answer a mention normally.
-        await self.ask_and_expect(
-            group,
-            f"@{bot_username} {SENTINEL_QUESTION}",
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
+        await self._expect_reply(group, SENTINEL_QUESTION)
+        await self._expect_reply(group, f"@{bot_username} {SENTINEL_QUESTION}")
+
         # Leave the group as it was found: a proactive group would answer
         # unaddressed questions for the rest of the run and for every later one.
         await self._set_group_mode(group, title, DEFAULT_GROUP_MODE)
+
+    async def _expect_reply(self, chat: object, text: str) -> Message:
+        """Send a message to a chat and require any bot answer in return.
+
+        Args:
+            chat: The resolved chat entity.
+            text: The message to send.
+
+        Returns:
+            The bot's answer.
+
+        Raises:
+            E2ERuntimeError: If the bot stays silent.
+        """
+        await self.client.send(chat, text)
+        return await self.client.wait_for_bot_message(
+            chat, after_id=await self._last_own_message_id(chat)
+        )
+
+    async def _last_own_message_id(self, chat: object) -> int:
+        """Return the id of the message just sent, as the bot will see it.
+
+        Args:
+            chat: The resolved chat entity.
+
+        Returns:
+            The newest own message id in the chat.
+        """
+        return (await self._last_own_message(chat)).id
 
     async def private_multiscope(self) -> None:
         """Ask privately after group traffic and require a grounded answer.

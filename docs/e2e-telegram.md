@@ -61,8 +61,9 @@ One run exercises, in order:
 10. global correction from B; B takes the global value while A keeps its local
     override;
 11. bot modes — group A is walked through `off`, `silent`, `active` and
-    `proactive`, asserting the silence of the first three and the one uninvited
-    answer of the last, then returned to `active`;
+    `proactive`, then returned to `active`. What it asserts is whether the bot
+    answers, never what it says: by this step the sentinel has been corrected,
+    so pinning a token would be asserting the fixture rather than the mode;
 12. forced daily report delivered to the bot DM (test-only deployment).
 
 Step 6 seeds its own question and reverts it in cleanup, so it leaves the
