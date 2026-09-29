@@ -45,7 +45,11 @@
     "QA_ANSWER_MIN_STRENGTH": "0.5",
     "QA_ANSWER_RELATIVE_CUT": "0.5",
     "LEXICAL_AUTHORITY": "45",
-    "BACKGROUND_LISTENER_ENABLED": "true",
+    // Private chats. A served group's behaviour is not configured here: it is
+    // stored per group (channel_bindings.bot_mode) and changed with
+    // `kb group add --mode`.
+    "TELEGRAM_DM_BOT_MODE": "active",
+    "AI_PROACTIVE_BUDGET_FRACTION": "0.35",
     "AI_EMBED_TIMEOUT_SECONDS": "10",
     "AI_GENERATION_TIMEOUT_SECONDS": "35",
     "KB_LOGFIRE_ENABLED": "false"

@@ -9,6 +9,8 @@ from functools import lru_cache
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from knowledge_bot.domain.enums import BotMode
+
 ALLOWED_AI_MODELS = frozenset(
     {
         "@cf/google/embeddinggemma-300m",
@@ -64,6 +66,11 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     allowed_telegram_user_ids: str = ""
     admin_telegram_user_id: str = ""
+    #: How the bot behaves in a private chat. A private message always
+    #: addresses the bot, so ``proactive`` is the same as ``active`` here; the
+    #: mode exists to turn the DM conversation off or mute it without touching
+    #: the groups.
+    telegram_dm_bot_mode: BotMode = BotMode.ACTIVE
     internal_admin_key: str = ""
 
     embedding_model: str = "@cf/google/embeddinggemma-300m"
@@ -85,7 +92,6 @@ class Settings(BaseSettings):
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5
     pairing_max_pending_questions: int = 5
-    background_listener_enabled: bool = False
     classifier_confidence_threshold: float = 0.60
     classifier_margin_threshold: float = 0.15
     classifier_model_path: str = "data/classifier/model.json"
@@ -111,6 +117,10 @@ class Settings(BaseSettings):
     ai_neuron_reserve_fraction: float = 0.25
     ai_background_budget_fraction: float = 0.50
     ai_maintenance_budget_fraction: float = 0.70
+    #: Uninvited answers stop here, below the background class: they are the
+    #: first thing to go, and never at the cost of the classification and
+    #: indexing that make tomorrow's answers possible.
+    ai_proactive_budget_fraction: float = 0.35
     ai_embed_neurons_per_char: float = 0.015
     ai_chat_neurons_per_char: float = 0.020
 
@@ -160,6 +170,7 @@ class Settings(BaseSettings):
             raise ValueError("AI daily budget must be positive")
         if (
             not 0
+            < self.ai_proactive_budget_fraction
             < self.ai_background_budget_fraction
             < self.ai_maintenance_budget_fraction
             < 1

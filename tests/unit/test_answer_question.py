@@ -188,7 +188,7 @@ async def test_model_failure_degrades_without_losing_the_question() -> None:
         text="on entrenen?",
         sender_is_admin=False,
     )
-    response = await service.answer_message(message)
+    response = await service.answer_message(message, space_id=None, answer_id="ans:m1")
     assert response is not None
     assert response.mode is AnswerMode.UNAVAILABLE
     assert response.answer_id == "ans:m1"

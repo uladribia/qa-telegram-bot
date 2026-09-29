@@ -249,7 +249,6 @@ async def test_background_pair_persists_and_retrieves_local_evidence(
         telegram_bot_username="pair_bot",
         admin_telegram_user_id="1",
         internal_admin_key="pair-key",
-        background_listener_enabled=True,
         pairing_question_window_minutes=1,
     )
     transport = RecordingTransport()

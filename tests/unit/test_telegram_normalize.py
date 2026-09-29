@@ -11,6 +11,7 @@ from knowledge_bot.adapters.telegram.normalize import (
     normalize_message,
 )
 from knowledge_bot.domain.enums import ContentType
+from knowledge_bot.models.messages import MemberChange
 
 ALLOWED_CHAT = "-1001234567890"
 IDENTITY = TelegramIdentity(
@@ -175,3 +176,57 @@ def test_webhook_secret_validation() -> None:
     assert is_valid_webhook_secret("wrong", "s3cret") is False
     assert is_valid_webhook_secret(None, "s3cret") is False
     assert is_valid_webhook_secret("s3cret", "") is False
+
+
+def test_ordinary_group_message_reports_its_sender_as_a_member() -> None:
+    """Speaking in a served group is what makes someone a member of it."""
+    normalized = normalize_message(_update(), IDENTITY)
+    assert normalized is not None
+    assert [
+        (event.principal_id, event.change) for event in normalized.member_events
+    ] == [("telegram:111", MemberChange.JOINED)]
+
+
+def test_private_message_reports_no_membership() -> None:
+    """A private chat is not a space, so it grants no membership."""
+    message = _message(chat={"id": 111, "type": "private"})
+    normalized = normalize_message(_update(message), IDENTITY)
+    assert normalized is not None
+    assert normalized.member_events == []
+
+
+def test_join_service_message_reports_the_people_who_joined() -> None:
+    """A join service message lists arrivals, bots included."""
+    message = _message(
+        text=None,
+        new_chat_members=[
+            {"id": 222, "is_bot": False},
+            {"id": 999, "is_bot": True},
+        ],
+    )
+    normalized = normalize_message(_update(message), IDENTITY)
+    assert normalized is not None
+    assert [
+        (event.principal_id, event.change) for event in normalized.member_events
+    ] == [("telegram:222", MemberChange.JOINED)]
+
+
+def test_leave_service_message_reports_only_the_person_who_left() -> None:
+    """Whoever removed someone is not evidence about themselves."""
+    message = _message(
+        text=None,
+        left_chat_member={"id": 222, "is_bot": False},
+    )
+    normalized = normalize_message(_update(message), IDENTITY)
+    assert normalized is not None
+    assert [
+        (event.principal_id, event.change) for event in normalized.member_events
+    ] == [("telegram:222", MemberChange.LEFT)]
+
+
+def test_anonymous_message_reports_no_membership() -> None:
+    """A message with no identifiable sender cannot identify a member."""
+    message = _message(text=None, **{"from": None})
+    normalized = normalize_message(_update(message), IDENTITY)
+    assert normalized is not None
+    assert normalized.member_events == []

@@ -15,12 +15,13 @@ from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.proactive import ProactiveResponder
 from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.revert import CorrectionReverter
@@ -47,6 +48,8 @@ class AppContext:
     reindex: ReindexService
     seed: SeedService
     spaces: SpaceDirectory
+    memberships: MembershipDirectory
+    proactive: ProactiveResponder
     review: ReviewService
     feedback: FeedbackService
     interactions: InteractionService

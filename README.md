@@ -7,6 +7,12 @@ Anyone can flag a wrong answer. Local reviewers, global reviewers, and the admin
 Telegram is the only runtime adapter in v1. The core is channel-agnostic:
 importers and future channels feed the same domain.
 
+How much the bot does in a group is a per-group mode — `off`, `silent`,
+`active` (the default: answer when addressed, learn from the rest), or
+`proactive` (also answer a confident unaddressed question, and only a grounded
+one). Private chats have their own mode. The bot learns who belongs to a group
+by seeing them there, because it has no admin rights and does not ask.
+
 Runs locally with SQLite + NumPy + Ollama, or in production inside the
 **Cloudflare free tier** (Python Worker + D1 + Vectorize + Workers AI). No paid
 fallback exists anywhere in the code.

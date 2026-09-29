@@ -28,6 +28,7 @@ EXPECTED_TABLES = {
     "delivery_receipts",
     "telegram_interactions",
     "daily_report_state",
+    "space_memberships",
 }
 
 
@@ -58,6 +59,51 @@ def test_expected_indexes_exist() -> None:
     assert {"idx_messages_conversation", "idx_qa_versions_qa"} <= {
         row[0] for row in rows
     }
+
+
+def test_existing_bindings_keep_the_previous_behaviour() -> None:
+    """Adding the mode column gives every served group the mode it had."""
+    connection = _connect()
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        if path.name == "0025_bot_modes_memberships.sql":
+            break
+        connection.executescript(path.read_text(encoding="utf-8"))
+    connection.execute(
+        "INSERT INTO spaces (id, created_at) VALUES ('sp_1', '2026-01-01T00:00:00Z')"
+    )
+    connection.execute(
+        "INSERT INTO channel_bindings (channel, external_conversation_id,"
+        " conversation_id, space_id, title, created_at)"
+        " VALUES ('telegram', '-100', '-100', 'sp_1', 'QA', '2026-01-01T00:00:00Z')"
+    )
+    connection.executescript(
+        (MIGRATIONS_DIR / "0025_bot_modes_memberships.sql").read_text(encoding="utf-8")
+    )
+    rows = connection.execute("SELECT bot_mode FROM channel_bindings")
+    assert [row[0] for row in rows] == ["active"]
+
+
+def test_memberships_are_unique_per_principal_and_space() -> None:
+    """One row per pair, so a rejoin updates instead of duplicating."""
+    connection = _connect()
+    _apply(connection)
+    connection.execute(
+        "INSERT INTO spaces (id, created_at) VALUES ('sp_1', '2026-01-01T00:00:00Z')"
+    )
+    for status in ("active", "left", "active"):
+        connection.execute(
+            "INSERT INTO space_memberships (principal_id, space_id, status,"
+            " first_seen_at, last_seen_at)"
+            " VALUES ('telegram:1', 'sp_1', ?, '2026-01-01T00:00:00Z',"
+            " '2026-01-02T00:00:00Z')"
+            " ON CONFLICT(principal_id, space_id) DO UPDATE SET"
+            " status = excluded.status, last_seen_at = excluded.last_seen_at",
+            (status,),
+        )
+    rows = connection.execute(
+        "SELECT status, first_seen_at, last_seen_at FROM space_memberships"
+    ).fetchall()
+    assert rows == [("active", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")]
 
 
 def _seed_source_and_conversation(connection: sqlite3.Connection) -> None:

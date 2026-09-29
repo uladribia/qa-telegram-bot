@@ -21,6 +21,10 @@ from knowledge_bot.adapters.telegram.review import (
     deliver_review,
     escalate_overdue_reviews,
 )
+from knowledge_bot.application.answer_question import (
+    addressed_answer_id,
+    proactive_answer_id,
+)
 from knowledge_bot.application.feedback import (
     EDIT_PROMPT,
     PROPOSAL_ACK,
@@ -35,14 +39,19 @@ from knowledge_bot.application.reviewers import (
     parse_reviewer_command,
     render_reviewer_list,
 )
-from knowledge_bot.domain.entities import DeliveryReceipt, TelegramInteraction
-from knowledge_bot.domain.enums import ReviewAction
+from knowledge_bot.domain.entities import (
+    ChannelBinding,
+    DeliveryReceipt,
+    TelegramInteraction,
+)
+from knowledge_bot.domain.enums import BotMode, ReviewAction
 from knowledge_bot.domain.errors import InvalidTransitionError
 from knowledge_bot.domain.identity import principal_id, split_principal_id
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.logging import log_content
-from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.messages import MemberChange, NormalizedMessage
+from knowledge_bot.models.questions import AskQuestionResponse
 
 ADMIN_APPROVED = "\u2705 Correcci\u00f3 aprovada."
 REPORTER_THANKS = "Gr\u00e0cies! S'ha corregit la resposta."
@@ -69,15 +78,16 @@ def _must_start_bot_alert(name: str) -> str:
     )
 
 
-def _log_inbound_message(message: NormalizedMessage) -> None:
-    """Record the normalized message: who said what, and where.
+def _log_inbound_message(message: NormalizedMessage, bot_mode: BotMode | None) -> None:
+    """Record the normalized message: who said what, where, and under which mode.
 
     The webhook request body already carries the raw update, so this is the
-    connector's own view of the same event: the identity the core resolved and
-    the space the message landed in.
+    connector's own view of the same event: the identity the core resolved, the
+    space the message landed in, and the mode that decided its fate.
 
     Args:
         message: The normalized inbound message.
+        bot_mode: The mode of the conversation, or ``None`` for a private chat.
     """
     log_content(
         "telegram_inbound_message",
@@ -89,25 +99,75 @@ def _log_inbound_message(message: NormalizedMessage) -> None:
         sender_user_id=message.sender_user_id,
         is_direct_message=message.is_direct_message,
         is_sender_allowed=message.is_sender_allowed,
+        bot_mode=str(bot_mode) if bot_mode is not None else None,
         mentions_bot=message.mentions_bot,
         reply_to_message_id=message.reply_to_message_id,
+        member_events=len(message.member_events),
         text=message.text,
     )
 
 
-async def _resolve_message_space(
-    context: AppContext, message: NormalizedMessage
-) -> NormalizedMessage | None:
-    """Resolve a group conversation to its logical space.
+async def _observe_membership(
+    context: AppContext, message: NormalizedMessage, binding: ChannelBinding
+) -> int:
+    """Record the membership changes this message reports, before any mode check.
 
-    Direct chats keep no space binding; they remain private user conversations.
+    A silent or off group is still a group the bot belongs to, and knowing who
+    is in it is how a member is later allowed to write privately. Doing this
+    first is the point: a group set to ``off`` learns its members exactly like
+    an active one.
+
+    Args:
+        context: The application context.
+        message: The message carrying the membership events.
+        binding: The binding of the conversation the message landed in.
+
+    Returns:
+        How many principals were recorded.
     """
-    if message.is_direct_message:
-        return message
-    binding = await context.spaces.resolve("telegram", message.conversation_id)
-    if binding is None:
-        return None
-    return message.model_copy(update={"space_id": binding.space_id})
+    for event in message.member_events:
+        if event.change is MemberChange.JOINED:
+            await context.memberships.observe(event.principal_id, binding.space_id)
+        else:
+            await context.memberships.mark_left(event.principal_id, binding.space_id)
+    return len(message.member_events)
+
+
+async def _deliver_answer(
+    context: AppContext, message: NormalizedMessage, response: AskQuestionResponse
+) -> bool:
+    """Send one answer unless a receipt says it already went out.
+
+    Args:
+        context: The application context.
+        message: The message being answered, for the destination chat.
+        response: The answer to deliver.
+
+    Returns:
+        Whether this call sent it.
+    """
+    prior = await context.delivery_receipts.get(
+        "answer", response.answer_id, "telegram"
+    )
+    if prior is not None:
+        return False
+    message_id = await context.telegram.client.send_answer(
+        message.conversation_id, response.rendered_text, response.answer_id
+    )
+    if message_id is None:
+        raise HTTPException(status_code=503, detail="telegram delivery failed")
+    await context.delivery_receipts.add(
+        DeliveryReceipt(
+            id=f"delivery:{response.answer_id}:telegram",
+            object_type="answer",
+            object_id=response.answer_id,
+            channel="telegram",
+            external_conversation_id=message.conversation_id,
+            external_message_id=message_id,
+            created_at=context.clock.now(),
+        )
+    )
+    return True
 
 
 async def handle_telegram_update(context: AppContext, update: TelegramUpdate) -> str:
@@ -135,13 +195,7 @@ async def handle_telegram_update(context: AppContext, update: TelegramUpdate) ->
             if message is None:
                 result = "ignored"
             else:
-                _log_inbound_message(message)
-                message = await _resolve_message_space(context, message)
-                result = (
-                    "ignored"
-                    if message is None
-                    else await _handle_message(context, message)
-                )
+                result = await _handle_message(context, message)
     except Exception:
         log.exception(
             "telegram_webhook_failed",
@@ -165,17 +219,37 @@ async def handle_telegram_update(context: AppContext, update: TelegramUpdate) ->
 
 
 async def _handle_message(context: AppContext, message: NormalizedMessage) -> str:
-    """Route a normalized message: reviewer commands, feedback replies, intake."""
-    if (
-        message.is_direct_message
-        and not message.is_sender_allowed
-        and not await _is_known_correction_reply(context, message)
-    ):
-        # A stranger's DM. Only a reply to a prompt the bot itself sent is
-        # processed; anything else is dropped before storage. A public bot
-        # username is discoverable, so an open DM would let anyone spend the
-        # shared free AI quota and buzz the admin with fake corrections.
-        return "ignored"
+    """Route a normalized message: resolve, control plane, then the channel flow.
+
+    The order is the contract. A conversation the bot does not serve is not
+    ours at all. Membership is recorded next, before the control plane and the
+    mode, because who is in a group is a fact about the group and not a
+    decision. The control plane itself is never gated by a mode: a reviewer
+    command, a reply to a correction prompt, and a pending review are the bot
+    keeping promises it already made, and turning a group off must not break a
+    correction someone is in the middle of. Only then does the mode decide what
+    happens to the question.
+    """
+    binding: ChannelBinding | None = None
+    if message.is_direct_message:
+        if not message.is_sender_allowed and not await _is_known_correction_reply(
+            context, message
+        ):
+            # A stranger's DM. Only a reply to a prompt the bot itself sent is
+            # processed; anything else is dropped before storage. A public bot
+            # username is discoverable, so an open DM would let anyone spend the
+            # shared free AI quota and buzz the admin with fake corrections.
+            return "ignored"
+    else:
+        binding = await context.spaces.resolve("telegram", message.conversation_id)
+        if binding is None:
+            return "ignored"
+        message = message.model_copy(update={"space_id": binding.space_id})
+        # Before anything else, including the control plane: knowing who is in
+        # a served group is what later lets a member write to the bot privately,
+        # and it must not depend on whether the message was a question.
+        await _observe_membership(context, message, binding)
+    _log_inbound_message(message, binding.bot_mode if binding is not None else None)
     command_parts = (message.text or "").strip().split(maxsplit=1)
     if command_parts and command_parts[0].startswith("/reviewer"):
         return await _handle_reviewer_command(context, message)
@@ -183,42 +257,84 @@ async def _handle_message(context: AppContext, message: NormalizedMessage) -> st
         handled = await _handle_feedback_reply(context, message)
         if handled:
             return handled
-    action = decide_intake(
-        message,
-        background_listener_enabled=context.settings.background_listener_enabled,
-    )
+    if binding is not None:
+        return await _handle_group_message(context, message, binding)
+    return await _handle_direct_message(context, message)
+
+
+async def _handle_group_message(
+    context: AppContext, message: NormalizedMessage, binding: ChannelBinding
+) -> str:
+    """Apply the conversation's mode to one group message.
+
+    Args:
+        context: The application context.
+        message: The message, already resolved to its space.
+        binding: The binding that carries the mode to apply.
+
+    Returns:
+        A short status string.
+    """
+    action = decide_intake(message, binding.bot_mode)
     if action is IntakeAction.IGNORE:
         return "ignored"
+    if action is IntakeAction.PROACTIVE:
+        result = await context.listener.handle(message)
+        if not result.confident_question:
+            return result.status
+        outcome = await context.proactive.respond(
+            message,
+            space_id=binding.space_id,
+            answer_id=proactive_answer_id(message.id, binding.space_id),
+        )
+        if outcome.response is not None:
+            await _deliver_answer(context, message, outcome.response)
+        return outcome.status
     if action is IntakeAction.INGEST:
-        return await context.listener.handle(message)
+        result = await context.listener.handle(message)
+        return result.status
     await context.ingestor.ingest(message)
-    if action is IntakeAction.ANSWER:
-        response = await context.answer.answer_message(message)
-        if response is not None:
-            prior = await context.delivery_receipts.get(
-                "answer", response.answer_id, "telegram"
-            )
-            if prior is None:
-                message_id = await context.telegram.client.send_answer(
-                    message.conversation_id, response.rendered_text, response.answer_id
-                )
-                if message_id is None:
-                    raise HTTPException(
-                        status_code=503, detail="telegram delivery failed"
-                    )
-                await context.delivery_receipts.add(
-                    DeliveryReceipt(
-                        id=f"delivery:{response.answer_id}:telegram",
-                        object_type="answer",
-                        object_id=response.answer_id,
-                        channel="telegram",
-                        external_conversation_id=message.conversation_id,
-                        external_message_id=message_id,
-                        created_at=context.clock.now(),
-                    )
-                )
-        return "answer"
-    return "ingest"
+    response = await context.answer.answer_message(
+        message,
+        space_id=binding.space_id,
+        answer_id=addressed_answer_id(message.id),
+    )
+    if response is not None:
+        await _deliver_answer(context, message, response)
+    return "answer"
+
+
+async def _handle_direct_message(
+    context: AppContext, message: NormalizedMessage
+) -> str:
+    """Apply the DM mode to one private message.
+
+    A private message is never evidence: it is stored when the mode allows, but
+    it never goes through the listener, because a conversation between two
+    people is not knowledge about a community.
+
+    Args:
+        context: The application context.
+        message: The private message.
+
+    Returns:
+        A short status string.
+    """
+    mode = context.settings.telegram_dm_bot_mode
+    if mode is BotMode.OFF:
+        return "ignored"
+    await context.ingestor.ingest(message)
+    if mode is BotMode.SILENT:
+        return "ingest"
+    response = await context.answer.answer_message(
+        message,
+        space_id=message.space_id,
+        answer_id=addressed_answer_id(message.id),
+    )
+    if response is None:
+        return "ingest"
+    await _deliver_answer(context, message, response)
+    return "answer"
 
 
 async def _handle_reviewer_command(

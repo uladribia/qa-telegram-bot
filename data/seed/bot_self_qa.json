@@ -19,7 +19,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Quan respon",
     "question": "Com funciones? Com funciona el bot?",
-    "answer": "Funciono en tres passos:\n1. Detecto si m'adreces la pregunta (menció, resposta a un missatge meu, missatge directe o /ask). Si no, me la guardo i no responc.\n2. Busco a la meva base de coneixement (Q&A del web del club, missatges del grup i correccions aprovades) i, si hi ha alguna font que encaixa amb prou confiança, la passo al model perquè redacti la resposta amb aquelles fonts. Si cap font arriba al mínim de confiança, em callo.\n3. Et responc sempre amb les fonts citades, amb un botó \"⚠️ Està malament?\" per si cal corregir-me.",
+    "answer": "Funciono en tres passos:\n1. Detecto si m'adreces la pregunta (menció, resposta a un missatge meu, missatge directe o /ask). Si no, què en faig ho decideix el mode del grup: l'actiu em la guarda i no responc, el silenciós la guarda també, i el proactiu em pot arribar a respondre una pregunta clara. En mode off no en faig res.\n2. Busco a la meva base de coneixement (Q&A del web del club, missatges del grup i correccions aprovades) i, si hi ha alguna font que encaixa amb prou confiança, la passo al model perquè redacti la resposta amb aquelles fonts. Si cap font arriba al mínim de confiança, em callo.\n3. Et responc sempre amb les fonts citades, amb un botó \"⚠️ Està malament?\" per si cal corregir-me.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -27,7 +27,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Quan respon",
     "question": "Per què no contestes missatges que no són per tu?",
-    "answer": "Perquè sóc discret per disseny: només responc quan m'adresses explícitament, de quatre maneres: mencionant-me (@nom_del_bot ...), responent a un missatge meu, escrivint-m'ho en privat, o fent servir l'ordre /ask. Una pregunta al grup sense cap d'aquests senyals no genera resposta, per no interrompre les converses normals. Cap grup rep resums: les preguntes no adreçades es recullen al resum diari que rep l'admin per missatge privat.",
+    "answer": "Perquè sóc discret per disseny, i el comportament depèn del mode del grup. Modes: off (no emmagatzemo res del grup), silent (ho aprenc tot i no responc), active (responc només quan m'adresses) i proactive (a més, responc una pregunta clara que no va adreçada a mi, sempre amb fonts i només si puc respondre-la amb evidència; si no puc, no dic res). Per defecte un grup és actiu. En privat, el mode és configurable i el missatge privat sempre va adreçat a mi. Cap grup rep resums: les activitat es recullen al resum diari que rep l'admin per privat.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -107,7 +107,7 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/knowledge-base.md",
     "section": "Afegir coneixement parlant amb el bot",
     "question": "Aprens del que es parla al grup?",
-    "answer": "Sí, quan l'admin té activada l'escolta del grup: guardo els missatges que no són per mi com a context, però només indexo informació clara. Cada missatge es classifica amb un cap lineal entrenat localment sobre l'embedding: si el resultat no és prou segur (probabilitat i marge baixos), el missatge queda emmagatzemat però no actuo sobre ell. Les preguntes clares esdevenen candidats pendents; les actualitzacions i correccions clares s'indexen com a evidència; la xerrameca mai no s'indexa. Tot això té autoritat baixa: una correcció aprovada o el Q&A oficial sempre hi passen per sobre. I mai no responc els missatges que no m'adrecen explícitament.",
+    "answer": "Sí, si el grup on parles no està en mode off. Guardo els missatges que no són per mi com a context i només indexo informació clara. Cada missatge es classifica amb un cap lineal entrenat localment sobre l'embedding: si el resultat no és prou segur (probabilitat i marge baixos), el missatge queda emmagatzemat però no actuo sobre ell. Les preguntes clares esdevenen candidats pendents; les actualitzacions i correccions clares s'indexen com a evidència; la xerrameca mai no s'indexa. Tot això té autoritat baixa: una correcció aprovada o el Q&A oficial sempre hi passen per sobre. En un grup en mode actiu no responc mai els missatges que no m'adrecen; en mode proactive sí que puc respondre una pregunta clara que no va adreçada a mi, però només si la resposta té evidència: si no puc, em callo.",
     "status": "published",
     "retrieved_at": "2026-09-21T00:00:00Z"
   },
@@ -131,9 +131,25 @@
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
     "section": "Grups servits",
     "question": "Com puc saber si el bot respon al meu grup?",
-    "answer": "El grup ha d'estar registrat amb un espai lògic. Si no hi ha cap vinculació activa, el bot no hi respon. No cal cap llista estàtica de grups autoritzats.",
+    "answer": "El grup ha d'estar registrat amb un espai lògic. Si no hi ha cap vinculació activa, el bot no hi respon. A més, cada grup té un mode (off, silent, active o proactive) que l'admin canvia; per defecte és actiu, és a dir: respon quan l'adreçes i aprén de la resta. No cal cap llista estàtica de grups autoritzats.",
     "status": "published",
     "retrieved_at": "2026-09-24T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
+    "section": "Modes del bot",
+    "question": "Quins modes té el bot? Puc fer que calli al meu grup?",
+    "answer": "Sí. Cada grup servit té un mode que l'admin configura, i són quatre, de menys a més actiu:\n- off: no emmagatzemo res del grup i no hi responc. Continuo anotant qui hi parla.\n- silent: ho aprenc tot (missatges i evidència), però no responc res, ni si em mencionen.\n- active: responc quan m'adreçes (menció, resposta a un missatge meu o /ask) i aprenc de la resta.\n- proactive: a més del que fa l'actiu, puc respondre una pregunta clara que no va adreçada a mi. Només si la resposta té evidència: si la qüestió no té resposta fiable, no dic res.\nEl mode no afecta mai les correccions ni les ordres de l'admin: si està en off i vols corregir una resposta, la correcció segueix el seu curs. Els missatges privats tenen un mode propi, independent del dels grups.",
+    "status": "published",
+    "retrieved_at": "2026-09-29T00:00:00Z"
+  },
+  {
+    "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/usage.md",
+    "section": "Qui coneix el bot d'un grup",
+    "question": "Per què no em coneixes? No t'hauria d'haver detectat automàticament?",
+    "answer": "Perquè no soc admin dels grups i no puc llegir la llista de membres. Tot el que sé del que hi passa és el que el bot ha observat: quan escrius un missatge al grup, quan t'hi afegeixen i quan surts. Si no has escrit mai al grup ni t'hi has unit davant meu, no que et conegui, i això és intencionat. En privat, si tampoc t'he vist a cap grup servit, t'ho dic i t'explico què has de fer.",
+    "status": "published",
+    "retrieved_at": "2026-09-29T00:00:00Z"
   },
   {
     "source_url": "https://github.com/uladribia/qa-telegram-bot/blob/main/docs/setup-local.md",

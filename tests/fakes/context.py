@@ -2,6 +2,7 @@
 """Build an ``AppContext`` from in-memory fakes for HTTP tests."""
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from knowledge_bot.adapters.telegram.channel import TelegramChannel
@@ -12,12 +13,13 @@ from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.daily_report import DailyReportService
 from knowledge_bot.application.feedback import FeedbackService
-from knowledge_bot.application.groups import SpaceDirectory
+from knowledge_bot.application.groups import MembershipDirectory, SpaceDirectory
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.interactions import InteractionService
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
+from knowledge_bot.application.proactive import ProactiveResponder
 from knowledge_bot.application.promote import QAPromoter
 from knowledge_bot.application.reindex import ReindexService
 from knowledge_bot.application.retrieval import RetrievalService
@@ -27,6 +29,7 @@ from knowledge_bot.application.reviewers import ReviewerManager, ReviewerRouter
 from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.domain.entities import ChannelBinding, Space
+from knowledge_bot.domain.enums import BotMode
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.settings import Settings
 from tests.fakes.ai import (
@@ -58,7 +61,7 @@ SPACE_A = "sp_" + "1" * 32
 SPACE_B = "sp_" + "2" * 32
 
 
-async def _seed_test_bindings(backend: InMemoryBackend) -> None:
+async def _seed_test_bindings(backend: InMemoryBackend, bot_mode: BotMode) -> None:
     """Seed the two Telegram groups used by the default test context."""
     for chat_id, space_id in ((ALLOWED_CHAT_ID, SPACE_A), ("-200", SPACE_B)):
         if await backend.spaces.get(space_id) is None:
@@ -72,13 +75,22 @@ async def _seed_test_bindings(backend: InMemoryBackend) -> None:
                     space_id,
                     DEFAULT_NOW,
                     f"Group {chat_id}",
+                    bot_mode,
                 )
             )
 
 
+async def set_bot_mode(backend: InMemoryBackend, chat_id: str, mode: BotMode) -> None:
+    """Set the bot mode of one seeded group."""
+    binding = await backend.bindings.get("telegram", chat_id)
+    assert binding is not None
+    await backend.bindings.save(replace(binding, bot_mode=mode))
+
+
 def build_test_context(
     *,
-    background_listener_enabled: bool = False,
+    group_bot_mode: BotMode = BotMode.ACTIVE,
+    dm_bot_mode: BotMode = BotMode.ACTIVE,
     recap_enabled: bool = False,
     spent_neurons: float = 0.0,
     allowed_user_ids: frozenset[str] = frozenset(),
@@ -86,10 +98,15 @@ def build_test_context(
     reviewer_escalation_timeout_seconds: int = 86_400,
     backend: InMemoryBackend | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
-    """Build a context wired to in-memory fakes."""
+    """Build a context wired to in-memory fakes.
+
+    Group behaviour belongs to the binding, so ``group_bot_mode`` seeds the two
+    test groups with it and ``set_bot_mode`` changes one of them afterwards.
+    ``dm_bot_mode`` only affects private chats.
+    """
     del recap_enabled, admin_report_mode
     backend = backend or InMemoryBackend()
-    asyncio.run(_seed_test_bindings(backend))
+    asyncio.run(_seed_test_bindings(backend, group_bot_mode))
     if spent_neurons:
         backend.ai_usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
     transport = RecordingTransport()
@@ -115,7 +132,7 @@ def build_test_context(
         admin_telegram_user_id="1",
         internal_admin_key="internal",
         reviewer_escalation_timeout_seconds=reviewer_escalation_timeout_seconds,
-        background_listener_enabled=background_listener_enabled,
+        telegram_dm_bot_mode=dm_bot_mode,
     )
     identity = TelegramIdentity(
         admin_user_id="1",
@@ -145,6 +162,14 @@ def build_test_context(
         projector,
         clock,
     )
+    answer = AnswerService(
+        RetrievalService(embedder, vectors),
+        FakeGenerator(),
+        backend.answers,
+        clock,
+        conversations=backend.conversations,
+        sources=backend.sources,
+    )
     context = AppContext(
         settings=settings,
         clock=clock,
@@ -158,14 +183,8 @@ def build_test_context(
             background_indexer=background_indexer,
         ),
         background_indexer=background_indexer,
-        answer=AnswerService(
-            RetrievalService(embedder, vectors),
-            FakeGenerator(),
-            backend.answers,
-            clock,
-            conversations=backend.conversations,
-            sources=backend.sources,
-        ),
+        answer=answer,
+        proactive=ProactiveResponder(answer=answer, budget=budget),
         reindex=ReindexService(FakeSearchIndexSource(), projector, clock),
         seed=SeedService(
             backend.qa_items, backend.qa_versions, backend.sources, ingestor, clock
@@ -174,6 +193,11 @@ def build_test_context(
             backend.sources,
             backend.conversations,
             backend.spaces,
+            backend.bindings,
+            clock,
+        ),
+        memberships=MembershipDirectory(
+            backend.memberships,
             backend.bindings,
             clock,
         ),

@@ -6,11 +6,13 @@ from datetime import datetime
 
 from knowledge_bot.domain.enums import (
     AnswerMode,
+    BotMode,
     ClassificationStatus,
     ContentType,
     EvidenceType,
     FeedbackStatus,
     IndexStatus,
+    MembershipStatus,
     ProcessingStatus,
     ProjectionState,
     QAStatus,
@@ -29,7 +31,12 @@ class Space:
 
 @dataclass(frozen=True, slots=True)
 class ChannelBinding:
-    """An external channel conversation bound to a logical space."""
+    """An external channel conversation bound to a logical space.
+
+    ``bot_mode`` is the bot's behaviour in that conversation, not the extent of
+    its knowledge: it belongs here because it is a property of the channel
+    binding, and the knowledge scope stays on the space.
+    """
 
     channel: str
     external_conversation_id: str
@@ -37,6 +44,23 @@ class ChannelBinding:
     space_id: str
     created_at: datetime
     title: str | None = None
+    bot_mode: BotMode = BotMode.ACTIVE
+
+
+@dataclass(frozen=True, slots=True)
+class SpaceMembership:
+    """A principal observed in a space, and when it was last seen there.
+
+    Membership is observed, never enumerated: the bot records a principal the
+    first time it sees that person in the space, and forgets nothing about the
+    people it has not seen.
+    """
+
+    principal_id: str
+    space_id: str
+    status: MembershipStatus
+    first_seen_at: datetime
+    last_seen_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

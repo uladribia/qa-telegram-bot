@@ -23,9 +23,11 @@ from knowledge_bot.domain.entities import (
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
+    BotMode,
     ContentType,
     EvidenceType,
     FeedbackStatus,
+    MembershipStatus,
     ProcessingStatus,
     QAStatus,
 )
@@ -44,6 +46,7 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1ReviewSource,
     D1SearchProjectionRepository,
     D1SourceRepository,
+    D1SpaceMembershipRepository,
     D1SpaceRepository,
     D1TelegramInteractionRepository,
 )
@@ -330,6 +333,112 @@ async def test_space_and_channel_binding_round_trip() -> None:
     )
     binding = await bindings.get("custom-chat", "room-1")
     assert binding is not None and binding.space_id == space_id
+    assert binding.bot_mode is BotMode.ACTIVE
+
+
+async def test_channel_binding_mode_is_persisted_and_listed() -> None:
+    """Each binding keeps its own mode, and a channel can be listed back."""
+    from knowledge_bot.domain.entities import ChannelBinding, Space
+
+    database = FakeD1Database()
+    spaces = D1SpaceRepository(database)
+    bindings = D1ChannelBindingRepository(database)
+    for index in ("1", "2"):
+        await spaces.add(Space(id=f"sp_{index}", title=f"S{index}", created_at=NOW))
+        await bindings.add(
+            ChannelBinding(
+                channel="telegram",
+                external_conversation_id=f"-100{index}",
+                conversation_id=f"-100{index}",
+                space_id=f"sp_{index}",
+                title=f"Group {index}",
+                created_at=NOW,
+                bot_mode=BotMode.PROACTIVE if index == "2" else BotMode.SILENT,
+            )
+        )
+    listed = await bindings.list_by_channel("telegram")
+    assert [(item.space_id, item.bot_mode) for item in listed] == [
+        ("sp_1", BotMode.SILENT),
+        ("sp_2", BotMode.PROACTIVE),
+    ]
+    assert await bindings.list_by_channel("other-channel") == []
+
+
+async def test_channel_binding_save_keeps_the_mode() -> None:
+    """Changing a group's mode is a save, not a new binding."""
+    from knowledge_bot.domain.entities import ChannelBinding, Space
+
+    database = FakeD1Database()
+    spaces = D1SpaceRepository(database)
+    bindings = D1ChannelBindingRepository(database)
+    await spaces.add(Space(id="sp_1", title="Example", created_at=NOW))
+    await bindings.add(
+        ChannelBinding(
+            channel="telegram",
+            external_conversation_id="-100",
+            conversation_id="-100",
+            space_id="sp_1",
+            title="Group",
+            created_at=NOW,
+        )
+    )
+    stored = await bindings.get("telegram", "-100")
+    assert stored is not None
+    await bindings.save(replace(stored, bot_mode=BotMode.PROACTIVE))
+    updated = await bindings.get("telegram", "-100")
+    assert updated is not None
+    assert updated.bot_mode is BotMode.PROACTIVE
+    assert updated.title == "Group"
+    assert updated.created_at == NOW
+
+
+async def test_membership_is_observed_rejoined_and_left() -> None:
+    """One row per pair follows the whole life of a membership."""
+    database = FakeD1Database()
+    spaces = D1SpaceRepository(database)
+    memberships = D1SpaceMembershipRepository(database)
+    await spaces.add(Space(id="sp_1", title="Example", created_at=NOW))
+    await memberships.observe("telegram:1", "sp_1", NOW)
+    await memberships.observe("telegram:1", "sp_1", NOW + timedelta(hours=1))
+    seen = await memberships.get("telegram:1", "sp_1")
+    assert seen is not None
+    assert seen.status is MembershipStatus.ACTIVE
+    assert seen.first_seen_at == NOW
+    assert seen.last_seen_at == NOW + timedelta(hours=1)
+
+    await memberships.mark_left("telegram:1", "sp_1", NOW + timedelta(hours=2))
+    assert await memberships.list_active_spaces("telegram:1") == []
+    left = await memberships.get("telegram:1", "sp_1")
+    assert left is not None and left.status is MembershipStatus.LEFT
+    assert left.first_seen_at == NOW
+
+    await memberships.observe("telegram:1", "sp_1", NOW + timedelta(hours=3))
+    assert await memberships.list_active_spaces("telegram:1") == ["sp_1"]
+    assert await memberships.count_active("telegram:1") == 1
+
+
+async def test_membership_of_an_unseen_principal_is_empty() -> None:
+    """The bot never claims to know who is in a group it has not seen."""
+    database = FakeD1Database()
+    memberships = D1SpaceMembershipRepository(database)
+    assert await memberships.list_active_spaces("telegram:404") == []
+    assert await memberships.get("telegram:404", "sp_1") is None
+    assert await memberships.count_active("telegram:404") == 0
+
+
+async def test_memberships_are_listed_per_principal_and_space() -> None:
+    """Each principal carries its own spaces, in a stable order."""
+    database = FakeD1Database()
+    spaces = D1SpaceRepository(database)
+    memberships = D1SpaceMembershipRepository(database)
+    for index in ("1", "2"):
+        await spaces.add(Space(id=f"sp_{index}", title=f"S{index}", created_at=NOW))
+    await memberships.observe("telegram:1", "sp_2", NOW)
+    await memberships.observe("telegram:1", "sp_1", NOW)
+    await memberships.observe("telegram:2", "sp_1", NOW)
+    assert await memberships.list_active_spaces("telegram:1") == ["sp_1", "sp_2"]
+    assert await memberships.list_active_spaces("telegram:2") == ["sp_1"]
+    assert await memberships.count_active("telegram:1") == 2
 
 
 async def _seed_telegram(

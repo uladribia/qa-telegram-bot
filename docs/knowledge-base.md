@@ -168,9 +168,11 @@ authorized full rebuild: scope changes alter the metadata of every record).
 
 ## Adding knowledge by talking to the bot
 
-With `BACKGROUND_LISTENER_ENABLED=true`, every accepted unaddressed message is
-stored. Classification controls evidence indexing and reporting, not whether
-raw context exists. The bot still never answers these messages.
+In every served group whose mode is not `off`, every accepted unaddressed
+message is stored. Classification controls evidence indexing and reporting, not
+whether raw context exists. The bot never answers these messages unless the
+group is `proactive` and the classifier is confident the message is a question
+(see [usage.md](usage.md)).
 
 The classifier embeds each message once and applies a locally trained linear
 head (multinomial logistic regression over the embedding, exported by

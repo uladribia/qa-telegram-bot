@@ -6,11 +6,32 @@ single message shape to reason about regardless of which channel delivered it.
 """
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.models.common import AttachmentRef, SourceDescriptor
+
+
+class MemberChange(StrEnum):
+    """A principal's arrival at, or departure from, a conversation."""
+
+    JOINED = "joined"
+    LEFT = "left"
+
+
+class ConversationMemberEvent(BaseModel):
+    """One membership change the channel reported with this message.
+
+    Channels report membership in many shapes: Telegram sends join and leave
+    service messages, other connectors may report it inline. The adapter
+    reduces all of them to this, so the core never learns a channel's own
+    vocabulary for who came and went.
+    """
+
+    principal_id: str
+    change: MemberChange
 
 
 class NormalizedMessage(BaseModel):
@@ -47,4 +68,8 @@ class NormalizedMessage(BaseModel):
     is_direct_message: bool = False
     is_sender_allowed: bool = True
     attachments: list[AttachmentRef] = Field(default_factory=list)
+    #: Membership changes the channel reported alongside this message. Empty
+    #: for ordinary traffic; a service message that joins or leaves people is
+    #: still a message, and the events travel with it.
+    member_events: list[ConversationMemberEvent] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)

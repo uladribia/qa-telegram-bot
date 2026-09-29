@@ -359,12 +359,16 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
         body: RegisterGroupRequest = _EMPTY_GROUP_BODY,
         key: InternalKey = None,
     ) -> dict[str, str]:
-        """Register a served Telegram group (idempotent)."""
+        """Register a served Telegram group (idempotent).
+
+        Omitted fields keep what is already registered, so this is also how a
+        group's mode is changed.
+        """
         context = await internal_context(request, key, resolve_context)
         if not body.chat_id:
             raise HTTPException(status_code=422, detail="chat_id required")
         space_id = await bind_telegram_group(
-            context, body.chat_id, body.title, body.space_id
+            context, body.chat_id, body.title, body.space_id, body.bot_mode
         )
         return {"status": "registered", "space_id": space_id}
 

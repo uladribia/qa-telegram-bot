@@ -23,9 +23,10 @@ from knowledge_bot.domain.entities import (
     ReviewerEvent,
     Source,
     Space,
+    SpaceMembership,
     TelegramInteraction,
 )
-from knowledge_bot.domain.enums import FeedbackStatus
+from knowledge_bot.domain.enums import FeedbackStatus, MembershipStatus
 from knowledge_bot.domain.scope import GLOBAL_SCOPE
 
 
@@ -76,6 +77,62 @@ class InMemoryChannelBindingRepository:
             message = f"unknown binding: {key}"
             raise KeyError(message)
         self._items[key] = binding
+
+    async def list_by_channel(self, channel: str) -> list[ChannelBinding]:
+        """Return every binding of one channel, ordered by conversation id."""
+        return sorted(
+            (binding for binding in self._items.values() if binding.channel == channel),
+            key=lambda binding: binding.external_conversation_id,
+        )
+
+
+class InMemorySpaceMembershipRepository:
+    """Dict-backed implementation of ``SpaceMembershipRepository``."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self._items: dict[tuple[str, str], SpaceMembership] = {}
+
+    async def observe(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record activity in a space, making the membership active."""
+        key = (principal_id, space_id)
+        existing = self._items.get(key)
+        self._items[key] = SpaceMembership(
+            principal_id=principal_id,
+            space_id=space_id,
+            status=MembershipStatus.ACTIVE,
+            first_seen_at=existing.first_seen_at if existing is not None else now,
+            last_seen_at=now,
+        )
+
+    async def mark_left(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record that a principal is no longer in a space."""
+        key = (principal_id, space_id)
+        existing = self._items.get(key)
+        self._items[key] = SpaceMembership(
+            principal_id=principal_id,
+            space_id=space_id,
+            status=MembershipStatus.LEFT,
+            first_seen_at=existing.first_seen_at if existing is not None else now,
+            last_seen_at=now,
+        )
+
+    async def list_active_spaces(self, principal_id: str) -> list[str]:
+        """Return the ids of the spaces where this principal is active."""
+        return sorted(
+            membership.space_id
+            for membership in self._items.values()
+            if membership.principal_id == principal_id
+            and membership.status is MembershipStatus.ACTIVE
+        )
+
+    async def get(self, principal_id: str, space_id: str) -> SpaceMembership | None:
+        """Return one membership, whatever its status."""
+        return self._items.get((principal_id, space_id))
+
+    async def count_active(self, principal_id: str) -> int:
+        """Return how many spaces this principal is active in."""
+        return len(await self.list_active_spaces(principal_id))
 
 
 class InMemoryDeliveryReceiptRepository:

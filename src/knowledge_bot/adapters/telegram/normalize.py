@@ -15,6 +15,7 @@ from knowledge_bot.adapters.telegram.identity import (
 )
 from knowledge_bot.adapters.telegram.models import (
     NormalizedCallback,
+    TelegramChat,
     TelegramMessage,
     TelegramUpdate,
 )
@@ -22,7 +23,11 @@ from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.domain.identity import principal_id
 from knowledge_bot.infrastructure.security import secrets_match
 from knowledge_bot.models.common import AttachmentRef, SourceDescriptor
-from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.models.messages import (
+    ConversationMemberEvent,
+    MemberChange,
+    NormalizedMessage,
+)
 
 
 def is_valid_webhook_secret(provided: str | None, expected: str) -> bool:
@@ -101,6 +106,63 @@ def _attachment_for(
     return ContentType.UNKNOWN, None
 
 
+def _member_events(
+    message: TelegramMessage, chat: TelegramChat
+) -> list[ConversationMemberEvent]:
+    """Reduce a Telegram message to the membership changes it reports.
+
+    An ordinary message reports one thing: its human sender is in this
+    conversation. A join or leave service message reports who arrived or
+    departed instead, and the person who triggered it is not evidence about
+    anyone else, so the sender is left out of those.
+
+    Bots are not people: the bot joining a group says nothing about who reads
+    it, and a leave reports the person who is gone, never the one who removed
+    them.
+
+    Args:
+        message: The raw Telegram message.
+        chat: The chat the message belongs to.
+
+    Returns:
+        One event per human whose membership changed, in arrival order.
+    """
+    sender = message.from_user
+    is_service_message = bool(message.new_chat_members) or (
+        message.left_chat_member is not None
+    )
+    events: list[ConversationMemberEvent] = []
+    if (
+        not is_service_message
+        and chat.type != "private"
+        and sender is not None
+        and not sender.is_bot
+    ):
+        events.append(
+            ConversationMemberEvent(
+                principal_id=principal_id("telegram", str(sender.id)),
+                change=MemberChange.JOINED,
+            )
+        )
+    events.extend(
+        ConversationMemberEvent(
+            principal_id=principal_id("telegram", str(user.id)),
+            change=MemberChange.JOINED,
+        )
+        for user in message.new_chat_members
+        if not user.is_bot
+    )
+    left = message.left_chat_member
+    if left is not None and not left.is_bot:
+        events.append(
+            ConversationMemberEvent(
+                principal_id=principal_id("telegram", str(left.id)),
+                change=MemberChange.LEFT,
+            )
+        )
+    return events
+
+
 def normalize_message(
     update: TelegramUpdate,
     identity: TelegramIdentity,
@@ -169,6 +231,7 @@ def normalize_message(
         is_direct_message=chat.type == "private",
         is_sender_allowed=identity.allows_sender(str(sender.id) if sender else None),
         attachments=[attachment] if attachment else [],
+        member_events=_member_events(message, chat),
         metadata={"chat_type": chat.type, "update_id": update.update_id},
     )
 

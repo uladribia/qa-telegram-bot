@@ -59,6 +59,9 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SourceRepository as SqlSourceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
+    D1SpaceMembershipRepository as SqlSpaceMembershipRepository,
+)
+from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1SpaceRepository as SqlSpaceRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.d1 import (
@@ -85,6 +88,7 @@ __all__ = [
     "SqlSearchIndexSource",
     "SqlSearchProjectionRepository",
     "SqlSourceRepository",
+    "SqlSpaceMembershipRepository",
     "SqlSpaceRepository",
     "SqlTelegramInteractionRepository",
 ]

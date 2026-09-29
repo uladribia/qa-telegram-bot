@@ -34,7 +34,13 @@ Telegram webhook
   -> adapter delivery
 ```
 
-A Telegram group is served only when `(telegram, chat_id)` has an active `channel_bindings` row. Private Telegram DMs remain separately allowlisted. The bot does not use a second group allowlist.
+A Telegram group is served only when `(telegram, chat_id)` has an active `channel_bindings` row. The row also carries the `bot_mode` that decides how much the bot does in that conversation (`off`, `silent`, `active`, `proactive`): the mode is a property of the binding because it is the bot's behaviour there, not the extent of the space's knowledge. Private Telegram DMs have their own mode, `TELEGRAM_DM_BOT_MODE`. There is no second group allowlist.
+
+The webhook applies the mode only after the control plane. Resolving the binding, recording who was seen in it, and the reviewer and correction prompts are never gated by it: the mode decides what happens to a question, never whether the bot keeps a promise it already made.
+
+## Membership
+
+`space_memberships` records that a principal was observed in a space, with the first and last time it was seen. Membership is observation, not enumeration: the bot has no admin rights, does not call `getChatMember`, and does not backfill, so anyone it has never seen in a served group is unknown to it. An ordinary group message marks its human sender as a member; Telegram's join and leave service messages mark the people who arrived and departed. Bots are never members, and the person who removes someone is not evidence about themselves.
 
 ## Knowledge model
 
@@ -48,7 +54,7 @@ Reviewers are identified by opaque `principal_id` values. A local reviewer can r
 
 ## AI and quota
 
-Direct questions are never rejected by the estimate guard. Background and maintenance work check admission before each AI-consuming unit. Production Workers AI calls have hard adapter deadlines. Production grounded generation makes one structured call; malformed output is not treated as a model abstention but recorded as its own reason, `invalid_model_output`, with a safe parse code.
+Direct questions are never rejected by the estimate guard. Background, proactive, and maintenance work check admission before each AI-consuming unit, in that order of how optional they are: uninvited answers stop at `AI_PROACTIVE_BUDGET_FRACTION`, before the background classification and indexing that make tomorrow's answers possible. Production Workers AI calls have hard adapter deadlines. Production grounded generation makes one structured call; malformed output is not treated as a model abstention but recorded as its own reason, `invalid_model_output`, with a safe parse code.
 
 ## Repair
 

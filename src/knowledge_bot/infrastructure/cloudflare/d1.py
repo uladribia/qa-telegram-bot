@@ -27,14 +27,17 @@ from knowledge_bot.domain.entities import (
     SearchProjectionEntry,
     Source,
     Space,
+    SpaceMembership,
     TelegramInteraction,
 )
 from knowledge_bot.domain.enums import (
     AnswerMode,
+    BotMode,
     ClassificationStatus,
     ContentType,
     FeedbackStatus,
     IndexStatus,
+    MembershipStatus,
     ProcessingStatus,
     ProjectionState,
     QAStatus,
@@ -61,6 +64,12 @@ _BATCH_CHUNK = 50
 
 
 def _as_int_authority(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def _as_int(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
     return int(value)
@@ -342,7 +351,7 @@ class D1ChannelBindingRepository:
             self._db.prepare(
                 "INSERT INTO channel_bindings"
                 " (channel, external_conversation_id, conversation_id, space_id,"
-                " title, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+                " title, created_at, bot_mode) VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(
                 binding.channel,
@@ -351,6 +360,7 @@ class D1ChannelBindingRepository:
                 binding.space_id,
                 binding.title,
                 _iso(binding.created_at),
+                str(binding.bot_mode),
             )
             .run()
         )
@@ -360,17 +370,131 @@ class D1ChannelBindingRepository:
         await (
             self._db.prepare(
                 "UPDATE channel_bindings SET conversation_id = ?, space_id = ?,"
-                " title = ? WHERE channel = ? AND external_conversation_id = ?"
+                " title = ?, bot_mode = ?"
+                " WHERE channel = ? AND external_conversation_id = ?"
             )
             .bind(
                 binding.conversation_id,
                 binding.space_id,
                 binding.title,
+                str(binding.bot_mode),
                 binding.channel,
                 binding.external_conversation_id,
             )
             .run()
         )
+
+    async def list_by_channel(self, channel: str) -> list[ChannelBinding]:
+        """Return every binding of one channel, ordered by conversation id."""
+        result = (
+            await self._db.prepare(
+                "SELECT * FROM channel_bindings WHERE channel = ?"
+                " ORDER BY external_conversation_id"
+            )
+            .bind(channel)
+            .run()
+        )
+        return [_channel_binding(row) for row in _rows(result)]
+
+
+class D1SpaceMembershipRepository:
+    """D1 implementation of ``SpaceMembershipRepository``."""
+
+    def __init__(self, database: D1Database) -> None:
+        """Wrap a D1 database binding."""
+        self._db = database
+
+    async def observe(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record activity in a space, making the membership active.
+
+        One statement so a rejoin and a first sighting take the same path: a
+        membership goes back to active and gets a fresh ``last_seen_at``, and
+        ``first_seen_at`` is never rewritten.
+        """
+        stamp = _iso(now)
+        await (
+            self._db.prepare(
+                "INSERT INTO space_memberships"
+                " (principal_id, space_id, status, first_seen_at, last_seen_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(principal_id, space_id) DO UPDATE SET"
+                " status = excluded.status, last_seen_at = excluded.last_seen_at"
+            )
+            .bind(
+                principal_id,
+                space_id,
+                str(MembershipStatus.ACTIVE),
+                stamp,
+                stamp,
+            )
+            .run()
+        )
+
+    async def mark_left(self, principal_id: str, space_id: str, now: datetime) -> None:
+        """Record that a principal is no longer in a space."""
+        await (
+            self._db.prepare(
+                "INSERT INTO space_memberships"
+                " (principal_id, space_id, status, first_seen_at, last_seen_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(principal_id, space_id) DO UPDATE SET"
+                " status = excluded.status, last_seen_at = excluded.last_seen_at"
+            )
+            .bind(
+                principal_id,
+                space_id,
+                str(MembershipStatus.LEFT),
+                _iso(now),
+                _iso(now),
+            )
+            .run()
+        )
+
+    async def list_active_spaces(self, principal_id: str) -> list[str]:
+        """Return the ids of the spaces where this principal is active."""
+        result = (
+            await self._db.prepare(
+                "SELECT space_id FROM space_memberships"
+                " WHERE principal_id = ? AND status = ? ORDER BY space_id"
+            )
+            .bind(principal_id, str(MembershipStatus.ACTIVE))
+            .run()
+        )
+        return [str(row["space_id"]) for row in _rows(result)]
+
+    async def get(self, principal_id: str, space_id: str) -> SpaceMembership | None:
+        """Return one membership, whatever its status."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT * FROM space_memberships"
+                " WHERE principal_id = ? AND space_id = ?"
+            )
+            .bind(principal_id, space_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return SpaceMembership(
+            principal_id=str(row["principal_id"]),
+            space_id=str(row["space_id"]),
+            status=MembershipStatus(str(row["status"])),
+            first_seen_at=_dt(row["first_seen_at"]),
+            last_seen_at=_dt(row["last_seen_at"]),
+        )
+
+    async def count_active(self, principal_id: str) -> int:
+        """Return how many spaces this principal is active in."""
+        row = _row(
+            await self._db.prepare(
+                "SELECT COUNT(*) AS total FROM space_memberships"
+                " WHERE principal_id = ? AND status = ?"
+            )
+            .bind(principal_id, str(MembershipStatus.ACTIVE))
+            .first()
+        )
+        if row is None:
+            return 0
+        return _as_int(row["total"])
 
 
 def _channel_binding(row: dict[str, object]) -> ChannelBinding:
@@ -381,6 +505,7 @@ def _channel_binding(row: dict[str, object]) -> ChannelBinding:
         space_id=str(row["space_id"]),
         title=_opt_str(row["title"]),
         created_at=_dt(row["created_at"]),
+        bot_mode=BotMode(str(row["bot_mode"])),
     )
 
 

@@ -95,12 +95,39 @@ class ReviewAction(StrEnum):
     REJECT = "reject"
 
 
+class BotMode(StrEnum):
+    """How much the bot does in a conversation nobody has to ask it.
+
+    The modes are cumulative, from fully silent to proactive:
+
+    - ``off``: neither store nor answer; the bot observes membership only.
+    - ``silent``: store and index, never answer.
+    - ``active``: answer when addressed, store the rest.
+    - ``proactive``: also answer a confident unaddressed question.
+    """
+
+    OFF = "off"
+    SILENT = "silent"
+    ACTIVE = "active"
+    PROACTIVE = "proactive"
+
+
+class MembershipStatus(StrEnum):
+    """Whether a principal is currently in a space."""
+
+    ACTIVE = "active"
+    LEFT = "left"
+
+
 class AiWorkClass(StrEnum):
     """Priority classes for estimated AI budget admission."""
 
     USER = "user"
     BACKGROUND = "background"
     MAINTENANCE = "maintenance"
+    #: Uninvited answers in a group. Optional work: it stops before the
+    #: background class, which is what keeps the bot able to answer at all.
+    PROACTIVE = "proactive"
 
 
 class AnswerMode(StrEnum):

@@ -8,13 +8,21 @@ connector payloads: nothing outside the Telegram adapter imports them.
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from knowledge_bot.domain.enums import BotMode
+
 
 class RegisterGroupRequest(BaseModel):
-    """Telegram group registration request."""
+    """Telegram group registration request.
+
+    ``title`` and ``bot_mode`` are optional on purpose: omitting one keeps
+    whatever is already registered, so a mode can be changed without renaming
+    the group and the other way round.
+    """
 
     chat_id: str = Field(default="", min_length=1)
     title: str | None = None
     space_id: str | None = None
+    bot_mode: BotMode | None = None
 
 
 class TelegramChat(BaseModel):
@@ -80,6 +88,12 @@ class TelegramMessage(BaseModel):
     audio: TelegramDocument | None = None
     video: TelegramDocument | None = None
     reply_to_message: "TelegramMessage | None" = None
+    #: Join service messages. Telegram sends one update listing everyone who
+    #: was added, including the bot itself when it joins.
+    new_chat_members: list[TelegramUser] = Field(default_factory=list)
+    #: Leave service messages, including a kick: Telegram reports both the same
+    #: way, and the bot cannot tell them apart without admin rights.
+    left_chat_member: TelegramUser | None = None
 
 
 class TelegramCallbackQuery(BaseModel):
