@@ -644,6 +644,13 @@ class Scenario:
         same global evidence. Clearing group A's local copy is what makes that
         the case here, and it is why this step runs before the correction steps
         that need A's own record.
+
+        The two rounds are asked separately and the model does not answer
+        twice in the same words, so the collapse keys on the cited evidence and
+        not on the phrasing. That is what this step found the first time it
+        ran: a wording-based rule looked correct offline, where the fake
+        generator returns one fixed string, and duplicated the answer in
+        production.
         """
         bot = self._require(self.bot, "bot")
         await self.worker.reset_item(

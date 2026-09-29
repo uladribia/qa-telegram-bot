@@ -12,7 +12,10 @@ from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.models.common import SourceDescriptor
 from knowledge_bot.models.messages import NormalizedMessage
-from knowledge_bot.ports.generator import GenerationOutput
+from knowledge_bot.ports.generator import (
+    GenerationOutput,
+    GenerationRequest,
+)
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
 from tests.fakes.repositories import InMemoryBotAnswerRepository
@@ -93,6 +96,27 @@ async def test_the_same_answer_from_two_groups_is_one_delivery() -> None:
     assert bundles[0].answer_ids == (
         f"ans:111:90:{CHAT_A}",
         f"ans:111:90:{CHAT_B}",
+    )
+    assert "\U0001f310" not in bundles[0].text
+
+
+async def test_the_same_evidence_is_one_answer_whatever_the_wording() -> None:
+    """Two rounds over one source collapse, even if the model rephrased.
+
+    This is the case the fake generator hides: it returns one fixed string, so
+    wording never varies offline, and a text-based rule looks correct until a
+    real model answers the same question twice in different words.
+    """
+    service = await _service([_qa("qa:global", GLOBAL_SCOPE, "horari")])
+    bundles = await _run(
+        service,
+        [_binding(SPACE_A, "Alpha", CHAT_A), _binding(SPACE_B, "Beta", CHAT_B)],
+        phrasings=["El codi és E2E-BASELINE-42.", "El codi de la prova és 42."],
+    )
+    assert len(bundles) == 1
+    assert bundles[0].answer_ids == (
+        "ans:111:90:-5428209312",
+        "ans:111:90:-1004319238076",
     )
     assert "\U0001f310" not in bundles[0].text
 
@@ -195,13 +219,35 @@ async def test_a_message_with_no_question_yields_nothing() -> None:
     assert bundles == ()
 
 
+class _PhrasingGenerator(FakeGenerator):
+    """Answer each call with the next prepared phrasing, in order."""
+
+    def __init__(self, phrasings: list[str]) -> None:
+        """Store the phrasings to hand out, one per call."""
+        super().__init__()
+        self._phrasings = list(phrasings)
+
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
+        """Return the next phrasing, citing everything it was given."""
+        self.requests.append(request)
+        index = min(len(self.requests) - 1, len(self._phrasings) - 1)
+        return GenerationOutput(
+            status="answered",
+            answer=self._phrasings[index],
+            source_ids=[item.source_id for item in request.evidence],
+        )
+
+
 async def _run(
     service: DirectAnswerService,
     served: list[ChannelBinding],
     *,
     generator: FakeGenerator | None = None,
+    phrasings: list[str] | None = None,
 ) -> tuple[AnswerBundle, ...]:
     """Answer one private message in the given scopes."""
+    if generator is None and phrasings is not None:
+        generator = _PhrasingGenerator(phrasings)
     if generator is not None:
         service = DirectAnswerService(
             answer=AnswerService(
