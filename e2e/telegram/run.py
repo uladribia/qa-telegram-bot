@@ -23,6 +23,7 @@ from e2e.telegram.config import (
     DEFERRED_REPLY_GRACE_SECONDS,
     E2E_TITLE_PREFIX,
     LISTENER_QUIET_SECONDS,
+    PROJECTION_SETTLE_SECONDS,
     PROJECTION_WAIT_SECONDS,
     SCOPE_GLOBAL,
     SENTINEL_QUESTION,
@@ -36,6 +37,9 @@ from e2e.telegram.fixtures import (
     qa_item_id_for,
     reset_and_seed_baseline,
 )
+
+# The listener step re-asks its follow-up while the paired evidence settles.
+LISTENER_MAX_ATTEMPTS = 3
 
 # Visible button labels (never callback payloads).
 BTN_FLAG = "⚠️ Està malament?"
@@ -53,6 +57,7 @@ EDIT_PROMPT = "Envia'm el text correcte."
 REVIEW_REJECTED = "❌ Correcció rebutjada."
 APPROVED = "✅ Correcció aprovada."
 REVIEWER_REMOVED = "Revisor eliminat"
+REVIEWER_ABSENT = "cap revisor per eliminar"
 REVIEWER_CONFIRMED = "revisor d'aquest grup"
 REVIEWER_LIST = "Revisors:"
 REVIEW_HEADER = "Correcció proposada"
@@ -187,12 +192,93 @@ class Scenario:
 
         Returns:
             The matching bot answer.
+
+        Raises:
+            E2ERuntimeError: If no matching answer appears in time.
         """
         await self.client.send(chat, text, reply_to=reply_to)
         return await self.client.wait_for_bot_message(
             chat,
             after_id=after_id,
             predicate=lambda answer: needle in answer,
+        )
+
+    async def ask_and_expect_soft(
+        self,
+        chat: object,
+        text: str,
+        needle: str,
+        *,
+        after_id: int,
+        reply_to: int | None = None,
+    ) -> Message | None:
+        """Like `ask_and_expect`, but return `None` on a timeout.
+
+        Args:
+            chat: The resolved chat entity.
+            text: The message to send.
+            needle: The substring the answer must contain.
+            after_id: The newest message id before sending.
+            reply_to: Optional message id to reply to.
+
+        Returns:
+            The matching bot answer, or `None` when nothing matched.
+        """
+        await self.client.send(chat, text, reply_to=reply_to)
+        try:
+            return await self.client.wait_for_bot_message(
+                chat,
+                after_id=after_id,
+                predicate=lambda answer: needle in answer,
+            )
+        except E2ERuntimeError:
+            return None
+
+    async def ask_until(
+        self,
+        chat: object,
+        text: str,
+        needle: str,
+        *,
+        attempts: int = 3,
+        gap_seconds: int = PROJECTION_WAIT_SECONDS,
+        reply_to: int | None = None,
+    ) -> Message:
+        """Ask, retrying while a fresh projection settles into Vectorize.
+
+        An approval (or a reset) re-projects a Q&A version; Vectorize reads are
+        eventually consistent, so the first question right after an approval
+        may still be answered from the previous text. Each attempt sends the
+        question again and waits for an answer carrying the needle.
+
+        Args:
+            chat: The resolved chat entity.
+            text: The message to send.
+            needle: The substring the answer must contain.
+            attempts: How many ask attempts to make.
+            gap_seconds: Seconds between attempts.
+            reply_to: Optional message id to reply to.
+
+        Returns:
+            The matching bot answer.
+
+        Raises:
+            E2EFailure: If no attempt produced a matching answer.
+        """
+        for attempt in range(attempts):
+            if attempt > 0:
+                await asyncio.sleep(gap_seconds)
+            answer = await self.ask_and_expect_soft(
+                chat,
+                text,
+                needle,
+                after_id=await self._last_message_id(chat),
+            )
+            if answer is not None:
+                return answer
+        raise E2EFailure(
+            "answer_not_settled",
+            f"no answer containing {needle!r} after {attempts} attempts",
         )
 
     async def _last_own_message(self, chat: object) -> Message:
@@ -268,6 +354,9 @@ class Scenario:
         self._dm_last_seen = await self._last_message_id(self.bot)
 
         await reset_and_seed_baseline(settings)
+        # The reset's re-projection must be visible before the first question:
+        # Vectorize reads are eventually consistent.
+        await asyncio.sleep(PROJECTION_SETTLE_SECONDS)
 
     async def addressing(self) -> None:
         """Exercise mention, /ask, reply-to-bot and DM paths."""
@@ -329,16 +418,14 @@ class Scenario:
 
         reply = f"L'activitat de la prova LISTENER-{self.run_id} és a les 17:42."
         await self.client.send(self.group_a, reply, reply_to=listener_question.id)
-        await asyncio.sleep(PROJECTION_WAIT_SECONDS)
 
         bot_username = self.settings.telegram_e2e_bot_username
-        before = await self._last_message_id(self.group_a)
         follow_up = (
             f"@{bot_username} A quina hora és l'activitat de la prova "
             f"LISTENER-{self.run_id}?"
         )
-        answer = await self.ask_and_expect(
-            self.group_a, follow_up, "17:42", after_id=before
+        answer = await self.ask_until(
+            self.group_a, follow_up, "17:42", attempts=LISTENER_MAX_ATTEMPTS
         )
         token = f"LISTENER-{self.run_id}"
         if token not in answer.text:
@@ -387,6 +474,8 @@ class Scenario:
 
     async def edit_and_approve_local(self) -> None:
         """Edit the pending correction and approve it for the group only."""
+        bot_username = self.settings.telegram_e2e_bot_username
+        sentinel_ask = f"@{bot_username} {SENTINEL_QUESTION}"
         review = self._second_review
         if review is None:
             raise E2EFailure("missing_review", "second review was not saved")
@@ -398,23 +487,25 @@ class Scenario:
         await self.client.click_button(regenerated, BTN_APPROVE_GROUP)
         await self._wait_dm_needle(APPROVED)
 
-        before = await self._last_message_id(self.group_a)
-        await self.ask_and_expect(
+        await self.ask_until(
             self.group_a,
-            SENTINEL_QUESTION,
+            sentinel_ask,
             f"LOCAL-{self.run_id}",
-            after_id=before,
         )
-        before = await self._last_message_id(self.group_b)
-        await self.ask_and_expect(
-            self.group_b, SENTINEL_QUESTION, BASELINE_TOKEN, after_id=before
+        await self.ask_until(
+            self.group_b,
+            sentinel_ask,
+            BASELINE_TOKEN,
+            attempts=1,
         )
 
     async def global_correction_from_b(self) -> None:
         """Propose and globally approve from B; A must keep its local override."""
+        bot_username = self.settings.telegram_e2e_bot_username
+        sentinel_ask = f"@{bot_username} {SENTINEL_QUESTION}"
         before = await self._last_message_id(self.group_b)
         answer = await self.ask_and_expect(
-            self.group_b, SENTINEL_QUESTION, BASELINE_TOKEN, after_id=before
+            self.group_b, sentinel_ask, BASELINE_TOKEN, after_id=before
         )
         prompt = await self._flag_and_propose(
             answer, f"El codi E2E global és GLOBAL-{self.run_id}."
@@ -423,19 +514,16 @@ class Scenario:
         await self.client.click_button(review, BTN_APPROVE_GLOBAL)
         await self._wait_dm_needle(APPROVED)
 
-        before = await self._last_message_id(self.group_b)
-        await self.ask_and_expect(
+        await self.ask_until(
             self.group_b,
-            SENTINEL_QUESTION,
+            sentinel_ask,
             f"GLOBAL-{self.run_id}",
-            after_id=before,
         )
-        before = await self._last_message_id(self.group_a)
-        await self.ask_and_expect(
+        await self.ask_until(
             self.group_a,
-            SENTINEL_QUESTION,
+            sentinel_ask,
             f"LOCAL-{self.run_id}",
-            after_id=before,
+            attempts=1,
         )
 
     async def daily_report(self) -> None:
@@ -475,7 +563,9 @@ class Scenario:
                 await self.client.wait_for_bot_message(
                     chat,
                     after_id=before,
-                    predicate=lambda text: REVIEWER_REMOVED in text,
+                    predicate=lambda text: (
+                        REVIEWER_REMOVED in text or REVIEWER_ABSENT in text
+                    ),
                 )
             except Exception as error:
                 problems.append(f"{name} reviewer cleanup failed: {error}")

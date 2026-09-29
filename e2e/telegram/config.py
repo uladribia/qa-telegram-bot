@@ -38,14 +38,24 @@ POLL_INTERVAL_SECONDS = 0.75
 LISTENER_QUIET_SECONDS = 30
 
 # Bounded wait after an explicit reply for listener classification, pairing
-# and projection to complete before retrieval is asserted.
-PROJECTION_WAIT_SECONDS = 40
+# and projection to complete before retrieval is asserted. Vectorize reads
+# are eventually consistent, so the retrieval itself is retried.
+PROJECTION_WAIT_SECONDS = 45
+
+# How many times the listener step re-asks the follow-up while the paired
+# evidence projection settles.
+LISTENER_MAX_ATTEMPTS = 3
 
 # Window given to deferred webhook processing before checking for a reply.
 DEFERRED_REPLY_GRACE_SECONDS = 15
 
 # Revert cleanup never loops forever; the plan caps it explicitly.
 MAX_REVERTS_PER_ITEM = 10
+
+# Vectorize is eventually consistent: a reset's revert re-projection may not
+# be visible to a query for a few seconds. The suite asks the sentinel right
+# after resetting, so it waits this long before trusting the projection.
+PROJECTION_SETTLE_SECONDS = 10
 
 
 class TelegramE2ESettings(BaseSettings):
