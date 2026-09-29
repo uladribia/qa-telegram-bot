@@ -63,7 +63,11 @@ One run exercises, in order:
 11. bot modes — group A is walked through `off`, `silent`, `active` and
     `proactive`, then returned to `active`. What it asserts is whether the bot
     answers, never what it says: by this step the sentinel has been corrected,
-    so pinning a token would be asserting the fixture rather than the mode;
+    so pinning a token would be asserting the fixture rather than the mode. The
+    uninvited probe is the listener step's own question text, because that step
+    only passes if the real classifier called it a confident question; the
+    sentinel is not a valid probe here, since the real listener reads it as a
+    correction and the bot is then right to stay silent;
 12. forced daily report delivered to the bot DM (test-only deployment).
 
 Step 6 seeds its own question and reverts it in cleanup, so it leaves the

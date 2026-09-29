@@ -583,15 +583,31 @@ class Scenario:
         )
         await self._expect_reply(group, f"@{bot_username} {SENTINEL_QUESTION}")
 
-        # proactive: a confident unaddressed question earns an answer. The
-        # listener has to classify it first, so this waits the full timeout.
+        # proactive: a confident unaddressed question earns an answer.
+        #
+        # The question is the listener step's own text, verbatim. That step can
+        # only pass if the real classifier called it a confident question, since
+        # pairing needs that label, so the same string is the same embedding
+        # and the same decision. The sentinel is the wrong probe: the real
+        # listener classifies it as a correction, so the bot is right to stay
+        # silent for it, and an earlier version of this step spent a live run
+        # discovering exactly that.
         await self._set_group_mode(group, title, "proactive")
-        await self._expect_reply(group, SENTINEL_QUESTION)
-        await self._expect_reply(group, f"@{bot_username} {SENTINEL_QUESTION}")
+        await self._expect_reply(group, self._proven_question())
+        await self._expect_reply(group, f"@{bot_username} {self._proven_question()}")
 
         # Leave the group as it was found: a proactive group would answer
         # unaddressed questions for the rest of the run and for every later one.
         await self._set_group_mode(group, title, DEFAULT_GROUP_MODE)
+
+    def _proven_question(self) -> str:
+        """Return the unaddressed question this run already proved answerable.
+
+        The listener step sends it, waits for it to be classified, and only then
+        pairs a reply to it, so by the time the mode matrix runs it is known to
+        be a confident question with evidence behind it.
+        """
+        return f"Prova LISTENER-{self.run_id}: a quina hora és l'activitat?"
 
     async def _expect_reply(self, chat: object, text: str) -> Message:
         """Send a message to a chat and require any bot answer in return.
