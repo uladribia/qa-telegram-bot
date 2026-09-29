@@ -60,6 +60,10 @@ class Evidence:
     author: str | None = None
     #: Connector-declared source type, passed through without interpretation.
     source_kind: str | None = None
+    #: The knowledge scope this piece of evidence lives in, as stored on the
+    #: projection row. It is what tells a multi-scope answer which groups
+    #: actually contributed to it, as opposed to which scopes were searched.
+    scope_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +169,7 @@ def _to_evidence(match: VectorMatch, kind: str) -> Evidence:
         date=_opt_text(metadata.get("date")),
         author=_opt_text(metadata.get("author")),
         source_kind=_opt_text(metadata.get("source_kind")),
+        scope_key=_opt_text(metadata.get("scope_key")),
     )
 
 

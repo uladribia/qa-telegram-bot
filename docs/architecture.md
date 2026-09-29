@@ -40,11 +40,13 @@ The webhook applies the mode only after the control plane. Resolving the binding
 
 ## Membership
 
-`space_memberships` records that a principal was observed in a space, with the first and last time it was seen. Membership is observation, not enumeration: the bot has no admin rights, does not call `getChatMember`, and does not backfill, so anyone it has never seen in a served group is unknown to it. An ordinary group message marks its human sender as a member; Telegram's join and leave service messages mark the people who arrived and departed. Bots are never members, and the person who removes someone is not evidence about themselves.
+`space_memberships` records that a principal was observed in a space, with the first and last time it was seen. Membership is observation, not enumeration: the bot has no admin rights, does not call `getChatMember`, and does not backfill, so anyone it has never seen in a served group is unknown to it. An ordinary group message marks its human sender as a member; a press of one of the bot's buttons in a served group marks the person who pressed it; Telegram's join and leave service messages mark the people who arrived and departed. Bots are never members, and the person who removes someone is not evidence about themselves.
+
+A private message is authorized by that observation, or by the admin/allowlist override. `DirectAnswerService` then answers it once per served group the asker belongs to, collapsing answers that are identical in text and sources, and labelling each surviving block with the scopes of the evidence behind it. That label is read from the projection metadata, so it reports what the answer is made of rather than which scope was searched.
 
 ## Knowledge model
 
-Knowledge has two scopes: `global` and `space:<space_id>`. A local Q&A item suppresses only the global item with the same canonical question. A local correction does not change another space.
+Knowledge has two scopes: `global` and `space:<space_id>`. A local Q&A item suppresses only the global item with the same canonical question. A local correction does not change another space. Both facts matter for a private multi-scope answer: a group round that finds a local record therefore does not also find the global one it overrides, and the two scopes' answers are then visibly different rather than accidentally identical.
 
 Q&A items have stable vector ids `qa:<qa_item_id>`. Message evidence has stable vector ids `msg:<message_id>`. Temporal question-answer candidates are audit rows only; accepted pairs become ordinary message evidence under the answer message id.
 

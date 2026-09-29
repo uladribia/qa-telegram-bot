@@ -126,8 +126,14 @@ def test_proposal_goes_to_the_admin_dm_and_acks_the_reporter() -> None:
 
 
 def test_consumed_proposal_interaction_cannot_be_reused() -> None:
-    """A reply prompt is durable for one interaction only."""
-    context, _ = build_test_context()
+    """A reply prompt is durable for one interaction only.
+
+    The retry is a webhook redelivery of the same update, so it must not open a
+    second correction. It is still a known member's private message, so the
+    control plane declines the spent prompt and the answer path replays the
+    stored answer instead of generating or sending anything again.
+    """
+    context, transport = build_test_context()
     asyncio.run(_seed_answer(context))
     client = _client(context)
     client.post(
@@ -137,10 +143,13 @@ def test_consumed_proposal_interaction_cannot_be_reused() -> None:
     )
     payload = _reply("Resposta nova.", reply_to=1)
     first = client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
-    second = client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
-
     assert first.json() == {"status": "proposed"}
-    assert second.json() == {"status": "ignored"}
+    proposals_after_first = [text for _, text, _ in transport.reviews]
+
+    client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
+
+    assert [text for _, text, _ in transport.reviews] == proposals_after_first
+    assert transport.answers == []
 
 
 def test_approve_creates_a_version_and_thanks_the_reporter() -> None:

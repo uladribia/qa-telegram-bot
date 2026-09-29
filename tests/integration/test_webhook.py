@@ -7,16 +7,24 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
+from knowledge_bot.adapters.telegram.flow import DM_ACCESS_NOTICE
 from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
 from knowledge_bot.api.app import create_app
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.listener import ListenerIngestor
-from knowledge_bot.domain.entities import Message
+from knowledge_bot.domain.entities import Message, TelegramInteraction
 from knowledge_bot.domain.enums import BotMode
+from knowledge_bot.domain.scope import GLOBAL_SCOPE
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, linear_head
-from tests.fakes.context import SPACE_A, WEBHOOK_SECRET, build_test_context
+from tests.fakes.context import (
+    DEFAULT_NOW,
+    SPACE_A,
+    SPACE_B,
+    WEBHOOK_SECRET,
+    build_test_context,
+)
 from tests.fakes.support import InMemoryAiUsageRepository
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": WEBHOOK_SECRET}
@@ -435,11 +443,12 @@ def test_legacy_recap_route_is_retired() -> None:
     assert _client(context).post("/internal/recap").status_code == 404
 
 
-def test_a_strangers_dm_is_ignored_and_never_stored() -> None:
+def test_a_strangers_dm_gets_one_notice_and_nothing_else() -> None:
     """A public bot username must not open a free-for-all DM channel.
 
     Anyone who finds the bot could otherwise spend the shared free AI quota and
-    send the admin fake correction reviews.
+    send the admin fake correction reviews. The notice explains how to be
+    recognised, is stored nowhere, and costs no model call.
     """
     context, transport = build_test_context()
     response = _client(context).post(
@@ -453,9 +462,54 @@ def test_a_strangers_dm_is_ignored_and_never_stored() -> None:
         ),
         headers=SECRET_HEADER,
     )
-    assert response.json() == {"status": "ignored"}
+    assert response.json() == {"status": "dm_notice_sent"}
     assert _stored(context, "999:77") is None
-    assert transport.messages == []
+    assert transport.answers == []
+    assert transport.messages == [("999", DM_ACCESS_NOTICE)]
+
+
+def test_the_stranger_notice_is_not_repeated_every_time() -> None:
+    """A stranger who keeps writing gets one notice a day, not one per message."""
+    context, transport = build_test_context()
+    client = _client(context)
+    for index in (77, 78, 79):
+        client.post(
+            TELEGRAM_WEBHOOK_PATH,
+            json=_update(
+                "hola?",
+                message_id=index,
+                chat_id=999,
+                chat_type="private",
+                from_id=999,
+            ),
+            headers=SECRET_HEADER,
+        )
+    assert transport.messages == [("999", DM_ACCESS_NOTICE)]
+
+
+def test_a_member_who_wrote_in_a_served_group_may_dm_the_bot() -> None:
+    """Membership observed in a group is what opens the private channel."""
+    context, transport = build_test_context()
+    client = _client(context)
+    client.post(
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update("hola", from_id=555),
+        headers=SECRET_HEADER,
+    )
+    response = client.post(
+        TELEGRAM_WEBHOOK_PATH,
+        json=_update(
+            "quan entrenen?",
+            message_id=77,
+            chat_id=555,
+            chat_type="private",
+            from_id=555,
+        ),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "dm_answer"}
+    assert _stored(context, "555:77") is not None
+    assert all(chat == "555" for chat, _, _ in transport.answers)
 
 
 def test_an_allowed_user_may_dm_the_bot() -> None:
@@ -472,7 +526,7 @@ def test_an_allowed_user_may_dm_the_bot() -> None:
         ),
         headers=SECRET_HEADER,
     )
-    assert response.json() == {"status": "answer"}
+    assert response.json() == {"status": "dm_answer"}
     assert _stored(context, "777:78") is not None
 
 
@@ -684,3 +738,297 @@ def test_an_off_group_still_serves_its_control_plane() -> None:
     )
     assert response.status_code == 200
     assert _memberships(context, "telegram:1") == [SPACE_A]
+
+
+def _seed_scoped_qa(
+    context: AppContext, *, space_id: str | None = None, key: str = "horari"
+) -> None:
+    """Put one strong Q&A vector in a scope of the context's retrieval index.
+
+    Two records sharing a ``key`` are the same question, and a local one then
+    overrides the global answer, which is how a group correction reaches a
+    private answer. Two different keys are two different questions.
+    """
+    asyncio.run(
+        context.answer.retrieval.vectors.upsert(
+            [
+                VectorRecord(
+                    id="qa:global" if space_id is None else f"qa:space:{key}",
+                    values=[1.0, 0.0],
+                    metadata={
+                        "kind": "qa",
+                        "object_id": key,
+                        "version_id": "qav:1",
+                        "canonical_key": key,
+                        "status": "active",
+                        "scope_key": GLOBAL_SCOPE
+                        if space_id is None
+                        else f"space:{space_id}",
+                        "text": "Els dimarts a les sis.",
+                        "authority": 90,
+                        "question": f"Quan entrenen? {key}",
+                    },
+                )
+            ]
+        )
+    )
+
+
+def _dm(
+    text: str,
+    *,
+    message_id: int = 90,
+    from_id: int = 111,
+    reply_to: int | None = None,
+) -> dict[str, object]:
+    return _update(
+        text,
+        message_id=message_id,
+        chat_id=from_id,
+        chat_type="private",
+        from_id=from_id,
+        reply_to=reply_to,
+    )
+
+
+def _join_group(
+    context: AppContext, *, from_id: int = 111, chat_id: int = -100
+) -> None:
+    """Record the sender as an active member of the group that chat serves."""
+    asyncio.run(
+        context.memberships.observe(
+            f"telegram:{from_id}", SPACE_A if chat_id == -100 else SPACE_B
+        )
+    )
+
+
+def test_a_private_question_is_answered_in_every_group_the_asker_belongs_to() -> None:
+    """One round per served group, so a group correction is not missed."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_A, key="horari")
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert response.json() == {"status": "dm_answer"}
+    assert [answer_id for _, _, answer_id in transport.answers] == [
+        f"ans:111:90:{SPACE_B}",
+        f"ans:111:90:{SPACE_A}",
+    ]
+
+
+def test_identical_answers_are_delivered_once() -> None:
+    """The same words from the same sources are one answer, not one per group."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context)
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert response.json() == {"status": "dm_answer"}
+    assert len(transport.answers) == 1
+    assert "\U0001f310" not in transport.answers[0][1]
+
+
+def test_a_local_variant_is_delivered_separately_and_labelled() -> None:
+    """A group that knows something extra gets its own block, labelled."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_A, key="material")
+    _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    delivered = {answer_id: text for _, text, answer_id in transport.answers}
+    assert len(delivered) == 2
+    # The group round found both the club's answer and its own, so it says so.
+    assert delivered[f"ans:111:90:{SPACE_A}"].startswith(
+        "\U0001f310 Global \u00b7 \U0001f465 Group -100\n"
+    )
+    # The other group found only the club's answer, and is labelled as such.
+    assert delivered[f"ans:111:90:{SPACE_B}"].startswith("\U0001f310 Global\n")
+
+
+def test_a_single_answer_carries_no_scope_heading() -> None:
+    """One answer is delivered as it is: a heading would only be noise.
+
+    A group that corrected the club's answer wins the round outright, so the
+    local record suppresses the global one and the reader gets that answer and
+    nothing else around it.
+    """
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_B, key="horari")
+    _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert len(transport.answers) == 1
+    text = transport.answers[0][1]
+    assert text.startswith("resposta de prova")
+    assert "\U0001f310" not in text
+    assert "\U0001f465" not in text
+    assert transport.answers[0][2] == f"ans:111:90:{SPACE_B}"
+
+
+def test_a_retried_private_question_is_not_answered_twice() -> None:
+    """A redelivered update re-sends nothing that already went out."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_A, key="material")
+    client = _client(context)
+    for _ in range(2):
+        client.post(
+            TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+        )
+    assert len(transport.answers) == 1
+
+
+def test_a_retry_sends_only_the_answer_that_never_went_out() -> None:
+    """One failed bundle does not cost the reader the one that succeeded."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_A, key="material")
+    # Let the first bundle through and fail the second, once, as a
+    # transient Telegram error would.
+    transport.answer_failure_calls = {2}
+    client = _client(context)
+    payload = _dm("Quan entrenen?")
+    # A failed delivery is retryable, so the webhook reports it as one.
+    failed = client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
+    assert failed.status_code == 503
+    first_pass = list(transport.answers)
+    assert len(first_pass) == 1
+
+    client.post(TELEGRAM_WEBHOOK_PATH, json=payload, headers=SECRET_HEADER)
+
+    assert transport.answers[0] == first_pass[0]
+    assert len(transport.answers) == 2
+
+
+def test_a_member_who_left_a_group_loses_that_scope() -> None:
+    """A group the asker left stops answering for them."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    _join_group(context, from_id=111, chat_id=-200)
+    _seed_scoped_qa(context, key="horari")
+    _seed_scoped_qa(context, space_id=SPACE_A, key="horari")
+    asyncio.run(context.memberships.mark_left("telegram:111", SPACE_B))
+    _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert [answer_id for _, _, answer_id in transport.answers] == [
+        f"ans:111:90:{SPACE_A}"
+    ]
+
+
+def test_an_asker_with_no_group_is_answered_from_global_knowledge() -> None:
+    """An allowlisted person with no group still gets the club's answers."""
+    context, transport = build_test_context(allowed_user_ids=frozenset({"777"}))
+    _seed_scoped_qa(context)
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH,
+        json=_dm("Quan entrenen?", from_id=777),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "dm_answer"}
+    assert [answer_id for _, _, answer_id in transport.answers] == ["ans:777:90:global"]
+
+
+def test_a_muted_private_chat_stores_without_answering() -> None:
+    """``silent`` keeps the message and never spends a model call on it."""
+    context, transport = build_test_context(dm_bot_mode=BotMode.SILENT)
+    _join_group(context, from_id=111, chat_id=-100)
+    _seed_scoped_qa(context, space_id=SPACE_A)
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert response.json() == {"status": "ingest"}
+    assert transport.answers == []
+    stored = _stored(context, "111:90")
+    assert stored is not None
+    assert stored.index_status.value == "not_indexed"
+
+
+def test_a_turned_off_private_chat_is_mute() -> None:
+    """``off`` emits nothing at all, not even the notice to a stranger."""
+    context, transport = build_test_context(dm_bot_mode=BotMode.OFF)
+    client = _client(context)
+    for sender in (111, 999):
+        response = client.post(
+            TELEGRAM_WEBHOOK_PATH,
+            json=_dm("Quan entrenen?", from_id=sender),
+            headers=SECRET_HEADER,
+        )
+        assert response.json() == {"status": "ignored"}
+    assert transport.messages == []
+    assert transport.answers == []
+
+
+def test_a_proactive_private_chat_answers_like_an_active_one() -> None:
+    """A private message always addresses the bot, so the modes converge."""
+    context, transport = build_test_context(dm_bot_mode=BotMode.PROACTIVE)
+    _join_group(context, from_id=111, chat_id=-100)
+    _seed_scoped_qa(context)
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH, json=_dm("Quan entrenen?"), headers=SECRET_HEADER
+    )
+    assert response.json() == {"status": "dm_answer"}
+    assert len(transport.answers) == 1
+
+
+def test_a_reply_to_a_spent_correction_prompt_is_not_a_question() -> None:
+    """Redelivering a correction must not spend a generation on its text."""
+    context, transport = build_test_context()
+    _join_group(context, from_id=111, chat_id=-100)
+    asyncio.run(
+        context.interactions.add(
+            TelegramInteraction(
+                external_message_id="5",
+                interaction_type="feedback_proposal",
+                object_id="fb:1",
+                principal_id="telegram:111",
+                created_at=DEFAULT_NOW,
+                consumed_at=DEFAULT_NOW,
+            )
+        )
+    )
+    response = _client(context).post(
+        TELEGRAM_WEBHOOK_PATH,
+        json=_dm("La llista la passa l'entrenador.", message_id=91, reply_to=5),
+        headers=SECRET_HEADER,
+    )
+    assert response.json() == {"status": "ignored"}
+    assert transport.answers == []
+
+
+def test_pressing_a_group_button_records_membership() -> None:
+    """The person who flags an answer is in the group, whether or not they type."""
+    context, _ = build_test_context()
+    _client(context).post(
+        TELEGRAM_WEBHOOK_PATH,
+        json={
+            "update_id": 5,
+            "callback_query": {
+                "id": "cb-1",
+                "from": {"id": 555, "is_bot": False},
+                "data": "feedback:start:ans:-100:10",
+                "message": {
+                    "message_id": 42,
+                    "date": 1789000000,
+                    "chat": {"id": -100, "type": "supergroup"},
+                    "from": {"id": 999, "is_bot": True},
+                    "text": "resposta",
+                },
+            },
+        },
+        headers=SECRET_HEADER,
+    )
+    assert _memberships(context, "telegram:555") == [SPACE_A]

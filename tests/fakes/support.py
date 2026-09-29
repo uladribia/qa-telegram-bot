@@ -75,6 +75,10 @@ class RecordingTransport:
         #: started a private chat with the bot).
         self.dead_chats: frozenset[str] = frozenset()
         self.answer_failures_remaining = 0
+        #: One-indexed ``send_answer`` calls that fail, for exercising a
+        #: partial delivery where some answers went out and others did not.
+        self.answer_failure_calls: set[int] = set()
+        self.answer_calls = 0
 
     def _reachable(self, conversation_id: str) -> bool:
         """Return whether a DM to this chat would succeed."""
@@ -91,8 +95,11 @@ class RecordingTransport:
         self, conversation_id: str, text: str, answer_id: str
     ) -> str | None:
         """Record an answer with its feedback button target."""
+        self.answer_calls += 1
         if self.answer_failures_remaining:
             self.answer_failures_remaining -= 1
+            return None
+        if self.answer_calls in self.answer_failure_calls:
             return None
         self.answers.append((conversation_id, text, answer_id))
         return str(len(self.answers))
