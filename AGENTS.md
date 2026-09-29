@@ -175,6 +175,7 @@ Pick the smallest command that covers the change:
 | Use case, flow, or adapter behaviour                       | `make test-integration`                                                                  |
 | Classifier, retrieval, or listener behaviour               | `make eval-local` (local Ollama; regenerates `reports/retrieval-classifier-listener.md`) |
 | `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke`                                                                             |
+| Real-Telegram delivery chain (deployed Worker)             | `make test-e2e-telegram` (explicit live authorization; see docs/e2e-telegram.md)          |
 | Before merging to `main`                                   | `make lint` plus the smallest tier that covers the change                                |
 
 Do not run `make smoke` on every change: it builds and boots the Worker and takes
@@ -367,6 +368,11 @@ swallowed the caller's exceptions turned a provider outage into a 500, and
 `tests/unit/test_telemetry.py` now pins that.
 
 ## 9. Git and GitHub workflow
+
+> Telegram flow changes must pass `make test-integration` first. Run the real
+> Telethon E2E only with explicit live authorization and dedicated `[E2E]`
+> groups. The live suite complements, never replaces, deterministic
+> authorization tests.
 
 - `main` is integration-only: **no direct commits, ever**. Branch for every change.
 - Branch naming: `<issue>-<short-slug>` when an issue exists, otherwise

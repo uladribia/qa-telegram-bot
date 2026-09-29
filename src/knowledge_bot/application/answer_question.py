@@ -99,10 +99,14 @@ def _object_id(source_id: str) -> str:
     """Return the object id behind a ``kind:``-namespaced vector id.
 
     Evidence ids reach the model as ``qa:qa-<id>`` / ``msg-<id>``; it commonly
-    echoes the object id alone, dropping the kind prefix. Citation matching
-    resolves both spellings instead of discarding the answer over the prefix.
+    echoes the object id alone, dropping the kind prefix. A space-local item's
+    vector id carries the scope as a further segment, ``qa:qa-<id>:space:<sp>``,
+    which the model also shortens to the bare object id. Citation matching
+    resolves all of these spellings instead of discarding the answer over a
+    prefix or a scope suffix.
     """
-    return source_id.split(":", 1)[-1]
+    without_kind = source_id.split(":", 1)[-1]
+    return without_kind.split(":space:", 1)[0]
 
 
 def render_source_line(source: Evidence) -> str:
@@ -549,7 +553,11 @@ class AnswerService:
         return await self.retrieval.retrieve(clean_question(question))
 
     async def dry_run(
-        self, question: str, *, evidence: list[Evidence] | None = None
+        self,
+        question: str,
+        *,
+        space_id: str | None = None,
+        evidence: list[Evidence] | None = None,
     ) -> AnswerPreview:
         """Decide an answer without persisting it, with the same trace shape.
 
@@ -559,6 +567,9 @@ class AnswerService:
 
         Args:
             question: The question to decide.
+            space_id: The logical space to search, or ``None`` for the global
+                scope only. A case attributed to one group's answer must use
+                that group's scope, not a widened search.
             evidence: Frozen evidence for a generator-only evaluation. When
                 given, retrieval is bypassed and this exact set is selected, so
                 the case measures the generator and not the index. The path
@@ -581,7 +592,7 @@ class AnswerService:
             retrieved = (
                 RetrievedEvidence(qa=list(evidence))
                 if evidence is not None
-                else await self._retrieve(cleaned, None, trace, started)
+                else await self._retrieve(cleaned, space_id, trace, started)
             )
             preview = (
                 AnswerPreview(self._unavailable(trace), [], trace)
