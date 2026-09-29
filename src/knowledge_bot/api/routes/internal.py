@@ -160,6 +160,34 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
             ],
         }
 
+    @router.get("/internal/budget")
+    async def internal_budget(
+        request: Request, key: InternalKey = None
+    ) -> dict[str, object]:
+        """Report today's estimated AI spend and what it still allows.
+
+        The guard is invisible by design: when it stops the bot, the bot simply
+        says nothing. That is correct for a user and useless to an operator
+        asking why a proactive group went quiet, and the only other way to find
+        out is to query the meter by hand. Read-only, and the numbers are the
+        same estimate the guard itself uses.
+        """
+        context = await internal_context(request, key, resolve_context)
+        spend = await context.budget.spend()
+        return {
+            "day": context.budget.day(),
+            "neurons": round(spend.neurons, 1),
+            "limit": spend.limit,
+            "proactive_ceiling": spend.proactive_ceiling,
+            "background_ceiling": spend.background_ceiling,
+            "proactive_allowed": await context.budget.work_allowed(
+                AiWorkClass.PROACTIVE
+            ),
+            "background_allowed": await context.budget.work_allowed(
+                AiWorkClass.BACKGROUND
+            ),
+        }
+
     @router.post("/internal/jobs/daily-report")
     async def internal_daily_report(
         request: Request,

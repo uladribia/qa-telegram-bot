@@ -159,6 +159,20 @@ class InternalWorker:
             detail = f"sentinel projection unexpected in {scope}: {body}"
             raise E2ERuntimeError("seed_not_indexed", detail)
 
+    async def budget(self) -> dict[str, object]:
+        """Return today's estimated spend and what it still allows.
+
+        Returns:
+            The budget payload from the Worker's read-only budget route.
+
+        Raises:
+            E2ERuntimeError: On a non-success response.
+        """
+        response = await self._http.get("/internal/budget")
+        if response.status_code != 200:
+            raise E2ERuntimeError("budget_read_failed", str(response.status_code))
+        return dict(response.json())
+
     async def seed_collapse_question(self, run_id: str) -> None:
         """Seed the run-scoped collapsing question into global knowledge only.
 

@@ -593,7 +593,21 @@ class Scenario:
         # silent for it, and an earlier version of this step spent a live run
         # discovering exactly that.
         await self._set_group_mode(group, title, "proactive")
-        await self._expect_reply(group, self._proven_question())
+        spend = await self.worker.budget()
+        allowed = bool(spend.get("proactive_allowed"))
+        if not allowed:
+            # The contract is silence, not an answer: uninvited answers are the
+            # first thing the daily guard stops, and by the time a long run gets
+            # here the day's spend can already be past that ceiling. Asserting
+            # an answer here would be asserting a fresh day, not the mode.
+            print("  note: proactive budget spent, asserting silence instead")
+            before = await self._last_message_id(group)
+            await self.client.send(group, self._proven_question())
+            await self.client.assert_no_bot_message(
+                group, after_id=before, seconds=LISTENER_QUIET_SECONDS
+            )
+        else:
+            await self._expect_reply(group, self._proven_question())
         await self._expect_reply(group, f"@{bot_username} {self._proven_question()}")
 
         # Leave the group as it was found: a proactive group would answer
