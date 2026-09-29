@@ -20,6 +20,8 @@ from telethon import utils
 from e2e.telegram.client import E2ERuntimeError, Message, TelegramE2EClient
 from e2e.telegram.config import (
     BASELINE_TOKEN,
+    COLLAPSE_QUESTION,
+    COLLAPSE_TOKEN,
     DEFERRED_REPLY_GRACE_SECONDS,
     E2E_TITLE_PREFIX,
     LISTENER_QUIET_SECONDS,
@@ -636,36 +638,34 @@ class Scenario:
         self._dm_last_seen = max(self._dm_last_seen, answer.id)
 
     async def dedup_dm(self) -> None:
-        """Assert a question all scopes share is delivered exactly once.
+        """Assert a question only one scope can answer is delivered once.
 
-        A group that holds its own copy of the club's answer produces a second,
-        separately-sourced message on purpose: two provenances are two facts.
-        The collapse is for the other case, where every round falls back to the
-        same global evidence. Clearing group A's local copy is what makes that
-        the case here, and it is why this step runs before the correction steps
-        that need A's own record.
+        The collapsing question is seeded into global knowledge and into no
+        group, and it is one nobody has ever said in either group. So every
+        round lands on the same single source, which is the only situation the
+        collapse exists for, and the reader must get one message with no
+        heading rather than one per group.
 
-        The two rounds are asked separately and the model does not answer
-        twice in the same words, so the collapse keys on the cited evidence and
-        not on the phrasing. That is what this step found the first time it
-        ran: a wording-based rule looked correct offline, where the fake
-        generator returns one fixed string, and duplicated the answer in
-        production.
+        The sentinel cannot play this part: every run says it out loud in both
+        groups, the listener indexes it as message evidence, and each group's
+        round then cites its own. That is two different answers by design, not
+        a failure to collapse, and the first run of this step is what proved
+        the difference.
         """
         bot = self._require(self.bot, "bot")
-        await self.worker.reset_item(
-            qa_item_id_for(SENTINEL_QUESTION, f"space:{SPACE_A}")
-        )
+        await self.worker.seed_collapse_question(self.run_id)
         await asyncio.sleep(PROJECTION_SETTLE_SECONDS)
 
         before = self._dm_last_seen
-        await self.client.send(bot, SENTINEL_QUESTION)
-        first = await self.wait_dm(after_id=before, needle=BASELINE_TOKEN)
+        await self.client.send(bot, COLLAPSE_QUESTION)
+        first = await self.wait_dm(
+            after_id=before, needle=COLLAPSE_TOKEN.format(run_id=self.run_id)
+        )
         text = first.text or ""
         if GLOBAL_LABEL in text or GROUP_LABEL_MARK in text:
             raise E2EFailure(
                 "dedup_labelled",
-                "a single shared answer was delivered with a scope heading",
+                "one shared source was delivered as several labelled answers",
             )
         await self.client.assert_no_bot_message(
             bot, after_id=first.id, seconds=DM_DEDUP_QUIET_SECONDS
@@ -757,6 +757,7 @@ class Scenario:
             except Exception as error:
                 problems.append(f"{name} reviewer cleanup failed: {error}")
         try:
+            await self.worker.reset_collapse_question()
             await self.worker.reset_item(
                 qa_item_id_for(SENTINEL_QUESTION, f"space:{SPACE_A}")
             )

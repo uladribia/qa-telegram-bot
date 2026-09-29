@@ -45,9 +45,11 @@ One run exercises, in order:
    an explicit human reply is paired and later retrievable;
 5. private multi-scope answer — after group traffic, a private question is
    answered from the club's knowledge with its sources;
-6. dedup — group A's local copy is cleared, so every scope falls back to the
-   same global evidence, and the private question must be delivered **exactly
-   once** with no scope heading;
+6. dedup — a run-scoped question is seeded into global knowledge only, and
+   the private question must be delivered **exactly once** with no scope
+   heading. It is deliberately not the sentinel: the harness says the sentinel
+   out loud in both groups, so the listener indexes it as message evidence and
+   each group's round cites its own, which is two answers by design;
 7. local reviewer nomination in both groups (the acting account must be the
    deployed admin);
 8. reject then re-flag the **same** original answer;
@@ -60,10 +62,10 @@ One run exercises, in order:
     answer of the last, then returned to `active`;
 12. forced daily report delivered to the bot DM (test-only deployment).
 
-Step 6 runs before the correction steps on purpose: it removes group A's own
-copy of the sentinel, and step 9 rebuilds exactly that. Step 11 runs late so a
-group left in `proactive` cannot answer the unaddressed traffic the earlier
-steps assert is silent.
+Step 6 seeds its own question and reverts it in cleanup, so it leaves the
+sentinel fixture alone and does not depend on what earlier runs left in the
+groups. Step 11 runs late so a group left in `proactive` cannot answer the
+unaddressed traffic the earlier steps assert is silent.
 
 Cleanup always runs: both local reviewers are removed, **both groups are
 returned to `active`**, and only the two dedicated sentinel items are reverted.

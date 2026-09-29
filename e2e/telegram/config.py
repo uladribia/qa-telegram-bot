@@ -27,6 +27,14 @@ SCOPE_GLOBAL = "global"
 SENTINEL_QUESTION = "Quin és el codi de la prova E2E de Telegram?"
 BASELINE_TOKEN = "E2E-BASELINE-42"
 BASELINE_ANSWER = f"El codi de la prova E2E de Telegram és {BASELINE_TOKEN}."
+
+# The collapsing step needs a question only the global layer can answer. The
+# sentinel cannot play that part twice: every run says it out loud in both
+# groups, so the listener indexes it as message evidence and each group's round
+# ends up citing its own, which is two different answers by design.
+COLLAPSE_QUESTION = "Quin és el codi únic de la prova E2E de col·lapse?"
+COLLAPSE_TOKEN = "E2E-COLLAPSE-{run_id}"
+COLLAPSE_ANSWER = "El codi únic de la prova E2E de col·lapse és " + COLLAPSE_TOKEN
 SOURCE_URL = "https://e2e.invalid/telegram"
 SOURCE_ANCHOR = "telegram-e2e-sentinel"
 
