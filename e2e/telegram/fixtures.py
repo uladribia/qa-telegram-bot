@@ -15,6 +15,8 @@ import httpx
 from e2e.telegram.client import E2ERuntimeError
 from e2e.telegram.config import (
     BASELINE_ANSWER,
+    COLLAPSE_ANSWER,
+    COLLAPSE_QUESTION,
     MAX_REVERTS_PER_ITEM,
     SCOPE_GLOBAL,
     SENTINEL_QUESTION,
@@ -41,6 +43,18 @@ def qa_item_id_for(question: str, scope: str) -> str:
     if scope == SCOPE_GLOBAL:
         return f"qa-{stable_id(key)}"
     return f"qa-{stable_id(key)}:{scope}"
+
+
+def _collapse_entry(run_id: str) -> dict[str, Any]:
+    """Build one seed entry for the run-scoped collapsing question.
+
+    Returns:
+        A JSON-ready `SeedQA`-shaped dict.
+    """
+    entry = _sentinel_entry()
+    entry["question"] = COLLAPSE_QUESTION
+    entry["answer"] = COLLAPSE_ANSWER.format(run_id=run_id)
+    return entry
 
 
 def _sentinel_entry() -> dict[str, Any]:
@@ -144,6 +158,51 @@ class InternalWorker:
         if body.get("indexed", 0) not in (0, 1):
             detail = f"sentinel projection unexpected in {scope}: {body}"
             raise E2ERuntimeError("seed_not_indexed", detail)
+
+    async def budget(self) -> dict[str, object]:
+        """Return today's estimated spend and what it still allows.
+
+        Returns:
+            The budget payload from the Worker's read-only budget route.
+
+        Raises:
+            E2ERuntimeError: On a non-success response.
+        """
+        response = await self._http.get("/internal/budget")
+        if response.status_code != 200:
+            raise E2ERuntimeError("budget_read_failed", str(response.status_code))
+        return dict(response.json())
+
+    async def seed_collapse_question(self, run_id: str) -> None:
+        """Seed the run-scoped collapsing question into global knowledge only.
+
+        Args:
+            run_id: The run token, so every run reuses the same question and a
+                different answer.
+
+        Raises:
+            E2ERuntimeError: On failure or a missing projection.
+        """
+        response = await self._http.post(
+            "/internal/seed",
+            json={
+                "qa": [_collapse_entry(run_id)],
+                "scope": SCOPE_GLOBAL,
+                "renew": True,
+            },
+        )
+        if response.status_code != 200:
+            raise E2ERuntimeError(
+                "seed_failed", f"collapse question: HTTP {response.status_code}"
+            )
+        body = response.json()
+        if body.get("indexed", 0) not in (0, 1):
+            detail = f"collapse projection unexpected: {body}"
+            raise E2ERuntimeError("seed_not_indexed", detail)
+
+    async def reset_collapse_question(self) -> None:
+        """Revert the collapsing question so the next run starts from nothing."""
+        await self.reset_item(qa_item_id_for(COLLAPSE_QUESTION, SCOPE_GLOBAL))
 
     async def revert_item(self, qa_item_id: str) -> bool:
         """Revert one Q&A item one version; `False` when nothing is left.

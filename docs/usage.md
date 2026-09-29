@@ -63,10 +63,12 @@ general knowledge, so there is no separate "global" pass to wait for.
 
 What comes back is collapsed to what is actually different:
 
-- Identical answers — same words, same sources — are sent **once**, with no
-  label. Two groups that know the same thing do not produce two messages.
-- When the answers differ, each one is a separate message headed by where its
-  evidence came from: `🌐 Global`, `👥 <group name>`, or both when a group round
+- One piece of evidence is one answer. When every round lands on the same
+  sources, you get **one** message, with no label, whatever words the bot
+  chose each time. Two groups that know the same thing do not produce two
+  messages.
+- When the rounds cite different evidence, each one is a separate message
+  headed by where that evidence came from: `🌐 Global`, `👥 <group name>`, or both when a group round
   used the club's answer *and* its own. A group's own correction of the club's
   answer is headed by that group alone.
 - An answer you cannot act on is not sent twice: a group the bot has left out,

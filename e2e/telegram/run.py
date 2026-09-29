@@ -20,6 +20,8 @@ from telethon import utils
 from e2e.telegram.client import E2ERuntimeError, Message, TelegramE2EClient
 from e2e.telegram.config import (
     BASELINE_TOKEN,
+    COLLAPSE_QUESTION,
+    COLLAPSE_TOKEN,
     DEFERRED_REPLY_GRACE_SECONDS,
     E2E_TITLE_PREFIX,
     LISTENER_QUIET_SECONDS,
@@ -547,17 +549,16 @@ class Scenario:
     async def bot_modes(self) -> None:
         """Walk group A through all four modes and assert what each does.
 
-        This is the mode matrix driven against a real group: `off` neither
-        stores nor answers, `silent` stores a mention but stays quiet, `active`
-        answers a mention and ignores a bare question, and `proactive` answers a
-        confident unaddressed question. Only `addressed` and `proactive` produce
-        a visible bot reply; the rest are proven by the silence.
+        What is asserted is whether the bot answers, never what it says. The
+        earlier steps moved the sentinel on, so A answers with the local
+        correction by now, and pinning a token here would be asserting the
+        fixture rather than the mode.
         """
         group = self._require(self.group_a, "group A")
         title = self.settings.telegram_e2e_group_a_title
         bot_username = self.settings.telegram_e2e_bot_username
 
-        # off: a mention gets nothing.
+        # off: a mention gets nothing, and nothing is stored either.
         await self._set_group_mode(group, title, "off")
         before = await self._last_message_id(group)
         await self.client.send(group, f"@{bot_username} {SENTINEL_QUESTION}")
@@ -580,37 +581,76 @@ class Scenario:
         await self.client.assert_no_bot_message(
             group, after_id=before, seconds=LISTENER_QUIET_SECONDS
         )
-        await self.ask_and_expect(
-            group,
-            f"@{bot_username} {SENTINEL_QUESTION}",
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
+        await self._expect_reply(group, f"@{bot_username} {SENTINEL_QUESTION}")
 
-        # proactive: a confident unaddressed question earns an answer. Give the
-        # listener a moment to classify it and the generator a chance to run.
+        # proactive: a confident unaddressed question earns an answer.
+        #
+        # The question is the listener step's own text, verbatim. That step can
+        # only pass if the real classifier called it a confident question, since
+        # pairing needs that label, so the same string is the same embedding
+        # and the same decision. The sentinel is the wrong probe: the real
+        # listener classifies it as a correction, so the bot is right to stay
+        # silent for it, and an earlier version of this step spent a live run
+        # discovering exactly that.
         await self._set_group_mode(group, title, "proactive")
-        answered = await self.ask_and_expect_soft(
-            group,
-            SENTINEL_QUESTION,
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
-        if answered is None:
-            raise E2EFailure(
-                "proactive_not_answered",
-                "a confident unaddressed question in a proactive group got no reply",
+        spend = await self.worker.budget()
+        allowed = bool(spend.get("proactive_allowed"))
+        if not allowed:
+            # The contract is silence, not an answer: uninvited answers are the
+            # first thing the daily guard stops, and by the time a long run gets
+            # here the day's spend can already be past that ceiling. Asserting
+            # an answer here would be asserting a fresh day, not the mode.
+            print("  note: proactive budget spent, asserting silence instead")
+            before = await self._last_message_id(group)
+            await self.client.send(group, self._proven_question())
+            await self.client.assert_no_bot_message(
+                group, after_id=before, seconds=LISTENER_QUIET_SECONDS
             )
-        # A proactive group must still answer a mention normally.
-        await self.ask_and_expect(
-            group,
-            f"@{bot_username} {SENTINEL_QUESTION}",
-            BASELINE_TOKEN,
-            after_id=await self._last_message_id(group),
-        )
+        else:
+            await self._expect_reply(group, self._proven_question())
+        await self._expect_reply(group, f"@{bot_username} {self._proven_question()}")
+
         # Leave the group as it was found: a proactive group would answer
         # unaddressed questions for the rest of the run and for every later one.
         await self._set_group_mode(group, title, DEFAULT_GROUP_MODE)
+
+    def _proven_question(self) -> str:
+        """Return the unaddressed question this run already proved answerable.
+
+        The listener step sends it, waits for it to be classified, and only then
+        pairs a reply to it, so by the time the mode matrix runs it is known to
+        be a confident question with evidence behind it.
+        """
+        return f"Prova LISTENER-{self.run_id}: a quina hora és l'activitat?"
+
+    async def _expect_reply(self, chat: object, text: str) -> Message:
+        """Send a message to a chat and require any bot answer in return.
+
+        Args:
+            chat: The resolved chat entity.
+            text: The message to send.
+
+        Returns:
+            The bot's answer.
+
+        Raises:
+            E2ERuntimeError: If the bot stays silent.
+        """
+        await self.client.send(chat, text)
+        return await self.client.wait_for_bot_message(
+            chat, after_id=await self._last_own_message_id(chat)
+        )
+
+    async def _last_own_message_id(self, chat: object) -> int:
+        """Return the id of the message just sent, as the bot will see it.
+
+        Args:
+            chat: The resolved chat entity.
+
+        Returns:
+            The newest own message id in the chat.
+        """
+        return (await self._last_own_message(chat)).id
 
     async def private_multiscope(self) -> None:
         """Ask privately after group traffic and require a grounded answer.
@@ -636,29 +676,47 @@ class Scenario:
         self._dm_last_seen = max(self._dm_last_seen, answer.id)
 
     async def dedup_dm(self) -> None:
-        """Assert a question all scopes share is delivered exactly once.
+        """Assert a question only one scope can answer is delivered once.
 
-        A group that holds its own copy of the club's answer produces a second,
-        separately-sourced message on purpose: two provenances are two facts.
-        The collapse is for the other case, where every round falls back to the
-        same global evidence. Clearing group A's local copy is what makes that
-        the case here, and it is why this step runs before the correction steps
-        that need A's own record.
+        A run-scoped question is seeded into global knowledge and into no group,
+        on a subject the club corpus says nothing about, so every round lands on
+        the same single source and the reader must get one message with no
+        heading rather than one per group.
+
+        Two things this step learned by failing against the real deployment. The
+        sentinel cannot stand in for it: the harness says the sentinel out loud
+        in both groups, the listener indexes it as message evidence, and each
+        group's round then cites its own, which is two answers by design rather
+        than a collapse that failed. And a question close to the sentinel loses
+        the similarity floor to it, so the model abstains on evidence about a
+        different thing.
+
+        The projection is waited out in the group, where a retry only costs a
+        group message, because Vectorize reads are eventually consistent. The
+        private question is then asked exactly once, because a retry there
+        would be a second delivery and the point of the step is the count.
         """
         bot = self._require(self.bot, "bot")
-        await self.worker.reset_item(
-            qa_item_id_for(SENTINEL_QUESTION, f"space:{SPACE_A}")
+        bot_username = self.settings.telegram_e2e_bot_username
+        await self.worker.seed_collapse_question(self.run_id)
+        await self.ask_until(
+            self._require(self.group_a, "group A"),
+            f"@{bot_username} {COLLAPSE_QUESTION}",
+            COLLAPSE_TOKEN.format(run_id=self.run_id),
+            attempts=LISTENER_MAX_ATTEMPTS,
         )
-        await asyncio.sleep(PROJECTION_SETTLE_SECONDS)
 
         before = self._dm_last_seen
-        await self.client.send(bot, SENTINEL_QUESTION)
-        first = await self.wait_dm(after_id=before, needle=BASELINE_TOKEN)
+        await self.client.send(bot, COLLAPSE_QUESTION)
+        first = await self.wait_dm(
+            after_id=before,
+            needle=COLLAPSE_TOKEN.format(run_id=self.run_id),
+        )
         text = first.text or ""
         if GLOBAL_LABEL in text or GROUP_LABEL_MARK in text:
             raise E2EFailure(
                 "dedup_labelled",
-                "a single shared answer was delivered with a scope heading",
+                "one shared source was delivered as several labelled answers",
             )
         await self.client.assert_no_bot_message(
             bot, after_id=first.id, seconds=DM_DEDUP_QUIET_SECONDS
@@ -750,6 +808,7 @@ class Scenario:
             except Exception as error:
                 problems.append(f"{name} reviewer cleanup failed: {error}")
         try:
+            await self.worker.reset_collapse_question()
             await self.worker.reset_item(
                 qa_item_id_for(SENTINEL_QUESTION, f"space:{SPACE_A}")
             )

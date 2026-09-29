@@ -12,7 +12,10 @@ from knowledge_bot.domain.enums import ContentType
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
 from knowledge_bot.models.common import SourceDescriptor
 from knowledge_bot.models.messages import NormalizedMessage
-from knowledge_bot.ports.generator import GenerationOutput
+from knowledge_bot.ports.generator import (
+    GenerationOutput,
+    GenerationRequest,
+)
 from knowledge_bot.ports.vector_store import VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeGenerator, FakeVectorStore
 from tests.fakes.repositories import InMemoryBotAnswerRepository
@@ -37,11 +40,15 @@ def _message(text: str = "Quan entrenen?") -> NormalizedMessage:
     )
 
 
-def _binding(space_id: str, title: str) -> ChannelBinding:
+CHAT_A = "-5428209312"
+CHAT_B = "-1004319238076"
+
+
+def _binding(space_id: str, title: str, chat_id: str) -> ChannelBinding:
     return ChannelBinding(
         channel="telegram",
-        external_conversation_id=f"chat-{space_id}",
-        conversation_id=f"chat-{space_id}",
+        external_conversation_id=chat_id,
+        conversation_id=chat_id,
         space_id=space_id,
         created_at=NOW,
         title=title,
@@ -83,12 +90,33 @@ async def test_the_same_answer_from_two_groups_is_one_delivery() -> None:
     """Identical words and identical sources are one answer, not one per group."""
     service = await _service([_qa("qa:global", GLOBAL_SCOPE, "horari")])
     bundles = await _run(
-        service, [_binding(SPACE_A, "Alpha"), _binding(SPACE_B, "Beta")]
+        service, [_binding(SPACE_A, "Alpha", CHAT_A), _binding(SPACE_B, "Beta", CHAT_B)]
     )
     assert len(bundles) == 1
     assert bundles[0].answer_ids == (
-        f"ans:111:90:{SPACE_A}",
-        f"ans:111:90:{SPACE_B}",
+        f"ans:111:90:{CHAT_A}",
+        f"ans:111:90:{CHAT_B}",
+    )
+    assert "\U0001f310" not in bundles[0].text
+
+
+async def test_the_same_evidence_is_one_answer_whatever_the_wording() -> None:
+    """Two rounds over one source collapse, even if the model rephrased.
+
+    This is the case the fake generator hides: it returns one fixed string, so
+    wording never varies offline, and a text-based rule looks correct until a
+    real model answers the same question twice in different words.
+    """
+    service = await _service([_qa("qa:global", GLOBAL_SCOPE, "horari")])
+    bundles = await _run(
+        service,
+        [_binding(SPACE_A, "Alpha", CHAT_A), _binding(SPACE_B, "Beta", CHAT_B)],
+        phrasings=["El codi és E2E-BASELINE-42.", "El codi de la prova és 42."],
+    )
+    assert len(bundles) == 1
+    assert bundles[0].answer_ids == (
+        "ans:111:90:-5428209312",
+        "ans:111:90:-1004319238076",
     )
     assert "\U0001f310" not in bundles[0].text
 
@@ -102,14 +130,14 @@ async def test_a_group_own_answer_is_delivered_apart_from_the_club_s() -> None:
         ]
     )
     bundles = await _run(
-        service, [_binding(SPACE_A, "Alpha"), _binding(SPACE_B, "Beta")]
+        service, [_binding(SPACE_A, "Alpha", CHAT_A), _binding(SPACE_B, "Beta", CHAT_B)]
     )
     assert len(bundles) == 2
     texts = {bundle.representative_answer_id: bundle.text for bundle in bundles}
-    assert texts[f"ans:111:90:{SPACE_A}"].startswith(
+    assert texts[f"ans:111:90:{CHAT_A}"].startswith(
         "\U0001f310 Global \u00b7 \U0001f465 Alpha"
     )
-    assert texts[f"ans:111:90:{SPACE_B}"].startswith("\U0001f310 Global")
+    assert texts[f"ans:111:90:{CHAT_B}"].startswith("\U0001f310 Global")
 
 
 async def test_global_comes_first_and_groups_keep_the_given_order() -> None:
@@ -126,11 +154,12 @@ async def test_global_comes_first_and_groups_keep_the_given_order() -> None:
         ]
     )
     bundles = await _run(
-        service, [_binding(SPACE_B, "Alpha"), _binding(SPACE_A, "Zebra")]
+        service,
+        [_binding(SPACE_B, "Alpha", CHAT_B), _binding(SPACE_A, "Zebra", CHAT_A)],
     )
     assert [bundle.representative_answer_id for bundle in bundles] == [
-        f"ans:111:90:{SPACE_B}",
-        f"ans:111:90:{SPACE_A}",
+        f"ans:111:90:{CHAT_B}",
+        f"ans:111:90:{CHAT_A}",
     ]
 
 
@@ -142,9 +171,9 @@ async def test_the_local_answer_represents_a_collapsed_block() -> None:
             _qa("qa:local", scope_for_space(SPACE_A), "horari"),
         ]
     )
-    bundles = await _run(service, [_binding(SPACE_A, "Alpha")])
+    bundles = await _run(service, [_binding(SPACE_A, "Alpha", CHAT_A)])
     assert len(bundles) == 1
-    assert bundles[0].representative_answer_id == f"ans:111:90:{SPACE_A}"
+    assert bundles[0].representative_answer_id == f"ans:111:90:{CHAT_A}"
 
 
 async def test_an_asker_with_no_group_is_answered_globally() -> None:
@@ -162,7 +191,7 @@ async def test_an_unanswerable_question_gets_an_abstention() -> None:
     What it is not owed is a group heading: nothing in any group had a view.
     """
     service = await _service([])
-    bundles = await _run(service, [_binding(SPACE_A, "Alpha")])
+    bundles = await _run(service, [_binding(SPACE_A, "Alpha", CHAT_A)])
     assert len(bundles) == 1
     assert bundles[0].text == ABSTENTION_TEXT
     assert "\U0001f465" not in bundles[0].text
@@ -173,7 +202,7 @@ async def test_an_abstention_sorts_last_and_carries_no_heading() -> None:
     service = await _service([_qa("qa:global", GLOBAL_SCOPE, "horari")])
     bundles = await _run(
         service,
-        [_binding(SPACE_A, "Alpha")],
+        [_binding(SPACE_A, "Alpha", CHAT_A)],
         generator=FakeGenerator(GenerationOutput(status="insufficient")),
     )
     assert len(bundles) == 1
@@ -185,9 +214,28 @@ async def test_a_message_with_no_question_yields_nothing() -> None:
     """Nothing to ask is nothing to answer."""
     service = await _service([_qa("qa:global", GLOBAL_SCOPE, "horari")])
     bundles = await service.bundles_for(
-        _message("   "), served=[_binding(SPACE_A, "Alpha")]
+        _message("   "), served=[_binding(SPACE_A, "Alpha", CHAT_A)]
     )
     assert bundles == ()
+
+
+class _PhrasingGenerator(FakeGenerator):
+    """Answer each call with the next prepared phrasing, in order."""
+
+    def __init__(self, phrasings: list[str]) -> None:
+        """Store the phrasings to hand out, one per call."""
+        super().__init__()
+        self._phrasings = list(phrasings)
+
+    async def generate(self, request: GenerationRequest) -> GenerationOutput:
+        """Return the next phrasing, citing everything it was given."""
+        self.requests.append(request)
+        index = min(len(self.requests) - 1, len(self._phrasings) - 1)
+        return GenerationOutput(
+            status="answered",
+            answer=self._phrasings[index],
+            source_ids=[item.source_id for item in request.evidence],
+        )
 
 
 async def _run(
@@ -195,8 +243,11 @@ async def _run(
     served: list[ChannelBinding],
     *,
     generator: FakeGenerator | None = None,
+    phrasings: list[str] | None = None,
 ) -> tuple[AnswerBundle, ...]:
     """Answer one private message in the given scopes."""
+    if generator is None and phrasings is not None:
+        generator = _PhrasingGenerator(phrasings)
     if generator is not None:
         service = DirectAnswerService(
             answer=AnswerService(

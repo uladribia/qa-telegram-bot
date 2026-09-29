@@ -103,6 +103,32 @@ def test_eval_throttle_does_not_block_unauthenticated_calls(
     )
 
 
+def test_budget_route_reports_spend_and_admission() -> None:
+    """The guard is invisible to a user, so the operator can read it here."""
+    context, _ = build_test_context(spent_neurons=4_000.0)
+    client = TestClient(create_app(lambda request: context))
+    assert client.get("/internal/budget").status_code == 401
+    response = client.get("/internal/budget", headers={"X-Internal-Key": "internal"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["neurons"] == 4_000.0
+    assert body["limit"] == 10_000.0
+    assert body["proactive_ceiling"] == 3_500.0
+    # 4000 is past the proactive ceiling and short of the background one, which
+    # is exactly the state a proactive group goes quiet in.
+    assert body["proactive_allowed"] is False
+    assert body["background_allowed"] is True
+
+
+def test_budget_route_allows_proactive_on_a_fresh_day() -> None:
+    """A day with room left still permits uninvited answers."""
+    context, _ = build_test_context()
+    response = TestClient(create_app(lambda request: context)).get(
+        "/internal/budget", headers={"X-Internal-Key": "internal"}
+    )
+    assert response.json()["proactive_allowed"] is True
+
+
 def test_groups_endpoint_registers_a_group() -> None:
     """The internal groups endpoint registers a served group."""
     context, _ = build_test_context()

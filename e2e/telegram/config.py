@@ -27,6 +27,17 @@ SCOPE_GLOBAL = "global"
 SENTINEL_QUESTION = "Quin és el codi de la prova E2E de Telegram?"
 BASELINE_TOKEN = "E2E-BASELINE-42"
 BASELINE_ANSWER = f"El codi de la prova E2E de Telegram és {BASELINE_TOKEN}."
+
+# The collapsing step needs a question only the global layer can answer, and
+# nothing else in the corpus can compete for. The sentinel cannot play that
+# part: every run says it out loud in both groups, so the listener indexes it
+# as message evidence and each group's round cites its own, which is two
+# answers by design. A near-paraphrase of the sentinel is no good either, it
+# loses the floor to the sentinel and the model abstains on the wrong evidence.
+# So the question is deliberately about nothing the club has ever discussed.
+COLLAPSE_QUESTION = "Quina és la contrasenya del videoclip del bosc E2E?"
+COLLAPSE_TOKEN = "E2E-COLLAPSE-{run_id}"
+COLLAPSE_ANSWER = "La contrasenya del videoclip del bosc E2E és " + COLLAPSE_TOKEN
 SOURCE_URL = "https://e2e.invalid/telegram"
 SOURCE_ANCHOR = "telegram-e2e-sentinel"
 

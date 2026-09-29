@@ -72,7 +72,7 @@ class _Collected:
         self.scopes = tuple(dict.fromkeys((*self.scopes, *scopes)))
         # A group-local answer is the one worth flagging: a reader correcting
         # "what my group said" should land on the group's own record, not on
-        # the global one that happened to be worded the same.
+        # the global one that produced the same answer.
         if is_local and not self.is_local:
             self.is_local = True
             self.response = response
@@ -104,16 +104,19 @@ class DirectAnswerService:
         """
         labels = _scope_labels(served)
         order = {scope: index for index, scope in enumerate(labels)}
-        targets: Sequence[str | None] = [binding.space_id for binding in served] or [
-            None
-        ]
+        # The scope the answer is searched in, and the short reference that goes
+        # into its id. They are different things: the id has to fit a Telegram
+        # callback payload, the space decides which knowledge is searched.
+        targets: Sequence[tuple[str | None, str | None]] = [
+            (binding.space_id, binding.external_conversation_id) for binding in served
+        ] or [(None, None)]
         collected: list[_Collected] = []
         by_answer: dict[tuple[object, ...], _Collected] = {}
-        for space_id in targets:
+        for space_id, scope_ref in targets:
             response = await self.answer.answer_message(
                 message,
                 space_id=space_id,
-                answer_id=scoped_answer_id(message.id, space_id),
+                answer_id=scoped_answer_id(message.id, scope_ref),
             )
             if response is None:
                 continue
@@ -191,12 +194,14 @@ def _display_position(
 def _same_answer_key(response: AskQuestionResponse) -> tuple[object, ...]:
     """Return what makes two answers the same answer.
 
-    Whitespace and the set of cited sources, nothing else. A difference in
-    either is a difference a reader can act on, and collapsing it would hide a
-    provenance they cannot otherwise see.
+    The cited sources and the mode, deliberately not the wording. Two rounds
+    over the same evidence ask the model the same question twice, and it does
+    not answer twice in the same words: the real E2E measured exactly that, a
+    single global source rendered as two differently-phrased deliveries. The
+    fake generator returns one fixed string, so this is the one place where a
+    fake would have hidden the bug.
     """
     return (
-        " ".join(response.answer.split()),
         str(response.mode),
         tuple(sorted(source.source_id for source in response.sources)),
     )

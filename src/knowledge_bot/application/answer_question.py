@@ -55,25 +55,45 @@ def addressed_answer_id(message_id: str) -> str:
     return f"ans:{message_id}"
 
 
-def proactive_answer_id(message_id: str, space_id: str) -> str:
-    """Return the answer id of an uninvited answer in one space.
+def proactive_answer_id(message_id: str, scope_ref: str) -> str:
+    """Return the answer id of an uninvited answer in one scope.
 
-    Tagged with both the trigger and the space: an uninvited answer is a
-    different act from an invited one, and a replay of the same message in a
-    different scope must not reuse it.
+    Args:
+        message_id: The inbound message id, ``<chat>:<message>``.
+        scope_ref: A short reference to the space, see `scoped_answer_id`.
+
+    Returns:
+        An id tagged with the trigger and the scope: an uninvited answer is a
+        different act from an invited one, and a replay of the same message in
+        a different scope must not reuse it.
     """
-    return f"ans:{message_id}:proactive:{space_id}"
+    return f"ans:{message_id}:p:{scope_ref}"
 
 
-def scoped_answer_id(message_id: str, space_id: str | None) -> str:
+def scoped_answer_id(message_id: str, scope_ref: str | None) -> str:
     """Return the answer id of a private answer in one scope.
 
     A private question is answered once per space, so the id carries the scope
     it belongs to. The global round is spelled ``global`` rather than left
-    empty, so every id reads the same and none of them can collide with the
-    single-scope answer of an invited group message.
+    empty, so every id reads the same.
+
+    ``scope_ref`` is the *short* reference to the space, never the space id: an
+    answer id travels to Telegram inside a feedback button, and
+    ``callback_data`` is capped at 64 bytes by the Bot API. A space id is 35
+    characters on its own and the prefix plus the message id leave no room for
+    it, so the connector's own conversation id is used instead. The space the
+    answer belongs to is stored on the answer itself, which is where anything
+    that needs it reads it from. `tests/unit/test_telegram_transport.py` pins
+    the budget.
+
+    Args:
+        message_id: The inbound message id, ``<chat>:<message>``.
+        scope_ref: The short scope reference, or ``None`` for the global round.
+
+    Returns:
+        The idempotency key this answer is stored under.
     """
-    return f"ans:{message_id}:{space_id or GLOBAL_SCOPE}"
+    return f"ans:{message_id}:{scope_ref or GLOBAL_SCOPE}"
 
 
 def clean_question(text: str | None) -> str:

@@ -45,6 +45,22 @@ The control plane is never gated by a mode. If a group is `off` and a member
 replies to a correction prompt, the correction is still taken. A mode decides
 what happens to a question, never whether the bot keeps a promise.
 
+## Why the bot went quiet
+
+When the daily guard stops work, the bot says nothing at all — correct for a
+user, useless for an operator. `GET /internal/budget` (internal-key guarded,
+read-only) reports the day's estimated spend next to the ceilings and whether
+each class is still admitted:
+
+```bash
+curl -s -H "X-Internal-Key: $INTERNAL_ADMIN_KEY" "$BOT_BASE_URL/internal/budget"
+```
+
+`proactive_allowed: false` is the whole explanation for a proactive group that
+stops answering uninvited questions, and `background_allowed: false` explains a
+listener that stores without classifying. This is a real possibility during a
+long E2E run or a day with evals and reindexing, not a fault.
+
 ## Private messages
 
 Who may write to the bot privately is membership, not an allowlist alone: the

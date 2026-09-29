@@ -45,9 +45,14 @@ One run exercises, in order:
    an explicit human reply is paired and later retrievable;
 5. private multi-scope answer — after group traffic, a private question is
    answered from the club's knowledge with its sources;
-6. dedup — group A's local copy is cleared, so every scope falls back to the
-   same global evidence, and the private question must be delivered **exactly
-   once** with no scope heading;
+6. dedup — a run-scoped question, on a subject the corpus says nothing about,
+   is seeded into global knowledge only; the projection is waited out in the
+   group, and the private question must then be delivered **exactly once** with
+   no scope heading. It is deliberately not the sentinel: the harness says the
+   sentinel out loud in both groups, so the listener indexes it as message
+   evidence and each group's round cites its own, which is two answers by
+   design. Nor can it be a paraphrase of the sentinel, which loses the
+   similarity floor to it;
 7. local reviewer nomination in both groups (the acting account must be the
    deployed admin);
 8. reject then re-flag the **same** original answer;
@@ -56,14 +61,19 @@ One run exercises, in order:
 10. global correction from B; B takes the global value while A keeps its local
     override;
 11. bot modes — group A is walked through `off`, `silent`, `active` and
-    `proactive`, asserting the silence of the first three and the one uninvited
-    answer of the last, then returned to `active`;
+    `proactive`, then returned to `active`. What it asserts is whether the bot
+    answers, never what it says: by this step the sentinel has been corrected,
+    so pinning a token would be asserting the fixture rather than the mode. The
+    uninvited probe is the listener step's own question text, because that step
+    only passes if the real classifier called it a confident question; the
+    sentinel is not a valid probe here, since the real listener reads it as a
+    correction and the bot is then right to stay silent;
 12. forced daily report delivered to the bot DM (test-only deployment).
 
-Step 6 runs before the correction steps on purpose: it removes group A's own
-copy of the sentinel, and step 9 rebuilds exactly that. Step 11 runs late so a
-group left in `proactive` cannot answer the unaddressed traffic the earlier
-steps assert is silent.
+Step 6 seeds its own question and reverts it in cleanup, so it leaves the
+sentinel fixture alone and does not depend on what earlier runs left in the
+groups. Step 11 runs late so a group left in `proactive` cannot answer the
+unaddressed traffic the earlier steps assert is silent.
 
 Cleanup always runs: both local reviewers are removed, **both groups are
 returned to `active`**, and only the two dedicated sentinel items are reverted.
