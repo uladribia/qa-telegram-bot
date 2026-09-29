@@ -640,26 +640,39 @@ class Scenario:
     async def dedup_dm(self) -> None:
         """Assert a question only one scope can answer is delivered once.
 
-        The collapsing question is seeded into global knowledge and into no
-        group, and it is one nobody has ever said in either group. So every
-        round lands on the same single source, which is the only situation the
-        collapse exists for, and the reader must get one message with no
+        A run-scoped question is seeded into global knowledge and into no group,
+        on a subject the club corpus says nothing about, so every round lands on
+        the same single source and the reader must get one message with no
         heading rather than one per group.
 
-        The sentinel cannot play this part: every run says it out loud in both
-        groups, the listener indexes it as message evidence, and each group's
-        round then cites its own. That is two different answers by design, not
-        a failure to collapse, and the first run of this step is what proved
-        the difference.
+        Two things this step learned by failing against the real deployment. The
+        sentinel cannot stand in for it: the harness says the sentinel out loud
+        in both groups, the listener indexes it as message evidence, and each
+        group's round then cites its own, which is two answers by design rather
+        than a collapse that failed. And a question close to the sentinel loses
+        the similarity floor to it, so the model abstains on evidence about a
+        different thing.
+
+        The projection is waited out in the group, where a retry only costs a
+        group message, because Vectorize reads are eventually consistent. The
+        private question is then asked exactly once, because a retry there
+        would be a second delivery and the point of the step is the count.
         """
         bot = self._require(self.bot, "bot")
+        bot_username = self.settings.telegram_e2e_bot_username
         await self.worker.seed_collapse_question(self.run_id)
-        await asyncio.sleep(PROJECTION_SETTLE_SECONDS)
+        await self.ask_until(
+            self._require(self.group_a, "group A"),
+            f"@{bot_username} {COLLAPSE_QUESTION}",
+            COLLAPSE_TOKEN.format(run_id=self.run_id),
+            attempts=LISTENER_MAX_ATTEMPTS,
+        )
 
         before = self._dm_last_seen
         await self.client.send(bot, COLLAPSE_QUESTION)
         first = await self.wait_dm(
-            after_id=before, needle=COLLAPSE_TOKEN.format(run_id=self.run_id)
+            after_id=before,
+            needle=COLLAPSE_TOKEN.format(run_id=self.run_id),
         )
         text = first.text or ""
         if GLOBAL_LABEL in text or GROUP_LABEL_MARK in text:

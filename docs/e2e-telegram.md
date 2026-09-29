@@ -45,11 +45,14 @@ One run exercises, in order:
    an explicit human reply is paired and later retrievable;
 5. private multi-scope answer — after group traffic, a private question is
    answered from the club's knowledge with its sources;
-6. dedup — a run-scoped question is seeded into global knowledge only, and
-   the private question must be delivered **exactly once** with no scope
-   heading. It is deliberately not the sentinel: the harness says the sentinel
-   out loud in both groups, so the listener indexes it as message evidence and
-   each group's round cites its own, which is two answers by design;
+6. dedup — a run-scoped question, on a subject the corpus says nothing about,
+   is seeded into global knowledge only; the projection is waited out in the
+   group, and the private question must then be delivered **exactly once** with
+   no scope heading. It is deliberately not the sentinel: the harness says the
+   sentinel out loud in both groups, so the listener indexes it as message
+   evidence and each group's round cites its own, which is two answers by
+   design. Nor can it be a paraphrase of the sentinel, which loses the
+   similarity floor to it;
 7. local reviewer nomination in both groups (the acting account must be the
    deployed admin);
 8. reject then re-flag the **same** original answer;
