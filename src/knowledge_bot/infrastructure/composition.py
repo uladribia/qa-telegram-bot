@@ -8,7 +8,10 @@ from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
-from knowledge_bot.application.assessment import BaselineAssessmentModel
+from knowledge_bot.application.assessment import (
+    BaselineAssessmentModel,
+    SystemOneAssessmentModel,
+)
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
@@ -61,6 +64,10 @@ from knowledge_bot.infrastructure.cloudflare.d1 import (
     D1TelegramInteractionRepository,
 )
 from knowledge_bot.infrastructure.cloudflare.http import WorkersHttpClient
+from knowledge_bot.infrastructure.cloudflare.system_one import (
+    EVAL_DECISION_MODEL,
+    WorkersAISystemOneTransport,
+)
 from knowledge_bot.infrastructure.cloudflare.vectorize import (
     VectorizeIndex,
     VectorizeStore,
@@ -357,4 +364,17 @@ def build_context(env: WorkerEnv) -> AppContext:
         projector=projector,
         runtime_smoke=runtime_smoke,
         pairing=pairing,
+        decision_evaluator=lambda: SystemOneAssessmentModel(
+            transport=WorkersAISystemOneTransport(
+                runner=env.AI,
+                timeout_seconds=settings.ai_decision_timeout_seconds,
+            ),
+            model=EVAL_DECISION_MODEL,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
+            relevance_threshold=settings.retroeval_relevance_threshold,
+            relevance_margin=settings.retroeval_relevance_margin,
+            include_relevance=True,
+            fallback=None,
+        ),
     )

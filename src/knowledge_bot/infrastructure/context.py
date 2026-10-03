@@ -6,6 +6,7 @@ dependencies are grouped on the connector that owns them, so a shared service
 never has to pretend to be Telegram-aware.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from knowledge_bot.adapters.telegram.channel import TelegramChannel
@@ -68,3 +69,8 @@ class AppContext:
     pairing: MessagePairingService
     projector: SearchProjectionService
     runtime_smoke: RuntimeSmokeService
+    #: Builds the evaluation-only System-One decision model. It is None unless
+    #: the runtime can reach a decision model, and nothing on a user-traffic
+    #: path may call it: it exists so one internal, key-gated evaluation
+    #: route can measure an alternative decision without changing behaviour.
+    decision_evaluator: Callable[[], MessageAssessmentModel] | None = None

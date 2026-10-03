@@ -35,6 +35,39 @@ class EvalAnswerRequest(BaseModel):
     evidence: list[FrozenEvidence] | None = None
 
 
+class EvalDecisionCandidate(BaseModel):
+    """One open question an evaluated message could answer."""
+
+    candidate_id: str = Field(min_length=1, max_length=128)
+    question_message_id: str = Field(default="", max_length=128)
+    question: str = Field(min_length=1, max_length=2000)
+    relation: Literal["explicit_reply", "temporal_window"] = "temporal_window"
+
+
+class EvalDecisionCase(BaseModel):
+    """One message to decide, with the open questions it could answer."""
+
+    case_id: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=8000)
+    candidates: list[EvalDecisionCandidate] = Field(default_factory=list, max_length=5)
+
+
+class EvalDecisionRequest(BaseModel):
+    """One bounded decision-evaluation request.
+
+    ``baseline`` answers with the deployed linear classifier and the
+    deterministic pairing policy, so the two backends are measured on exactly
+    the same cases. ``clef-flash`` answers with the evaluation-only decision
+    model; a failure there is reported per case and never replaced by the
+    baseline.
+    """
+
+    backend: Literal["baseline", "clef-flash"] = "clef-flash"
+    #: Empty is refused by the route, not by the schema: an absent body has to
+    #: be constructible so FastAPI can default it.
+    cases: list[EvalDecisionCase] = Field(default_factory=list, max_length=5)
+
+
 class ReindexRequest(BaseModel):
     """Optional bounded incremental reindex request."""
 

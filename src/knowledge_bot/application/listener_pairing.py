@@ -16,7 +16,7 @@ from datetime import timedelta
 from knowledge_bot.application.classifier import message_is_confident
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.domain.entities import Message, MessagePairCandidate
-from knowledge_bot.domain.enums import IndexStatus
+from knowledge_bot.domain.enums import IndexStatus, IntentLabel
 from knowledge_bot.domain.errors import ModelUnavailableError, ProjectionError
 from knowledge_bot.domain.policies import effective_message_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
@@ -33,8 +33,85 @@ from knowledge_bot.ports.repositories import (
 )
 
 _MAX_QUESTION_CHARS = 500
+# The operational confidence policy, applied to a classification that arrives
+# from outside this service (an evaluation) rather than from the classifier.
+_CONFIDENCE_THRESHOLD = 0.60
+_MARGIN_THRESHOLD = 0.15
 _EXPLICIT_REPLY = "explicit_reply"
 _TEMPORAL_WINDOW = "temporal_window"
+
+
+def select_pair(
+    assessment: MessageAssessment,
+    candidates: tuple[RetroevalCandidate, ...],
+    *,
+    relevance_threshold: float,
+    relevance_margin: float,
+) -> RetroevalCandidate | None:
+    """Return the one candidate an assessment accepts, or none.
+
+    With no relevance opinion the deterministic policy decides: an explicit
+    reply wins, and a temporal pairing happens only when exactly one open
+    question is plausible. With relevance scores, the strongest candidate wins
+    only when it clears the threshold and no runner-up comes within the margin.
+    A near tie is a refusal, not a guess.
+
+    This is the whole pairing policy, in one place, so the listener and an
+    offline evaluation decide by the same rules rather than by two
+    implementations that drift apart.
+
+    Args:
+        assessment: The message's intent decision and relevance opinion.
+        candidates: The candidates collected for this message.
+        relevance_threshold: Minimum relevance for the strongest candidate.
+        relevance_margin: Minimum gap to the runner-up candidate.
+
+    Returns:
+        The accepted candidate, or ``None`` when nothing is accepted.
+    """
+    if not candidates:
+        return None
+    if not _is_answer_like(assessment):
+        return None
+    explicit = next(
+        (item for item in candidates if item.relation == _EXPLICIT_REPLY), None
+    )
+    if not assessment.pair_relevance:
+        if explicit is not None:
+            return explicit
+        return candidates[0] if len(candidates) == 1 else None
+    ranked = sorted(
+        (
+            (
+                candidate.candidate_id,
+                assessment.pair_relevance.get(candidate.candidate_id, 0.0),
+            )
+            for candidate in candidates
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    top_id, top_score = ranked[0]
+    if top_score < relevance_threshold:
+        return None
+    if len(ranked) > 1 and top_score - ranked[1][1] < relevance_margin:
+        return None
+    return next(
+        candidate for candidate in candidates if candidate.candidate_id == top_id
+    )
+
+
+def _is_answer_like(assessment: MessageAssessment) -> bool:
+    """Whether the assessment says the message is a factual update or correction."""
+    classification = assessment.classification
+    if classification.prefiltered:
+        return False
+    return classification.is_confident_with(
+        _CONFIDENCE_THRESHOLD, _MARGIN_THRESHOLD
+    ) and classification.best_label in (
+        IntentLabel.KNOWLEDGE_UPDATE,
+        IntentLabel.CORRECTION,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,12 +188,6 @@ class MessagePairingService:
     ) -> RetroevalCandidate | None:
         """Return the one candidate this message answers, or none.
 
-        With no relevance opinion the deterministic policy decides: an explicit
-        reply wins, and a temporal pairing happens only when exactly one open
-        question is plausible. With relevance scores, the strongest candidate
-        wins only when it clears the threshold and no runner-up comes within
-        the margin.
-
         Args:
             message: The message being ingested.
             assessment: The message's intent decision and relevance opinion.
@@ -126,36 +197,11 @@ class MessagePairingService:
             The accepted candidate, or ``None`` when the message pairs with
             nothing.
         """
-        if not candidates or message.id is None:
-            return None
-        if not self.assessment.is_answer_like(assessment.classification):
-            return None
-        explicit = next(
-            (item for item in candidates if item.relation == _EXPLICIT_REPLY), None
-        )
-        if not assessment.pair_relevance:
-            if explicit is not None:
-                return explicit
-            return candidates[0] if len(candidates) == 1 else None
-        ranked = sorted(
-            (
-                (
-                    candidate.candidate_id,
-                    assessment.pair_relevance.get(candidate.candidate_id, 0.0),
-                )
-                for candidate in candidates
-            ),
-            key=lambda item: item[1],
-            reverse=True,
-        )
-        top_id, top_score = ranked[0]
-        runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
-        if top_score < self.relevance_threshold:
-            return None
-        if len(ranked) > 1 and top_score - runner_up < self.relevance_margin:
-            return None
-        return next(
-            candidate for candidate in candidates if candidate.candidate_id == top_id
+        return select_pair(
+            assessment,
+            candidates,
+            relevance_threshold=self.relevance_threshold,
+            relevance_margin=self.relevance_margin,
         )
 
     async def record_pair(self, answer: Message, candidate: RetroevalCandidate) -> int:

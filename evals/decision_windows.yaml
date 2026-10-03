@@ -1,0 +1,1397 @@
+id: clef-decision-windows
+description: Hard listener decision windows built from the canonical Q&A anchors. Reviewed once and frozen
+  before any model output exists; never edit these after seeing results. Regenerate only with scripts/build_decision_windows.py
+  when the underlying Q&A changes.
+schema_version: qa-bot-decision-windows-v1
+seed: 20261003
+anchor_count: 40
+review:
+  status: reviewed and frozen before any model output existed
+  findings_fixed:
+  - no_correct windows whose hard negative was answered by the text
+  - multi_one_correct windows whose negative duplicated the positive
+  - explicit_genuine windows whose sibling question was also answered
+  - ambiguous windows built from a truncated answer, which still answered its own question and so were
+    not ambiguous at all
+  audited_by: scripts/build_decision_windows.py overlap rules, plus a manual read of every window
+  deviations:
+  - ambiguous windows use generic short answers rather than a truncated corpus answer, because a truncated
+    corpus answer still answers its own question
+  - anchors may repeat across categories; only a window's own content must be unique
+  known_softness:
+  - 'three explicit_unrelated windows assert no intent label: a non-answer such as ''ho miro després''
+    is genuinely arguable, and those labels are informational only'
+windows:
+- id: single-1
+  category: single_correct
+  text: Sí, el BHC organitza cada estiu un Casal d'Estiu obert a nens i joves, que combina hoquei amb
+    altres activitats lúdiques. La informació concreta de dates, horaris i inscripció es publica cada
+    temporada al web del club i es comunica per les vies habituals (WhatsApp, delegat/da).
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-casal-estiu-bhc-0
+    question: El club organitza algun casal d'estiu?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: single-2
+  category: single_correct
+  text: 'Preus orientatius (poden variar d''una temporada a una altra; confirma sempre el preu vigent):
+
+    - Samarreta: 38,50€
+
+    - Pantaló curt / faldilla: 29,50€
+
+    - Mitges: 18,50€
+
+    - Dessuadora amb caputxa (Junior): 34,90€
+
+    - Pack equipació complet Adult: 125€
+
+    - Pack equipació complet Junior: 86,50€
+
+    - Impermeable: 27,90€
+
+    - Softshell: 59,90€
+
+
+    Les comandes es fan per correu a ropabhc1977@gmail.com.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-preus-comanda-roba-thunder-0
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: single-3
+  category: single_correct
+  text: 'Els Minis no tenen una competició pròpia. Tot i així, puntualment, l''entrenador/a pot convocar
+    algun jugador/a de Minis per completar l''equip de Prebenjamí en algun partit.
+
+    Aquesta decisió es pren conjuntament entre l''entrenador/a i la família, valorant si el nen o la nena
+    pot i vol competir.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-mini-competicions-0
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: single-4
+  category: single_correct
+  text: 'El delegat/da afegeix les famílies al grup a mesura que el club li fa arribar la llista de qui
+    ja consta inscrit al Cluber (no és el delegat/da qui ho comprova directament al Cluber). Si encara
+    no t''han afegit, pot ser perquè hi ha alguna incidència amb l''inscripció (categoria incorrecta,
+    dades errònies, etc.) que cal resoldre abans que el club la inclogui a la llista.
+
+    Si fa uns dies que vas completar l''inscripció i encara no t''han afegit, contacta amb el delegat/da
+    de la teva secció perquè ho revisi.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-grup-whatsapp-0
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: single-5
+  category: single_correct
+  text: 'El club ofereix un servei d''autocar opcional per a algunes seccions. Normalment es defineix
+    a partir d''una enquesta prèvia de rutes i horaris, i el preu depèn del nombre de germans/es inscrits
+    al servei (amb descompte a partir del segon usuari). El servei sol incloure un monitor a l''autocar
+    i normalment és només d''anada.
+
+    Cada temporada s''envia una circular i un formulari d''inscripció específics amb la ruta, l''horari
+    i el preu vigents, amb un termini limitat per apuntar-s''hi. Com que aquestes condicions poden canviar
+    cada any, consulta sempre la circular més recent o pregunta al delegat/da per tenir la informació
+    actualitzada.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-servei-autobus-0
+    question: Com funciona el servei d'autobús?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-1
+  category: multi_one_correct
+  text: Encara no tenim aquesta informació confirmada. En quant la tinguem, l'afegirem aquí. Mentrestant,
+    pots consultar-ho amb el delegat/da de la teva secció.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-arribada-equipaments-0
+    question: Quan arriben els equipaments?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-equipament-com-demanar-1
+    question: Com i quan s'ha de demanar l'equipament?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-preus-comanda-roba-thunder-2
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-talles-equipament-3
+    question: Com puc saber quines talles escollir dels equipaments del FCB?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-guia-talles-roba-thunder-4
+    question: On puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla,
+      mitges, dessuadora, softshell, impermeable)?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: multi-2
+  category: multi_one_correct
+  text: 'Tots els equips entrenen al Complex Esportiu Municipal Pau Negre, al Parc del Migdia de Montjuïc:
+
+    Passeig Olímpic, 6, Sants-Montjuïc, 08038 Barcelona
+
+    Pel que fa als partits: es juguen al Pau Negre quan l''equip fa de local, i al camp de l''equip rival
+    quan fa de visitant. (A Minis, en general, no hi ha partits de competició pròpiament dits.)
+
+    Per aparcar, el camp de criquet disposa d''una explanada al costat, i a la instal·lació hi ha lavabos
+    i dutxes.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-instalacions-pau-negre-0
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-valors-club-1
+    question: Quins valors defensa el club?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-entrenaments-pluja-2
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-casal-estiu-bhc-3
+    question: El club organitza algun casal d'estiu?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-bhc-vs-fcb-4
+    question: Quines seccions són del Barcelona Hockey Club (BHC) només i quines són també del FC Barcelona
+      (FCB)?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: multi-3
+  category: multi_one_correct
+  text: 'El pagament inclou la quota del club i la llicència federativa anual (amb l''assegurança mèdica
+    corresponent). L''equipament (samarreta, pantalons i mitgetes) es paga a part.
+
+
+    Els pagaments es fan a través de la plataforma Cluber, no en efectiu. Quan tanques la inscripció o
+    la renovació a Cluber (app.cluber.es, o l''aplicació mòbil de Cluber) se''t demana validar el mètode
+    de pagament i confirmar la quota corresponent a la teva secció. La quota del club i la llicència federativa
+    s''abonen en el mateix procés. Per a qualsevol dubte sobre el pagament, soporte@cluber.com.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-que-inclou-pagament-0
+    question: Què inclou el pagament de l'inscripció?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-inscripcio-renovacio-1
+    question: Què he de fer per inscriure o renovar un jugador/a?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-proces-inscripcions-2
+    question: Com funciona el procés d'inscripcions?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-com-es-paga-la-revisio-3
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-mini-fitxa-federativa-4
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: multi-4
+  category: multi_one_correct
+  text: 'Aquestes són les taules de mides (en cm) de l''equipament del Barcelona Hockey Club (BHC), del
+    proveïdor Thunder. (No confondre amb l''equipament oficial del FC Barcelona, que té la seva pròpia
+    guia de talles a la botiga del Barça.)
+
+    Samarreta nena (Jr.)
+
+    Talla46810121416
+
+    Ample27,529,53234,53739,541,5
+
+    Llarg36,5404447,551,55559
+
+    Màniga7,58,59,510111212,5
+
+    Faldilla nena
+
+    Talla4681012
+
+    Cintura27,528,529,530,531,5
+
+    Llarg2728293033
+
+    Samarreta nen (Jr.)
+
+    Talla2468101214
+
+    Ample28313437404346
+
+    Llarg43475155596367
+
+    Màniga18192021222324
+
+    Pantaló curt nen (Jr.)
+
+    Talla6810121416
+
+    Cintura282930313233
+
+    Maluc454749515355
+
+    Llarg414345474951
+
+    Samarreta dona
+
+    TallaXSSMLXL2XL3XL
+
+    Ample44,547,550,553,556,559,562,5
+
+    Llarg61636669727477
+
+    Màniga10,511,512,51415,516,517,5
+
+    Faldilla dona
+
+    TallaXSSMLXL2XL3XL
+
+    Cintura32,533,534,535,536,537,538,5
+
+    Llarg33,53434,53535,53636,5
+
+    Samarreta home
+
+    TallaSMLXL2XL3XL
+
+    Ample495255586164
+
+    Llarg717579838791
+
+    Màniga252627282930
+
+    Pantaló curt home
+
+    TallaXSSMLXL2XL3XL
+
+    Cintura35363739404142
+
+    Maluc57585960616263
+
+    Llarg51535557596163
+
+    Mitges (talla segons mida de peu)
+
+    Talla00012345
+
+    Peu26-2829-3132-3435-3839-4344-4748-51
+
+    Dessuadora amb caputxa (Junior)
+
+    Talla3/45/67/89/1112/14
+
+    Ample3639424850
+
+    Llarg4346535861
+
+    Softshell sense caputxa
+
+    HomeSMLXL2XL3XL4XL
+
+    Ample53565962656871
+
+    Llarg68707274767880
+
+    DonaSMLXL2XL
+
+    Ample4750535659
+
+    Llarg6264666870
+
+    Impermeable (chubasquero)
+
+    AdultSMLXL2XL
+
+    Ample5457606366
+
+    Llarg6568717477
+
+    Nen/a468101214
+
+    Ample374043464952
+
+    Llarg444750535659'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-guia-talles-roba-thunder-0
+    question: On puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla,
+      mitges, dessuadora, softshell, impermeable)?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-preus-comanda-roba-thunder-1
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-talles-equipament-2
+    question: Com puc saber quines talles escollir dels equipaments del FCB?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-equipament-com-demanar-3
+    question: Com i quan s'ha de demanar l'equipament?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-arribada-equipaments-4
+    question: Quan arriben els equipaments?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: multi-5
+  category: multi_one_correct
+  text: 'Ho pots consultar des de l''app de la Federació:
+
+    - Entra a l''app.
+
+    - Accedeix a "Esportista".
+
+    - Introdueix el DNI i la data de naixement.
+
+    - Un cop iniciada la sessió, vés a configuració (a baix a la dreta, "Més").
+
+    - Prem a "El meu compte".
+
+    - Mira la data de caducitat.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-caducitat-certificat-medic-0
+    question: Com puc saber la data de caducitat del certificat mèdic per a la Federació?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-informe-revisio-medica-1
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-acompanyament-revisio-medica-3
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-revisio-medica-reserva-4
+    question: Cal apuntar-se o reservar hora pel meu compte per fer la revisió mèdica al Pau Negre?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: multi-6
+  category: multi_one_correct
+  text: Els minis poden venir a entrenar un cop per setmana sense cap problema. Tot i així, venir a tots
+    els entrenaments ajuda al fet que els companys i companyes no es quedin amb grups molt reduïts o hagin
+    d'entrenar amb altres seccions, i per tant contribueix al fet que tothom tingui la millor experiència
+    esportiva.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-mini-un-cop-setmana-0
+    question: Què passa si un mini només entrena un cop per setmana?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-entrenaments-pluja-1
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-mini-competicions-2
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-instalacions-pau-negre-3
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-mini-fitxa-federativa-4
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-7
+  category: multi_one_correct
+  text: 'Per norma general, si plou es manté l''entrenament. Si en algun moment les condicions fossin
+    impracticables, el club avisaria com més aviat millor; mentre no rebeu cap comunicació en sentit contrari,
+    doneu per fet que l''entrenament es manté.
+
+    Si un cop a la instal·lació es posa a ploure durant la sessió, els entrenadors tenen recursos per
+    fer activitats a cobert (jocs, xerrades, pissarra, etc.).
+
+    És recomanable que els nens i nenes portin un impermeable, i roba de recanvi per canviar-se en acabar
+    l''entrenament.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-entrenaments-pluja-0
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-mini-un-cop-setmana-1
+    question: Què passa si un mini només entrena un cop per setmana?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-instalacions-pau-negre-3
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-hockey-sala-herba-combinat-4
+    question: És veritat que algunes categories combinen entrenaments d'hoquei sala i d'hoquei herba durant
+      part de la temporada?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-8
+  category: multi_one_correct
+  text: 'La secció d''hoquei conviu sota una mateixa Junta i Direcció Tècnica, però cada categoria pertany
+    a un dels dos clubs:
+
+    ClubCategories
+
+    FC Barcelona (FCB)Benjamí, Aleví, Infantil A, Cadet A, Juvenil A, Divisió d''Honor (masculí i femení),
+    Filial (masculí i femení)
+
+    Barcelona Hockey Club (BHC)Minis, Prebenjamí, Infantil B, 2a Divisió, 3a Divisió, Mamis i Papis, Hockey+,
+    i Hockey Sala (totes les categories)
+
+    Els tècnics, preparadors físics, fisios i metges donen servei a totes dues branques per igual. A Minis,
+    per tant, el club de referència és el BHC.
+
+    Aquesta distribució pot variar d''una temporada a una altra, així que si tens dubtes sobre la teva
+    secció concreta, consulta-ho amb el delegat/da.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-bhc-vs-fcb-0
+    question: Quines seccions són del Barcelona Hockey Club (BHC) només i quines són també del FC Barcelona
+      (FCB)?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-hockey-sala-herba-combinat-1
+    question: És veritat que algunes categories combinen entrenaments d'hoquei sala i d'hoquei herba durant
+      part de la temporada?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-talles-equipament-2
+    question: Com puc saber quines talles escollir dels equipaments del FCB?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-instalacions-pau-negre-3
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-preus-comanda-roba-thunder-4
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-9
+  category: multi_one_correct
+  text: Sí. Habitualment costa una vintena d'euros, i el certificat resultant és vàlid per a dues temporades.
+    Confirma el preu vigent amb el club, ja que pot variar d'un curs a un altre.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-revisio-medica-cost-0
+    question: Té algun cost la revisió mèdica que proposa el club?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-com-es-paga-la-revisio-1
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-inscripcio-renovacio-2
+    question: Què he de fer per inscriure o renovar un jugador/a?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-preus-comanda-roba-thunder-3
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-valors-club-4
+    question: Quins valors defensa el club?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-10
+  category: multi_one_correct
+  text: Sí, per l'edat dels petits els pares/mares haurien d'acompanyar-los a la revisió mèdica.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-acompanyament-revisio-medica-0
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-informe-revisio-medica-1
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-revisions-mediques-3
+    question: Qui i quan es fan les revisions mèdiques?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-com-es-paga-la-revisio-4
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-11
+  category: multi_one_correct
+  text: 'La pots descarregar directament des dels enllaços oficials:
+
+    - App Store (iOS)
+
+    - Google Play (Android)
+
+
+    Serveix, per exemple, per consultar la data de caducitat del certificat mèdic del jugador/a, i el
+    club la pot demanar puntualment per a altres gestions.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-app-federacio-descarrega-0
+    question: On puc descarregar l'app de la Federació Catalana d'Hoquei?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-caducitat-certificat-medic-1
+    question: Com puc saber la data de caducitat del certificat mèdic per a la Federació?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-grup-whatsapp-2
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-mini-fitxa-federativa-3
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-metode-pagament-cluber-4
+    question: Com es paguen la quota i la llicència federativa?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-12
+  category: multi_one_correct
+  text: El certificat mèdic esportiu és obligatori i ha d'estar en vigor. Sense un certificat mèdic al
+    dia, el club no pot tramitar la fitxa del jugador/a, la qual cosa vol dir que no podrà entrenar ni
+    jugar partits fins que es regularitzi la situació.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-certificat-medic-0
+    question: Per què és important el certificat mèdic?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-acompanyament-revisio-medica-1
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-informe-revisio-medica-2
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-revisio-obligatoria-venue-optional-3
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-com-es-paga-la-revisio-4
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-13
+  category: multi_one_correct
+  text: 'El club (secció de Hockey FCB-BHC) es defineix a través de cinc valors: Humilitat, Esforç, Ambició,
+    Respecte i Treball en equip. Més enllà del resultat esportiu, l''objectiu declarat de l''escola és
+    formar jugadors i jugadores íntegres i persones amb valors.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-valors-club-0
+    question: Quins valors defensa el club?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-instalacions-pau-negre-1
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-medica-cost-2
+    question: Té algun cost la revisió mèdica que proposa el club?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-grup-whatsapp-3
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-entrenaments-pluja-4
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-14
+  category: multi_one_correct
+  text: No cal que ho gestionis tu directament ni que reservis hora enlloc. Quan es confirmen les dates
+    de les revisions mèdiques a l'inici de curs, el delegat/da de la teva secció n'informa i recull els
+    noms de qui les necessita per apuntar-vos a la llista.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-revisio-medica-reserva-0
+    question: Cal apuntar-se o reservar hora pel meu compte per fer la revisió mèdica al Pau Negre?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-acompanyament-revisio-medica-1
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-com-es-paga-la-revisio-2
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-informe-revisio-medica-3
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-despatx-atencio-pau-negre-4
+    question: Hi ha algun horari d'atenció presencial per a dubtes administratius?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: multi-15
+  category: multi_one_correct
+  text: Es dona prioritat als usuaris que necessiten el servei 2 dies a la setmana. Si un cop cobertes
+    aquestes places en queden de lliures, s'obre la possibilitat d'apuntar-se només 1 dia a la setmana.
+    Si aquest és el teu cas, igualment cal fer l'inscripció al formulari i indicar-ho a l'apartat de comentaris.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-bus-un-dia-0
+    question: Està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-servei-autobus-1
+    question: Com funciona el servei d'autobús?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-despatx-atencio-pau-negre-2
+    question: Hi ha algun horari d'atenció presencial per a dubtes administratius?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-concerts-esdeveniments-acces-3
+    question: Què passa si hi ha un concert o un altre esdeveniment a Montjuïc que afecta l'accés a les
+      instal·lacions?
+    relation: temporal_window
+  - candidate_id: k4
+    question_message_id: mqa-contacte-club-4
+    question: A qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-1
+  category: no_correct
+  text: 'Sí. El club té la concessió del Complex Esportiu Municipal Pau Negre i disposa d''un despatx
+    a la zona d''oficines de la instal·lació, on es pot resoldre presencialment qualsevol dubte administratiu.
+
+    Horari d''atenció: dimarts i dijous, de 18h a 21h.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-contacte-club-0
+    question: A qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-revisio-medica-reserva-1
+    question: Cal apuntar-se o reservar hora pel meu compte per fer la revisió mèdica al Pau Negre?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-bus-un-dia-2
+    question: Està contemplada la possibilitat d'utilitzar el servei de bus tan sols un dia a la setmana?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-grup-whatsapp-3
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: calibration
+- id: nocorrect-2
+  category: no_correct
+  text: 'CategoriaCurs escolar
+
+    MinisI3, I4 i I5
+
+    Prebenjamí1r i 2n de primària
+
+    Benjamí3r i 4t de primària
+
+    Aleví5è i 6è de primària
+
+    Infantil1r i 2n d''ESO
+
+    Cadet3r i 4t d''ESO
+
+    Juvenil1r i 2n de Batxillerat
+
+    Séniorun cop acabat el Batxillerat
+
+    Papis i Mamis+35 anys
+
+    Veterans/es+40 anys
+
+    Fem servir el curs escolar en lloc de l''any de naixement perquè la taula no quedi desactualitzada
+    d''un curs a l''altre.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-entrenaments-pluja-0
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-hockey-sala-herba-combinat-1
+    question: És veritat que algunes categories combinen entrenaments d'hoquei sala i d'hoquei herba durant
+      part de la temporada?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-valors-club-2
+    question: Quins valors defensa el club?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-mini-competicions-3
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: calibration
+- id: nocorrect-3
+  category: no_correct
+  text: 'Cada temporada, a l''inici de curs (normalment al setembre), ve al Pau Negre la mateixa empresa
+    que fa les revisions mèdiques any rere any, en unes dates concretes que s''anuncien abans de començar.
+
+    Revisa el perfil del jugador/a a la Federació Catalana d''Hoquei per saber si el seu certificat mèdic
+    ja ha caducat o li caduca aviat. Si necessita renovar-lo, el delegat/da de la teva secció recull els
+    noms de qui ho necessita i s''encarrega de coordinar la cita amb l''empresa que fa les revisions.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-acompanyament-revisio-medica-0
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-com-es-paga-la-revisio-1
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-informe-revisio-medica-2
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-revisio-obligatoria-venue-optional-3
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: calibration
+- id: nocorrect-4
+  category: no_correct
+  text: 'L''escola s''organitza per categories d''edat, de més petits a més grans:
+
+    - Escoleta (dissabtes)
+
+    - Minis
+
+    - Prebenjamí
+
+    - Benjamí
+
+    - Aleví
+
+    - Infantil
+
+    - Cadet
+
+    - Juvenil
+
+
+    A Benjamí ja es pot fer equip masculí i equip femení separats si hi ha prou jugadors i jugadores;
+    a partir d''Aleví, els grups ja se solen dividir sempre en equips masculins i femenins. En algunes
+    categories, a més, hi conviuen equips diferenciats del Barcelona Hockey Club (BHC) i del FC Barcelona
+    (FCB). Cada equip té el seu propi delegat/da i cos tècnic.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-proces-inscripcions-0
+    question: Com funciona el procés d'inscripcions?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-equipament-com-demanar-1
+    question: Com i quan s'ha de demanar l'equipament?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-que-inclou-pagament-2
+    question: Què inclou el pagament de l'inscripció?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-instalacions-pau-negre-3
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-5
+  category: no_correct
+  text: Pots consultar la guia de talles oficial a la botiga (Store) del FC Barcelona, on trobaràs les
+    mides de cada peça de l'equipament abans de fer la comanda.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-guia-talles-roba-thunder-0
+    question: On puc consultar les taules de mides de l'equipament del BHC (samarreta, pantaló/faldilla,
+      mitges, dessuadora, softshell, impermeable)?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-faldilla-equipament-1
+    question: Per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-bhc-vs-fcb-2
+    question: Quines seccions són del Barcelona Hockey Club (BHC) només i quines són també del FC Barcelona
+      (FCB)?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-arribada-equipaments-3
+    question: Quan arriben els equipaments?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-6
+  category: no_correct
+  text: En hoquei femení és habitual que les jugadores portin faldilla en lloc del pantaló de l'equipament.
+    Nike no proporciona faldilles (no en té per a cap altre esport), així que el club ha contactat amb
+    un altre proveïdor (Thunder Hockey) per fer la comanda de les faldilles que calguin.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-talles-equipament-0
+    question: Com puc saber quines talles escollir dels equipaments del FCB?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-instalacions-pau-negre-1
+    question: On entrenen i juguen els partits els equips del club?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-mini-fitxa-federativa-2
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-equipament-com-demanar-3
+    question: Com i quan s'ha de demanar l'equipament?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-7
+  category: no_correct
+  text: 'El dorsal s''escull dins de la gamma del 2 al 30, i no es pot triar un número que ja estigui
+    assignat a un altre jugador/a de la categoria.
+
+
+    Quan dos o més jugadors/es volen el mateix dorsal, es dóna prioritat a qui ja el portava la temporada
+    anterior. Si encara hi ha empat, es fa un sorteig.
+
+
+    El nom de l''esquena sempre és el nom del nen/a. La llista de números disponibles per a la teva categoria
+    la dona el delegat/da de la secció.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-proces-inscripcions-0
+    question: Com funciona el procés d'inscripcions?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-faldilla-equipament-1
+    question: Per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-talles-equipament-2
+    question: Com puc saber quines talles escollir dels equipaments del FCB?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-contacte-club-3
+    question: A qui puc contactar si tinc un dubte que el delegat/da de la meva secció no em pot resoldre?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-8
+  category: no_correct
+  text: 'La revisió mèdica és obligatòria per a tots els jugadors i jugadores cada temporada. L''única
+    excepció són els que ja tenen una revisió vigent per a la temporada en curs.
+
+
+    La sessió que organitza el club al Pau Negre és opcional: hi pots anar si t''hi apuntes a l''enquesta,
+    però també pots fer la revisió a qualsevol clínica i lliurar el certificat pel teu compte. El club
+    organitza la sessió al Pau Negre per comoditat, no per obligació de lloc.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-acompanyament-revisio-medica-0
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-informe-revisio-medica-1
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-com-es-paga-la-revisio-2
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-entrenaments-pluja-3
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-9
+  category: no_correct
+  text: 'La revisió mèdica es paga en el mateix moment, en efectiu, i convé portar l''import exacte perquè
+    no donen canvi.
+
+
+    El preu pot variar d''un curs a un altre: en les sessions observades ha oscillat entre 17 € i 20 €.
+    Confirma l''import vigent amb el delegat/da de la teva secció abans d''anar-hi. Cal portar també l''anamnesi
+    emplenada en paper.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-acompanyament-revisio-medica-0
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-revisio-medica-cost-1
+    question: Té algun cost la revisió mèdica que proposa el club?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-informe-revisio-medica-3
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: nocorrect-10
+  category: no_correct
+  text: 'Els pagaments del club es fan a través de la plataforma Cluber, no en efectiu ni amb cap altre
+    mètode.
+
+
+    Al tancar la inscripció o la renovació a Cluber (app.cluber.es, o l''aplicació mòbil de Cluber) se''t
+    demana validar el mètode de pagament i confirmar la quota corresponent a la secció. La quota del club
+    i la llicència federativa anual s''abonen en el mateix procés; l''equipament (samarreta, pantalons
+    i mitgetes) es paga a part.
+
+
+    Si el pagament no és efectiu fins al setembre, el club recomana fer la renovació com més aviat millor.
+    Per a qualsevol dubte sobre el pagament, soporte@cluber.com.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-mini-fitxa-federativa-0
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-que-inclou-pagament-1
+    question: Què inclou el pagament de l'inscripció?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-inscripcio-renovacio-2
+    question: Què he de fer per inscriure o renovar un jugador/a?
+    relation: temporal_window
+  - candidate_id: k3
+    question_message_id: mqa-com-es-paga-la-revisio-3
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: ambiguous-1
+  category: ambiguous_two_plausible
+  text: A les sis.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-equipament-com-demanar-0
+    question: A quina hora entrenen els equips?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-equipament-com-demanar-1
+    question: A quina hora es juga el partit?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: calibration
+- id: ambiguous-2
+  category: ambiguous_two_plausible
+  text: Dimarts i dijous.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-anamnesi-format-0
+    question: Quins dies hi ha entrenament?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-anamnesi-format-1
+    question: Quins dies hi ha partit?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: ambiguous-3
+  category: ambiguous_two_plausible
+  text: Al pavelló municipal.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-hockey-sala-herba-combinat-0
+    question: On es juga?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-hockey-sala-herba-combinat-1
+    question: On es fa la inscripció?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: ambiguous-4
+  category: ambiguous_two_plausible
+  text: Toca pagar.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-mini-fitxa-federativa-0
+    question: Com es paga?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-mini-fitxa-federativa-1
+    question: Qui ha de pagar-ho?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: ambiguous-5
+  category: ambiguous_two_plausible
+  text: Ho fa l'equip tècnic.
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-contacte-club-0
+    question: Qui ho organitza?
+    relation: temporal_window
+  - candidate_id: k1
+    question_message_id: mqa-contacte-club-1
+    question: Qui hi assistirà?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: knowledge_update
+  split: test
+- id: explicit-1
+  category: explicit_genuine
+  text: 'Els Ball-Kids són nens i nenes que ajuden durant els partits dels equips grans (per exemple,
+    recollint la pilota que surt del camp). És una manera divertida perquè els més petits visquin l''ambient
+    dels partits de primer nivell i s''il·lusionin amb el hoquei.
+
+    Quan una secció necessita Ball-Kids per a un partit concret, s''envia un avís pel grup de WhatsApp
+    corresponent amb el dia, l''hora i el nombre de places disponibles. Cal portar l''uniforme d''entrenament
+    i espinilleres, i arribar mitja hora abans de l''inici del partit. Sol haver-hi un petit sorteig d''un
+    regal a final de temporada entre tots els que hi han participat.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-ball-kids-0
+    question: Què és això dels BALL-KIDS?
+    relation: explicit_reply
+  - candidate_id: k1
+    question_message_id: mqa-mini-competicions-1
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-faldilla-equipament-2
+    question: Per què les jugadores porten faldilla en lloc de pantaló, i qui la proporciona?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: calibration
+- id: explicit-2
+  category: explicit_genuine
+  text: 'Cal distingir dues situacions diferents:
+
+    - Prohibició o restricció real d''accés: quan l''Institut Barcelona Esports (IBE) o l''Ajuntament
+    informen el club d''una restricció efectiva, el club ho comunica a través del delegat/da de cada secció
+    pel grup de WhatsApp corresponent.
+
+    - Aglomeració sense restricció formal: si hi ha un concert o un altre esdeveniment a la zona de Montjuïc
+    però no hi ha cap restricció d''accés, sol haver-hi més gentada i trànsit, sobretot a l''hora de la
+    recollida. En aquests casos no cal cap avís especial del club, però et recomanem pujar amb una mica
+    més de temps de marge.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-concerts-esdeveniments-acces-0
+    question: Què passa si hi ha un concert o un altre esdeveniment a Montjuïc que afecta l'accés a les
+      instal·lacions?
+    relation: explicit_reply
+  - candidate_id: k1
+    question_message_id: mqa-grup-whatsapp-1
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: explicit-3
+  category: explicit_genuine
+  text: 'No cal. Aquest informe no és el certificat mèdic oficial: és la mateixa empresa que fa les revisions
+    qui envia els resultats directament al delegat/da (o al club), que després els puja a la plataforma
+    de la Federació Catalana d''Hoquei.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-informe-revisio-medica-0
+    question: Un cop feta la revisió mèdica, he d'enviar al delegat/da l'informe que m'han donat?
+    relation: explicit_reply
+  - candidate_id: k1
+    question_message_id: mqa-acompanyament-revisio-medica-1
+    question: Han d'estar presents els pares/mares a la revisió mèdica?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-obligatoria-venue-optional-2
+    question: La revisió mèdica és obligatòria? Puc fer-la fora del Pau Negre?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: explicit-4
+  category: explicit_genuine
+  text: 'Les inscripcions i renovacions es fan en línia a través de la plataforma Cluber:
+
+    - Accedeix a l''enllaç d''inscripció que envia el club a l''inici de cada temporada (o entra directament
+    a app.cluber.es).
+
+    - Inicia sessió amb el número de mòbil del jugador/a.
+
+    - Crea o introdueix la teva contrasenya.
+
+    - Omple el formulari per validar les dades personals.
+
+    - Confirma la quota corresponent a la teva secció.
+
+    - Valida el mètode de pagament.
+
+
+    També ho pots fer des de l''app de Cluber, disponible a Google Play i a l''App Store. Normalment el
+    primer pagament no es fa efectiu fins al setembre, així que és recomanable fer la renovació com més
+    aviat millor.
+
+    Si tens qualsevol dubte durant el procés, pots escriure a soporte@cluber.com.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-inscripcio-renovacio-0
+    question: Què he de fer per inscriure o renovar un jugador/a?
+    relation: explicit_reply
+  - candidate_id: k1
+    question_message_id: mqa-que-inclou-pagament-1
+    question: Què inclou el pagament de l'inscripció?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-revisio-medica-cost-2
+    question: Té algun cost la revisió mèdica que proposa el club?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: explicit-5
+  category: explicit_genuine
+  text: 'El procés varia una mica segons si es tracta d''una renovació o d''una alta nova:
+
+    - Renovacions: es fan directament a través de Cluber seguint els passos explicats a la pregunta "Què
+    he de fer per inscriure o renovar un jugador?".
+
+    - Altes noves: normalment cal que el/la responsable de la secció doni el vistiplau al nou jugador/a
+    (per exemple després d''un període de prova) abans de formalitzar l''inscripció.
+
+
+    En el cas de menors d''edat, durant el procés els tutors legals han de signar electrònicament la documentació
+    i la normativa del club; rebreu un correu de signatura per a cada tutor indicat al formulari.'
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-proces-inscripcions-0
+    question: Com funciona el procés d'inscripcions?
+    relation: explicit_reply
+  - candidate_id: k1
+    question_message_id: mqa-que-inclou-pagament-1
+    question: Què inclou el pagament de l'inscripció?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-organitzacio-escola-2
+    question: Com està organitzada l'escola?
+    relation: temporal_window
+  expected_pair: k0
+  expected_intent: knowledge_update
+  split: test
+- id: explicit-unrelated-1
+  category: explicit_unrelated
+  text: perfecte
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-revisio-medica-reserva-0
+    question: Cal apuntar-se o reservar hora pel meu compte per fer la revisió mèdica al Pau Negre?
+    relation: explicit_reply
+  expected_pair: null
+  expected_intent: chitchat
+  split: calibration
+- id: explicit-unrelated-2
+  category: explicit_unrelated
+  text: d'acord
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-casal-estiu-bhc-0
+    question: El club organitza algun casal d'estiu?
+    relation: explicit_reply
+  expected_pair: null
+  expected_intent: chitchat
+  split: test
+- id: explicit-unrelated-3
+  category: explicit_unrelated
+  text: ho miro després
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-metode-pagament-cluber-0
+    question: Com es paguen la quota i la llicència federativa?
+    relation: explicit_reply
+  expected_pair: null
+  expected_intent: null
+  split: test
+- id: explicit-unrelated-4
+  category: explicit_unrelated
+  text: parlem demà
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-caducitat-certificat-medic-0
+    question: Com puc saber la data de caducitat del certificat mèdic per a la Federació?
+    relation: explicit_reply
+  expected_pair: null
+  expected_intent: null
+  split: test
+- id: explicit-unrelated-5
+  category: explicit_unrelated
+  text: gràcies
+  candidates:
+  - candidate_id: k0
+    question_message_id: mqa-preus-comanda-roba-thunder-0
+    question: Quant costa l'equipament del BHC i on es demana?
+    relation: explicit_reply
+  expected_pair: null
+  expected_intent: chitchat
+  split: test
+- id: chitchat-1
+  category: chitchat_noise
+  text: em sembla molt bé
+  candidates:
+  - candidate_id: k1
+    question_message_id: mqa-com-es-paga-la-revisio-1
+    question: Com es paga la revisió mèdica el dia de la sessió?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-inscripcio-renovacio-2
+    question: Què he de fer per inscriure o renovar un jugador/a?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: chitchat
+  split: calibration
+- id: chitchat-2
+  category: chitchat_noise
+  text: riure riure
+  candidates:
+  - candidate_id: k1
+    question_message_id: mqa-entrenaments-pluja-1
+    question: Si plou, s'entrena igualment?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-mini-competicions-2
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: chitchat
+  split: calibration
+- id: chitchat-3
+  category: chitchat_noise
+  text: quinonymous foto
+  candidates:
+  - candidate_id: k1
+    question_message_id: mqa-mini-fitxa-federativa-1
+    question: Per què els minis han de pagar la fitxa federativa?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-mini-un-cop-setmana-2
+    question: Què passa si un mini només entrena un cop per setmana?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: chitchat
+  split: test
+- id: chitchat-4
+  category: chitchat_noise
+  text: ja saps que sí
+  candidates:
+  - candidate_id: k1
+    question_message_id: mqa-metode-pagament-cluber-1
+    question: Com es paguen la quota i la llicència federativa?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-mini-competicions-2
+    question: Els minis juguen a les competicions?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: chitchat
+  split: test
+- id: chitchat-5
+  category: chitchat_noise
+  text: bon dia a tothom
+  candidates:
+  - candidate_id: k1
+    question_message_id: mqa-caducitat-certificat-medic-1
+    question: Com puc saber la data de caducitat del certificat mèdic per a la Federació?
+    relation: temporal_window
+  - candidate_id: k2
+    question_message_id: mqa-grup-whatsapp-2
+    question: Per què no m'han convidat al grup de WhatsApp de la meva secció si ja he inscrit el meu/va
+      fill/a al Cluber?
+    relation: temporal_window
+  expected_pair: null
+  expected_intent: chitchat
+  split: test

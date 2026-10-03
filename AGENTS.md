@@ -78,9 +78,36 @@ service instead of the linear classifier:
 - The local service is a **testing runtime**. `make decision-eval` measures it
   for information; it is not a release gate, and its numbers describe one
   machine, not the bot that serves the group.
-- No training, no remote model calls, and no new dependency are part of this
-  path. The linear classifier and the deterministic pairing logic remain the
-  baseline and must keep working.
+- No training and no new dependency are part of this path. The linear
+  classifier and the deterministic pairing logic remain the baseline and must
+  keep working.
+- **User traffic never calls a remote decision model.** One exception exists,
+  for measurement only: the Clef-Flash decision evaluation below.
+
+### Production Clef decision evaluation
+
+While evaluating `@cf/cloudflare/clef-flash` as an alternative decision backend:
+
+- Production Telegram and listener traffic remain on `BaselineAssessmentModel`.
+  The evaluation must not change a single runtime setting.
+- Clef may be called only from the authenticated, side-effect-free internal
+  evaluation path (`POST /internal/eval/decision`).
+- Reuse `SystemOneAssessmentModel`, `build_message_decision_request`, the strict
+  parsers, the candidate DTOs, and `select_pair`; never reimplement them.
+- One evaluated message produces exactly one Clef request carrying intent plus
+  every candidate relevance. Never one request per candidate, never a second
+  pass.
+- **No baseline fallback in the evaluation.** A provider or parsing failure is
+  an evaluation error, reported per case. Substituting another model would
+  measure the wrong thing.
+- Live evaluation requires `ALLOW_CLOUDFLARE_LIVE_TESTS=1`, `BOT_BASE_URL`,
+  `INTERNAL_ADMIN_KEY`, and a successful dry-run cost check.
+- Successful outputs are cached by deployed SHA, model id, and request hash, so
+  a repeated case is never paid for twice.
+- Live evals never run from CI, startup, cron, deploy hooks, `make all`, or the
+  normal test tiers.
+- The task ends with a verdict in `reports/`. Enabling any decision model for
+  user traffic is a separate task with its own plan.
 
 ## 2. Stack (locked)
 
