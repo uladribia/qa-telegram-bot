@@ -1,24 +1,28 @@
 # SPDX-License-Identifier: MIT
-"""Conservative deterministic pairing of listener questions and answers.
+"""Pairing of listener questions and answers, baseline or model-decided.
 
-No model call is made to pair ordinary messages. An explicit Telegram reply
-is paired at ingest time (``app.py``); this service handles the temporal
-case: a confident standalone update or correction is paired only when the
-conversation has exactly one plausible unresolved recent question.
+Pairing answers one question: which open question, if any, does this message
+answer? The baseline answers it deterministically, from an explicit reply or
+from the shape of the conversation window. A decision model answers it from the
+relevance probabilities it returned for every candidate in the same request
+that classified the message. Both paths collect the same candidates first, so
+neither can decide on a question the other never saw.
 """
 
 import hashlib
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
-from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import message_is_confident
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.domain.entities import Message, MessagePairCandidate
-from knowledge_bot.domain.enums import AiWorkClass, IndexStatus
+from knowledge_bot.domain.enums import IndexStatus
 from knowledge_bot.domain.errors import ModelUnavailableError, ProjectionError
 from knowledge_bot.domain.policies import effective_message_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
+from knowledge_bot.models.assessment import MessageAssessment, RetroevalCandidate
+from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.index import IndexableMessage
 from knowledge_bot.ports.repositories import (
@@ -28,72 +32,213 @@ from knowledge_bot.ports.repositories import (
     SourceRepository,
 )
 
-_QUESTION_LABEL = "question"
-_ANSWER_LABELS = frozenset({"knowledge_update", "correction"})
 _MAX_QUESTION_CHARS = 500
+_EXPLICIT_REPLY = "explicit_reply"
+_TEMPORAL_WINDOW = "temporal_window"
 
 
 @dataclass(frozen=True, slots=True)
 class MessagePairingService:
-    """Pair confident answers with one unambiguous recent question."""
+    """Collect open questions for a message and decide whether it answers one."""
 
     messages: MessageRepository
     conversations: ConversationRepository
     sources: SourceRepository
     candidates: MessagePairCandidateRepository
     projector: SearchProjectionService
+    assessment: MessageAssessmentModel
     clock: Clock
-    budget: AiBudget | None = None
     question_window_minutes: int = 5
     max_pending_questions: int = 5
-    confidence_threshold: float = 0.60
-    margin_threshold: float = 0.15
+    relevance_threshold: float = 0.80
+    relevance_margin: float = 0.15
 
-    async def on_message(self, message_id: str) -> int:
-        """Evaluate one freshly classified message for temporal pairing.
+    @property
+    def confidence_threshold(self) -> float:
+        """The confidence policy applied to stored classifications."""
+        return self.assessment.confidence_threshold
 
-        High-confidence questions stay as pending question candidates (they
-        are never indexed as evidence). Confident standalone updates or
-        corrections pair only when exactly one plausible unresolved question
-        is recent enough; anything else remains a standalone factual update.
+    @property
+    def margin_threshold(self) -> float:
+        """The margin policy applied to stored classifications."""
+        return self.assessment.margin_threshold
+
+    async def candidates_for(
+        self, message: NormalizedMessage
+    ) -> tuple[RetroevalCandidate, ...]:
+        """Return every open question this message could answer.
+
+        The explicit parent comes first when it is a confident question; every
+        other confident question recent enough in the same conversation follows.
+        A parent that is also inside the window appears once, keeping its
+        explicit relation.
+
+        This reads only. It makes no model call, writes nothing, and decides
+        nothing: the decision model must see all candidates at once.
+
+        Args:
+            message: The message being ingested.
+
+        Returns:
+            The candidate questions, explicit reply first.
         """
-        message = await self.messages.get(message_id)
-        if message is None or not message.text:
+        candidates: list[RetroevalCandidate] = []
+        seen: set[str] = set()
+        explicit = await self._explicit_candidate(message)
+        if explicit is not None:
+            candidates.append(explicit)
+            seen.add(explicit.question_message_id)
+        for question in await self._recent_questions(message):
+            if question.id in seen:
+                continue
+            candidates.append(
+                RetroevalCandidate(
+                    candidate_id=self._candidate_id(
+                        message.conversation_id, question.id, message.id
+                    ),
+                    question_message_id=question.id,
+                    question=question.text or "",
+                    relation=_TEMPORAL_WINDOW,
+                )
+            )
+        return tuple(candidates)
+
+    def select_pair(
+        self,
+        message: NormalizedMessage,
+        assessment: MessageAssessment,
+        candidates: tuple[RetroevalCandidate, ...],
+    ) -> RetroevalCandidate | None:
+        """Return the one candidate this message answers, or none.
+
+        With no relevance opinion the deterministic policy decides: an explicit
+        reply wins, and a temporal pairing happens only when exactly one open
+        question is plausible. With relevance scores, the strongest candidate
+        wins only when it clears the threshold and no runner-up comes within
+        the margin.
+
+        Args:
+            message: The message being ingested.
+            assessment: The message's intent decision and relevance opinion.
+            candidates: The candidates collected for this message.
+
+        Returns:
+            The accepted candidate, or ``None`` when the message pairs with
+            nothing.
+        """
+        if not candidates or message.id is None:
+            return None
+        if not self.assessment.is_answer_like(assessment.classification):
+            return None
+        explicit = next(
+            (item for item in candidates if item.relation == _EXPLICIT_REPLY), None
+        )
+        if not assessment.pair_relevance:
+            if explicit is not None:
+                return explicit
+            return candidates[0] if len(candidates) == 1 else None
+        ranked = sorted(
+            (
+                (
+                    candidate.candidate_id,
+                    assessment.pair_relevance.get(candidate.candidate_id, 0.0),
+                )
+                for candidate in candidates
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        top_id, top_score = ranked[0]
+        runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+        if top_score < self.relevance_threshold:
+            return None
+        if len(ranked) > 1 and top_score - runner_up < self.relevance_margin:
+            return None
+        return next(
+            candidate for candidate in candidates if candidate.candidate_id == top_id
+        )
+
+    async def record_pair(self, answer: Message, candidate: RetroevalCandidate) -> int:
+        """Record the accepted pair and project the answer as its evidence.
+
+        Args:
+            answer: The stored message answering the question.
+            candidate: The accepted candidate question.
+
+        Returns:
+            ``1`` when a new pair was recorded, ``0`` when it already existed.
+        """
+        stored = await self.messages.get(candidate.question_message_id)
+        if stored is None or not stored.text:
             return 0
+        pair = MessagePairCandidate(
+            id=self._candidate_id(answer.conversation_id, stored.id, answer.id),
+            conversation_id=answer.conversation_id,
+            question_message_id=stored.id,
+            answer_message_id=answer.id,
+            confidence=answer.intent_score or 0.0,
+            source=(
+                _EXPLICIT_REPLY
+                if candidate.relation == _EXPLICIT_REPLY
+                else "deterministic_reply_window"
+            ),
+            created_at=self.clock.now(),
+        )
+        if not await self.candidates.add(pair):
+            return 0
+        updated = replace(
+            answer,
+            context_question=stored.text[:_MAX_QUESTION_CHARS],
+            index_status=IndexStatus.PENDING,
+        )
+        await self.messages.save(updated)
+        try:
+            await self._project_answer(updated, stored)
+        except (ProjectionError, ModelUnavailableError, RuntimeError, ValueError):
+            await self.messages.save(replace(updated, index_status=IndexStatus.FAILED))
+        return 1
+
+    async def _explicit_candidate(
+        self, message: NormalizedMessage
+    ) -> RetroevalCandidate | None:
+        """Return the parent question this message replies to, when it is one."""
+        if message.reply_to_message_id is None:
+            return None
+        parent = await self.messages.get(
+            f"{message.conversation_id}:{message.reply_to_message_id}"
+        )
+        if parent is None or not parent.text or parent.id == message.id:
+            return None
+        if parent.intent_label != "question":
+            return None
         if not message_is_confident(
-            message.intent_label,
-            message.intent_score,
-            message.intent_scores_json,
+            parent.intent_label,
+            parent.intent_score,
+            parent.intent_scores_json,
             confidence_threshold=self.confidence_threshold,
             margin_threshold=self.margin_threshold,
         ):
-            return 0
-        if (
-            message.intent_label not in _ANSWER_LABELS
-            or message.context_question is not None
-        ):
-            return 0
-        if self.budget is not None and not await self.budget.work_allowed(
-            AiWorkClass.BACKGROUND
-        ):
-            return 0
-        questions = await self._recent_questions(message)
-        if len(questions) != 1:
-            # 0 plausible questions: standalone update. More than one:
-            # ambiguous, refuse to pair automatically.
-            return 0
-        return await self._pair(message, questions[0])
+            return None
+        return RetroevalCandidate(
+            candidate_id=self._candidate_id(
+                message.conversation_id, parent.id, message.id
+            ),
+            question_message_id=parent.id,
+            question=parent.text,
+            relation=_EXPLICIT_REPLY,
+        )
 
-    async def _recent_questions(self, answer: Message) -> list[Message]:
+    async def _recent_questions(self, message: NormalizedMessage) -> list[Message]:
         """Return confident unresolved questions inside the pairing window."""
-        since = answer.created_at - timedelta(minutes=self.question_window_minutes)
+        created_at = message.timestamp
+        since = created_at - timedelta(minutes=self.question_window_minutes)
         candidates = await self.messages.list_recent_unpaired_questions(
-            answer.conversation_id, since, answer.created_at, self.max_pending_questions
+            message.conversation_id, since, created_at, self.max_pending_questions
         )
         return [
             question
             for question in candidates
-            if question.id != answer.id
+            if question.id != message.id
             and message_is_confident(
                 question.intent_label,
                 question.intent_score,
@@ -102,33 +247,6 @@ class MessagePairingService:
                 margin_threshold=self.margin_threshold,
             )
         ]
-
-    async def _pair(self, answer: Message, question: Message) -> int:
-        """Record the pair, mark the answer as paired evidence, and project it."""
-        candidate = MessagePairCandidate(
-            id=self._candidate_id(answer.conversation_id, question.id, answer.id),
-            conversation_id=answer.conversation_id,
-            question_message_id=question.id,
-            answer_message_id=answer.id,
-            confidence=answer.intent_score or 0.0,
-            source="deterministic_reply_window",
-            created_at=self.clock.now(),
-        )
-        if not await self.candidates.add(candidate):
-            return 0
-        updated = replace(
-            answer,
-            context_question=question.text[:_MAX_QUESTION_CHARS]
-            if question.text
-            else None,
-            index_status=IndexStatus.PENDING,
-        )
-        await self.messages.save(updated)
-        try:
-            await self._project_answer(updated, question)
-        except (ProjectionError, ModelUnavailableError, RuntimeError, ValueError):
-            await self.messages.save(replace(updated, index_status=IndexStatus.FAILED))
-        return 1
 
     async def _project_answer(self, answer: Message, question: Message) -> None:
         """Project the accepted answer under its stable message id."""

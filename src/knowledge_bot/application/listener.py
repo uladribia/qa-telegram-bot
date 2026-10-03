@@ -5,22 +5,22 @@ A listened conversation is classified and stored either way, so a later
 question can be answered from it. Nothing here is channel-specific: the caller
 arrives with a normalized message and an intake decision, whichever connector
 produced them.
+
+One message costs one assessment. The open questions it could answer are
+collected first and travel with that single request, so a decision model sees
+the intent and every candidate relevance together and nothing is classified
+twice.
 """
 
 from dataclasses import dataclass
 
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
-from knowledge_bot.application.classifier import (
-    QUESTION,
-    Classification,
-    MessageClassifier,
-    message_is_confident,
-)
 from knowledge_bot.application.ingest import MessageIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.domain.enums import AiWorkClass, ClassificationStatus, IndexStatus
 from knowledge_bot.models.messages import NormalizedMessage
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 
 # Longest parent question text stored on a matched pair reply.
 MAX_LISTENER_QUESTION_CHARS = 500
@@ -47,23 +47,22 @@ class ListenerIngestor:
     """Classify and store traffic nobody addressed to the bot."""
 
     ingestor: MessageIngestor
-    classifier: MessageClassifier
+    assessment: MessageAssessmentModel
     budget: AiBudget
     pairing: MessagePairingService
     background_indexer: BackgroundIndexer
 
     async def handle(self, message: NormalizedMessage) -> ListenerResult:
-        """Classify and ingest an unaddressed group message.
+        """Assess and ingest an unaddressed group message.
 
         Only clear-cut chitchat is discarded; everything else is kept as
-        context, and a reply that answers a parent question is matched into a
+        context, and a message that answers an open question is matched into a
         question-answer pair. Media-only messages carry no text to score, so
         they are kept unlabeled.
 
-        A message is a confident question only when the classifier says so.
-        Every early return below is a message the classifier never saw as one:
-        no text, no background budget, or a classification that did not clear
-        the confidence and margin thresholds.
+        A message is a confident question only when the assessment says so.
+        Every early return below is a message the assessment never saw as one:
+        no text, or no background budget.
 
         Args:
             message: The unaddressed inbound message.
@@ -86,22 +85,24 @@ class ListenerIngestor:
                 index_status=IndexStatus.NOT_INDEXED,
             )
             return ListenerResult(INGEST_STATUS)
-        classification = await self.classifier.classify(text)
+        candidates = await self.pairing.candidates_for(message)
+        assessment = await self.assessment.assess(text, candidates=candidates)
+        classification = assessment.classification
         scores = classification.scores
-        label = classification.best_label.value
-        score = classification.best_score
-        context_question = await self.match_parent_question(message, classification)
-        status = (
-            ClassificationStatus.PREFILTER_CHITCHAT
-            if not classification.embedding
-            else ClassificationStatus.CLASSIFIED
+        selected = self.pairing.select_pair(message, assessment, candidates)
+        context_question = (
+            selected.question[:MAX_LISTENER_QUESTION_CHARS] if selected else None
         )
         result = await self.ingestor.ingest(
             message,
-            intent_label=label,
-            intent_score=score,
+            intent_label=classification.best_label.value,
+            intent_score=classification.best_score,
             context_question=context_question,
-            classification_status=status,
+            classification_status=(
+                ClassificationStatus.PREFILTER_CHITCHAT
+                if classification.prefiltered
+                else ClassificationStatus.CLASSIFIED
+            ),
             intent_scores={
                 "question": scores.question,
                 "knowledge_update": scores.knowledge_update,
@@ -112,40 +113,12 @@ class ListenerIngestor:
             index_status=IndexStatus.NOT_ELIGIBLE,
         )
         if result.created:
-            await self.pairing.on_message(message.id)
-            await self.background_indexer.process(message.id, classification.embedding)
-        status = INGEST_PAIR_STATUS if context_question is not None else INGEST_STATUS
-        return ListenerResult(status, self.classifier.is_question(classification))
-
-    async def match_parent_question(
-        self, message: NormalizedMessage, classification: Classification
-    ) -> str | None:
-        """Return the parent question text when a reply answers a question.
-
-        Args:
-            message: The reply being ingested.
-            classification: The reply's classification.
-
-        Returns:
-            The parent question text, or ``None`` when this is no clear pair.
-        """
-        if message.reply_to_message_id is None:
-            return None
-        if not self.classifier.is_answer_like(classification):
-            return None
-        parent = await self.ingestor.get_message(
-            f"{message.conversation_id}:{message.reply_to_message_id}"
-        )
-        if parent is None or not parent.text:
-            return None
-        if parent.intent_label != QUESTION:
-            return None
-        if not message_is_confident(
-            parent.intent_label,
-            parent.intent_score,
-            parent.intent_scores_json,
-            confidence_threshold=self.classifier.confidence_threshold,
-            margin_threshold=self.classifier.margin_threshold,
-        ):
-            return None
-        return parent.text[:MAX_LISTENER_QUESTION_CHARS]
+            stored = await self.ingestor.get_message(message.id)
+            if stored is not None and selected is not None:
+                await self.pairing.record_pair(stored, selected)
+            else:
+                await self.background_indexer.process(
+                    message.id, classification.embedding
+                )
+        status = INGEST_PAIR_STATUS if selected is not None else INGEST_STATUS
+        return ListenerResult(status, self.assessment.is_question(classification))

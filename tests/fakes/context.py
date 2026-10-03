@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.assessment import BaselineAssessmentModel
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
@@ -33,6 +34,7 @@ from knowledge_bot.domain.entities import ChannelBinding, Space
 from knowledge_bot.domain.enums import BotMode
 from knowledge_bot.infrastructure.context import AppContext
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 from tests.fakes.ai import (
     FakeEmbedder,
     FakeGenerator,
@@ -98,12 +100,19 @@ def build_test_context(
     admin_report_mode: str = "always",
     reviewer_escalation_timeout_seconds: int = 86_400,
     backend: InMemoryBackend | None = None,
+    embedder: FakeEmbedder | None = None,
+    assessment: MessageAssessmentModel | None = None,
+    generator: FakeGenerator | None = None,
 ) -> tuple[AppContext, RecordingTransport]:
     """Build a context wired to in-memory fakes.
 
     Group behaviour belongs to the binding, so ``group_bot_mode`` seeds the two
     test groups with it and ``set_bot_mode`` changes one of them afterwards.
     ``dm_bot_mode`` only affects private chats.
+
+    ``embedder`` and ``assessment`` let a test decide how text is classified
+    without reaching for a real model, and ``generator`` lets it count the
+    model calls a flow makes.
     """
     del recap_enabled, admin_report_mode
     backend = backend or InMemoryBackend()
@@ -112,7 +121,7 @@ def build_test_context(
         backend.ai_usage.seed(DEFAULT_NOW.strftime("%Y-%m-%d"), spent_neurons)
     transport = RecordingTransport()
     clock = FrozenClock(DEFAULT_NOW)
-    embedder = FakeEmbedder()
+    embedder = embedder or FakeEmbedder()
     vectors = FakeVectorStore()
     manifest = InMemorySearchProjectionRepository()
     budget = AiBudget(usage=backend.ai_usage, clock=clock)
@@ -122,6 +131,7 @@ def build_test_context(
     classifier = MessageClassifier(
         embedder=embedder, head=linear_head(len(embedder.vector))
     )
+    decision_model = assessment or BaselineAssessmentModel(classifier)
     projector = SearchProjectionService(
         FakeSearchIndexSource(), embedder, vectors, manifest, clock, budget
     )
@@ -148,7 +158,7 @@ def build_test_context(
         backend.messages,
         backend.conversations,
         backend.sources,
-        classifier,
+        decision_model,
         projector,
         clock,
         0.60,
@@ -161,11 +171,12 @@ def build_test_context(
         backend.sources,
         backend.message_pair_candidates,
         projector,
+        decision_model,
         clock,
     )
     answer = AnswerService(
         RetrievalService(embedder, vectors),
-        FakeGenerator(),
+        generator or FakeGenerator(),
         backend.answers,
         clock,
         conversations=backend.conversations,
@@ -176,9 +187,10 @@ def build_test_context(
         clock=clock,
         ingestor=ingestor,
         classifier=classifier,
+        assessment=decision_model,
         listener=ListenerIngestor(
             ingestor=ingestor,
-            classifier=classifier,
+            assessment=decision_model,
             budget=budget,
             pairing=pairing,
             background_indexer=background_indexer,

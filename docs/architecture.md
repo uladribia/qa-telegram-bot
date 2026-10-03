@@ -38,6 +38,52 @@ A Telegram group is served only when `(telegram, chat_id)` has an active `channe
 
 The webhook applies the mode only after the control plane. Resolving the binding, recording who was seen in it, and the reviewer and correction prompts are never gated by it: the mode decides what happens to a question, never whether the bot keeps a promise it already made.
 
+## Message decisions
+
+Every unaddressed group message needs two decisions: what it is (question,
+factual update, correction, chitchat) and which open question it answers, if
+any. Two backends answer them, selected by `DECISION_BACKEND`:
+
+```text
+baseline    embedding + linear classifier            (production default)
+            deterministic pairing: explicit reply, else exactly one open question
+systemone   ONE POST /v1/systemone per message
+              - intent (choice over the four labels)
+              - relevance(candidate) for every candidate, only when
+                DECISION_INCLUDE_RELEVANCE is on
+```
+
+The one-pass property is the point: candidates multiply decisions inside a
+single request, never requests. Candidate collection is shared, so a message is
+never classified twice and never carries a decision about a question the
+pairing step never saw. Deterministic prefiltering (empty text, bare
+acknowledgement) is applied by both backends before anything is sent.
+
+**The safety floor.** By default the service is asked only what the message
+*is*; the deterministic pairing policy still decides which open question it
+answers, so model quality cannot change what gets indexed as evidence for a
+question nobody asked. `DECISION_INCLUDE_RELEVANCE` turns that off: one request
+then carries intent plus every candidate relevance, the model's scores accept at
+most one pair (above `RETROEVAL_RELEVANCE_THRESHOLD`, and only when no runner-up
+is within `RETROEVAL_RELEVANCE_MARGIN`), and a tie is a refusal rather than a
+guess.
+
+**Degrade, never lose.** `DECISION_FALLBACK_TO_BASELINE` (on) answers from the
+linear classifier when the service is unreachable or returns something
+unusable, logging `decision_fallback_to_baseline`. Without a fallback
+configured, the failure surfaces to the caller instead of being papered over.
+
+The boundary is `SystemOneTransport`, one protocol with a single method. It
+knows the wire contract and nothing else: `HttpSystemOneTransport` is the only
+implementation. Nothing in `application/` knows a model exists. Malformed
+decision output is an error (`InvalidModelOutputError`), never a silent zero.
+A System-One classification carries no embedding, which is why
+`Classification.prefiltered` exists as an explicit signal rather than "empty
+embedding means chitchat".
+
+Addressed messages, private chats and disabled conversations never reach a
+decision at all: the mode matrix decides that before the listener runs.
+
 ## Membership
 
 `space_memberships` records that a principal was observed in a space, with the first and last time it was seen. Membership is observation, not enumeration: the bot has no admin rights, does not call `getChatMember`, and does not backfill, so anyone it has never seen in a served group is unknown to it. An ordinary group message marks its human sender as a member; a press of one of the bot's buttons in a served group marks the person who pressed it; Telegram's join and leave service messages mark the people who arrived and departed. Bots are never members, and the person who removes someone is not evidence about themselves.

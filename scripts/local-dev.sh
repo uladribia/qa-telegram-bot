@@ -7,7 +7,7 @@ OLLAMA_CONTAINER=knowledge-bot-ollama
 APP_CONTAINER=knowledge-bot-local
 DATA_VOLUME=knowledge-bot-data
 OLLAMA_VOLUME=knowledge-bot-ollama-data
-OLLAMA_IMAGE=ollama/ollama:0.11.10
+OLLAMA_IMAGE=ollama/ollama:0.35.1
 APP_IMAGE=knowledge-bot:local
 
 wait_for_ollama() {
@@ -38,6 +38,37 @@ start_ollama() {
   wait_for_ollama
 }
 
+# The System-One decision service is the local Ollama container itself. This
+# script never downloads or trains a model at dev-up time: it checks that the
+# configured service answers, and otherwise stops with the setup instruction.
+check_decision_service() {
+  local backend base_url probe model
+  backend=$(sed -n 's/^DECISION_BACKEND=//p' .env.local 2>/dev/null | tail -1)
+  [ "$backend" = "systemone" ] || return 0
+  base_url=$(sed -n 's/^DECISION_BASE_URL=//p' .env.local 2>/dev/null | tail -1)
+  base_url=${base_url:-http://$OLLAMA_CONTAINER:11434}
+  model=$(sed -n 's/^DECISION_MODEL=//p' .env.local 2>/dev/null | tail -1)
+  model=${model:-tev1:0.8b}
+  # The app calls the service by its Docker-network name, which does not
+  # resolve on the host: probe the same host:port it publishes instead.
+  probe=${base_url/$OLLAMA_CONTAINER/127.0.0.1}
+  if curl -fsS "${probe%/}/health" >/dev/null 2>&1 ||
+     curl -fsS -X POST "${probe%/}/v1/systemone" \
+       -H 'content-type: application/json' \
+       -d "{\"model\":\"$model\",\"state\":{\"current_message\":\"ping\",\"candidate_questions\":[]},\"questions\":{\"probe\":{\"type\":\"noul\",\"instructions\":\"Is this text empty?\",\"criteria\":{\"true\":\"It is empty.\",\"false\":\"It has content.\"}}}}" \
+       >/dev/null 2>&1; then
+    echo "decision service reachable at ${base_url}"
+    return 0
+  fi
+  cat >&2 <<'MSG'
+The decision service is not answering at DECISION_BASE_URL.
+Run `make dev-bootstrap` once to fetch the decision model, then `make dev-up`
+again. This script never downloads or trains a model; see docs/operations.md
+for the runtime check.
+MSG
+  return 1
+}
+
 rebuild_app() {
   ensure_network
   docker build -f Dockerfile.local -t "$APP_IMAGE" .
@@ -62,6 +93,8 @@ bootstrap() {
   start_ollama
   docker exec "$OLLAMA_CONTAINER" ollama list | grep -q 'embeddinggemma' || docker exec "$OLLAMA_CONTAINER" ollama pull embeddinggemma
   docker exec "$OLLAMA_CONTAINER" ollama list | grep -q 'gemma3:270m' || docker exec "$OLLAMA_CONTAINER" ollama pull gemma3:270m
+  # Decision model for the System-One route (/v1/systemone, Ollama >= 0.35).
+  docker exec "$OLLAMA_CONTAINER" ollama list | grep -q 'tev1' || docker exec "$OLLAMA_CONTAINER" ollama pull tev1:0.8b
   docker build -f Dockerfile.local -t "$APP_IMAGE" .
   "$0" migrate
   docker rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
@@ -76,6 +109,7 @@ migrate() {
 
 up() {
   start_ollama
+  check_decision_service
   "$0" migrate
   if ! docker container inspect "$APP_CONTAINER" >/dev/null 2>&1; then
     docker run -d --name "$APP_CONTAINER" --network "$NETWORK" \

@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local telegram-e2e-login test-e2e-telegram eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed
+.PHONY: all format lint test test-integration test-all test-e2e-local telegram-e2e-login test-e2e-telegram eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed decision-smoke decision-eval
 
 all: lint test
 
@@ -121,6 +121,15 @@ smoke-cloudflare:
 	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || (echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
 	@test -n "$(BOT_BASE_URL)" || (echo "BOT_BASE_URL is required" >&2; exit 2)
 	BOT_BASE_URL="$(BOT_BASE_URL)" uv run kb smoke-cloudflare --base-url "$(BOT_BASE_URL)"
+
+# Local System-One decision service. The smoke is the runtime gate (does the
+# service answer one canonical request?); the eval scores the local model on
+# the intent test split for information only, never as a release gate.
+decision-smoke:
+	uv run python scripts/eval_decision_service.py
+
+decision-eval:
+	uv run python scripts/eval_decision_service.py --eval
 
 # Local SQLite + Ollama runtime.
 dev-bootstrap:

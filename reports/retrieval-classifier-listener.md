@@ -14,51 +14,51 @@ Cloudflare AI usage).
 
 | metric | result |
 |---|---|
-| accuracy | 0.9660 |
-| macro F1 (primary) | 0.9644 |
-| coverage (non-ambiguous) | 0.9180 |
-| precision among confident | 0.9891 |
-| knowledge_update precision (safety) | 0.9444 |
-| correction precision (safety) | 0.9314 |
+| accuracy | 0.5900 |
+| macro F1 (primary) | 0.5945 |
+| coverage (non-ambiguous) | 0.8320 |
+| precision among confident | 0.5841 |
+| knowledge_update precision (safety) | 0.8684 |
+| correction precision (safety) | 0.3344 |
 
 | label | precision | recall | F1 |
 |---|---|---|---|
-| chitchat | 0.9921 | 1.0000 | 0.9960 |
-| correction | 0.9314 | 0.9500 | 0.9406 |
-| knowledge_update | 0.9444 | 0.9520 | 0.9482 |
-| question | 0.9863 | 0.9600 | 0.9730 |
+| chitchat | 1.0000 | 0.5440 | 0.7047 |
+| correction | 0.3344 | 1.0000 | 0.5013 |
+| knowledge_update | 0.8684 | 0.2640 | 0.4049 |
+| question | 0.9895 | 0.6267 | 0.7673 |
 
 | true\pred | chitchat | correction | knowledge_update | question |
 |---|---|---|---|---|
-| chitchat | 125 | 0 | 0 | 0 |
-| correction | 0 | 95 | 3 | 2 |
-| knowledge_update | 0 | 6 | 119 | 0 |
-| question | 1 | 1 | 4 | 144 |
+| chitchat | 68 | 51 | 5 | 1 |
+| correction | 0 | 100 | 0 | 0 |
+| knowledge_update | 0 | 92 | 33 | 0 |
+| question | 0 | 56 | 0 | 94 |
 
 ## Retrieval
 
 | metric | baseline (old q+a vectors) | question-focused vectors, cosine only |
 |---|---|---|
-| Recall@1 | 0.3080 | 0.9400 |
-| Recall@3 | 0.5400 | 0.9620 |
-| Recall@5 | 0.6900 | 0.9700 |
-| MRR | 0.4550 | 0.9526 |
+| Recall@1 | 0.8780 | 0.9880 |
+| Recall@3 | 0.9700 | 0.9960 |
+| Recall@5 | 0.9940 | 0.9980 |
+| MRR | 0.9285 | 0.9928 |
 
 Recall@5 by subset:
 
 | subset | baseline | question-focused |
 |---|---|---|
-| catalan gold | 0.4848 | 0.8182 |
-| synthetic typo/paraphrase | 0.7045 | 0.9807 |
+| catalan gold | 0.9697 | 1.0000 |
+| synthetic typo/paraphrase | 0.9957 | 0.9979 |
 
 ## Listener (110 deterministic scenarios)
 
 | metric | result |
 |---|---|
 | pair precision (primary safety) | 1.0000 |
-| pair recall | 0.6667 |
-| factual-index precision (primary) | 1.0000 |
-| factual-index recall | 0.8333 |
+| pair recall | 1.0000 |
+| factual-index precision (primary) | 0.9783 |
+| factual-index recall | 1.0000 |
 | question detection recall | 1.0000 |
 
 ## Runtime cost
@@ -75,15 +75,15 @@ the test split):
 
 | gate | status |
 |---|---|
-| classifier macro F1 >= 0.90 | PASS |
-| classifier knowledge_update precision >= 0.92 | PASS |
-| classifier correction precision >= 0.92 | PASS |
-| retrieval Recall@3 >= 0.95 | PASS |
+| classifier macro F1 >= 0.90 | FAIL |
+| classifier knowledge_update precision >= 0.92 | FAIL |
+| classifier correction precision >= 0.92 | FAIL |
+| retrieval Recall@5 >= 0.95 | PASS |
 | retrieval MRR improves over baseline | PASS |
 | listener factual-index precision >= 0.95 | PASS |
 | listener pair precision >= 0.95 | PASS |
 
-Recall below the precision gates (pair recall 0.6667,
-factual-index recall 0.8333) is the intended
+Recall below the precision gates (pair recall 1.0000,
+factual-index recall 1.0000) is the intended
 cost of the conservative confidence policy: ambiguous messages are stored,
 never acted on.

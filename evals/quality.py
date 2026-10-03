@@ -22,17 +22,19 @@ import httpx
 import numpy as np
 import yaml
 
+from knowledge_bot.application.assessment import BaselineAssessmentModel
 from knowledge_bot.application.background import BackgroundIndexer
+from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import (
-    Classification,
     MessageClassifier,
     message_is_confident,
 )
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.application.ingest import MessageIngestor
+from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.application.listener_pairing import MessagePairingService
 from knowledge_bot.application.retrieval import _rank
-from knowledge_bot.domain.enums import ClassificationStatus, ContentType, IndexStatus
+from knowledge_bot.domain.enums import ContentType, IndexStatus
 from knowledge_bot.infrastructure.classifier_head import load_classifier_head
 from knowledge_bot.models.common import SourceDescriptor
 from knowledge_bot.models.messages import NormalizedMessage
@@ -524,11 +526,12 @@ async def _run_scenario(
         InMemorySearchProjectionRepository(),
         clock,
     )
+    assessment = BaselineAssessmentModel(classifier)
     background = BackgroundIndexer(
         backend.messages,
         backend.conversations,
         backend.sources,
-        classifier,
+        assessment,
         projector,
         clock,
         CONFIDENCE_THRESHOLD,
@@ -541,33 +544,20 @@ async def _run_scenario(
         backend.sources,
         candidates,
         projector,
+        assessment,
         clock,
-        confidence_threshold=CONFIDENCE_THRESHOLD,
-        margin_threshold=MARGIN_THRESHOLD,
     )
-    ingestor = _ingestor(backend)
+    listener = ListenerIngestor(
+        ingestor=_ingestor(backend),
+        assessment=assessment,
+        budget=AiBudget(backend.ai_usage, clock),
+        pairing=pairing,
+        background_indexer=background,
+    )
     for offset, tag, text, reply_to in scenario.messages:
-        message_id = f"conv-a:{tag}"
-        classification: Classification = await classifier.classify(text)
-        parent_question: str | None = None
-        if reply_to is not None:
-            parent = await backend.messages.get(f"conv-a:{reply_to}")
-            if (
-                parent is not None
-                and parent.intent_label == "question"
-                and message_is_confident(
-                    parent.intent_label,
-                    parent.intent_score,
-                    parent.intent_scores_json,
-                    confidence_threshold=CONFIDENCE_THRESHOLD,
-                    margin_threshold=MARGIN_THRESHOLD,
-                )
-                and classifier.is_answer_like(classification)
-            ):
-                parent_question = parent.text
-        await ingestor.ingest(
+        await listener.handle(
             NormalizedMessage(
-                id=message_id,
+                id=f"conv-a:{tag}",
                 source=SourceDescriptor(
                     id="listener-source", kind="test", authority=40
                 ),
@@ -576,25 +566,9 @@ async def _run_scenario(
                 timestamp=NOW + timedelta(seconds=int(offset)),
                 content_type=ContentType.TEXT,
                 text=text,
-                reply_to_message_id=f"conv-a:{reply_to}" if reply_to else None,
-            ),
-            intent_label=classification.best_label.value,
-            intent_score=classification.best_score,
-            context_question=parent_question,
-            intent_scores={
-                "question": classification.scores.question,
-                "knowledge_update": classification.scores.knowledge_update,
-                "correction": classification.scores.correction,
-                "chitchat": classification.scores.chitchat,
-                "margin": classification.margin,
-            },
-            classification_status=ClassificationStatus.CLASSIFIED,
-            index_status=IndexStatus.NOT_ELIGIBLE,
+                reply_to_message_id=reply_to,
+            )
         )
-        await pairing.on_message(message_id)
-        stored = await backend.messages.get(message_id)
-        if stored is not None and stored.context_question is None:
-            await background.process(message_id, classification.embedding)
     made_pairs = {
         (
             candidate.question_message_id.split(":", 1)[1],
