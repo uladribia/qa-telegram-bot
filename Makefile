@@ -2,7 +2,7 @@
 
 .DEFAULT_GOAL := all
 
-.PHONY: all format lint test test-integration test-all test-e2e-local telegram-e2e-login test-e2e-telegram eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed decision-smoke decision-eval
+.PHONY: all format lint test test-integration test-all test-e2e-local telegram-e2e-login test-e2e-telegram eval-local eval-live eval-live-frozen eval-frozen-local eval-live-gold eval-gold-local eval-live-reindex reindex smoke smoke-cloudflare deploy set-webhook seed-self-qa dev-bootstrap dev-up dev-down dev-logs dev-shell dev-reset dev-migrate dev-seed decision-smoke decision-eval eval-clef-production-dry eval-clef-production
 
 all: lint test
 
@@ -31,6 +31,26 @@ test-all:
 # reports/retrieval-classifier-listener.md. Requires the local Ollama runtime.
 eval-local:
 	uv run python -m evals.quality
+
+# Focused Clef-Flash decision evaluation against the deployed Worker. It only
+# measures: the listener stays on the baseline, the endpoint persists nothing,
+# and the run is bounded by a dry-run cost check. Never added to CI or make all.
+eval-clef-production-dry:
+	@test -n "$(BOT_BASE_URL)" || \
+		(echo "BOT_BASE_URL is required" >&2; exit 2)
+	uv run python -m evals.decision_production \
+		--dry-run \
+		--base-url "$(BOT_BASE_URL)"
+
+eval-clef-production:
+	@test "$(ALLOW_CLOUDFLARE_LIVE_TESTS)" = 1 || \
+		(echo "ALLOW_CLOUDFLARE_LIVE_TESTS=1 is required" >&2; exit 2)
+	@test -n "$(BOT_BASE_URL)" || \
+		(echo "BOT_BASE_URL is required" >&2; exit 2)
+	@test -n "$(INTERNAL_ADMIN_KEY)" || \
+		(echo "INTERNAL_ADMIN_KEY is required" >&2; exit 2)
+	uv run python -m evals.decision_production \
+		--base-url "$(BOT_BASE_URL)"
 
 # Live quality gate: real model calls, burns Workers AI quota (10k neurons/day on
 # the free plan). Run at most once or twice a day. Reindexing is opt-in because
