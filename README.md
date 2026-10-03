@@ -49,8 +49,12 @@ curl -s http://localhost:8000/healthz
 curl -s http://localhost:8000/readyz
 ```
 
-`make dev-bootstrap` starts the pinned local Ollama container, pulls the two
-local models, applies SQLite migrations, and serves the API on port 8000.
+`make dev-bootstrap` starts the pinned local Ollama container (0.35.1, where the
+`/v1/systemone` route exists), pulls the three local models (`embeddinggemma`,
+`gemma3:270m`, `tev1:0.8b`), applies SQLite migrations, and serves the API on
+port 8000. The local runtime decides listener messages through the System-One
+service, so the local stack exercises the production request path; production
+itself stays on the linear classifier.
 
 For production, follow [docs/setup-cloudflare.md](docs/setup-cloudflare.md):
 
@@ -77,7 +81,9 @@ make deploy                   # ALLOW_CLOUDFLARE_LIVE_TESTS=1
 | `make dev-bootstrap` | Start local Ollama, build the app, migrate, and serve on port 8000 |
 | `make dev-up` / `make dev-down` | Start or stop the local app and Ollama containers |
 | `make dev-migrate` | Apply shared and local SQLite migrations |
-| `make test-e2e-local` | Explicit local-only Ollama smoke test |
+| `make test-e2e-local` | Explicit local-only Ollama and System-One smoke flows |
+| `make decision-smoke` | Runtime gate: one canonical System-One request against the local decision service |
+| `make decision-eval` | Score the local decision model on the intent test split (informational, never a release gate) |
 | `make telegram-e2e-login` | One-time login of the human account for the real-Telegram E2E (interactive) |
 | `make test-e2e-telegram` | Real black-box E2E against the deployed Worker over real Telegram; needs `ALLOW_CLOUDFLARE_LIVE_TESTS=1`, `.env.e2e`, and the `[E2E]` groups. Walks the addressing, correction, bot-mode, and multi-scope private-answer flows |
 | `make reindex` | Clean and batch-rebuild the derived vector index; requires explicit remote authorization |

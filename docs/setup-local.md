@@ -11,7 +11,35 @@ make dev-seed
 make test-e2e-local
 ```
 
-`make dev-bootstrap` creates the `knowledge-bot-dev` network and the `knowledge-bot-data` and `knowledge-bot-ollama-data` volumes, starts Ollama, pulls the two local models, builds the app image, applies migrations, and starts the app.
+`make dev-bootstrap` creates the `knowledge-bot-dev` network and the `knowledge-bot-data` and `knowledge-bot-ollama-data` volumes, starts Ollama (image `0.35.1`, pinned in `scripts/local-dev.sh`, because the `/v1/systemone` route exists from 0.35), pulls the three local models — `embeddinggemma` for embeddings, `gemma3:270m` for generation, `tev1:0.8b` for System-One decisions — builds the app image, applies migrations, and starts the app.
+
+## Listener decisions
+
+The local stack takes each unaddressed message's intent from the local
+System-One decision service: one `POST /v1/systemone` request per message,
+served by the same Ollama container. This is about **fidelity**, not quality —
+the local model is a testing stand-in, and its numbers live in
+`reports/decision-service.md`. Production runs the linear classifier and adds
+no remote decision adapter.
+
+Two switches in `.env.local` control the risk:
+
+```text
+DECISION_INCLUDE_RELEVANCE=false   the service classifies; the deterministic
+                                   pairing policy still chooses the question
+DECISION_FALLBACK_TO_BASELINE=true answer from the linear classifier when the
+                                   service is unreachable, logging the reason
+```
+
+```bash
+make decision-smoke    # runtime gate: does the service answer one canonical request?
+make decision-eval     # informational scoring of the local model
+```
+
+`make dev-up` verifies the decision service answers before starting the app and
+never downloads a model. If it does not answer, it stops and tells you to run
+`make dev-bootstrap`. Troubleshooting is in
+[operations.md](operations.md#local-system-one-decision-service).
 
 SQLite and Ollama models persist in named volumes. `make dev-reset CONFIRM=1` removes only the local SQLite volume; the Ollama model volume is preserved. `make dev-down` stops containers without deleting volumes.
 

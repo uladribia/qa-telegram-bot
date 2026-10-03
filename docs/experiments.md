@@ -5,6 +5,14 @@ them and the state of each. Everything here was measured locally (Ollama
 `embeddinggemma`) unless marked as a live production run; live runs
 state their neuron cost.
 
+**Numbers age.** Each section records what was measured when the decision was
+taken. The current figures live in the generated reports —
+`reports/retrieval-classifier-listener.md` (`make eval-local`) and
+`reports/decision-service.md` (`make decision-eval`) — and the gates they report
+can fail for reasons unrelated to the decision the section describes. Where a
+number below no longer reproduces, the report wins and the gap itself is the
+finding.
+
 ## Answer selection: always ground in the model
 
 **Question.** Should the bot echo the best-matching Q&A verbatim, compose an
@@ -90,8 +98,9 @@ the abstention set, and train on those - not on generated paraphrases.
 
 ## Retrieval: the real ceiling
 
-Question-focused embeddings alone reach Recall@1 0.940, Recall@3 0.962 and
-MRR 0.953 locally, against a question+answer embedding baseline of 0.308 /
+Question-focused embeddings alone reached Recall@1 0.940, Recall@3 0.962 and
+MRR 0.953 locally (a later run measures 0.988 / 0.996 / 0.993 — see the
+generated report), against a question+answer embedding baseline of 0.308 /
 0.540 / 0.690 and 0.455. Those were originally measured with a BM25/RRF leg
 added on top (0.964 / 0.984 / 0.986 / 0.973); that leg is now removed as dead
 code, see "The lexical leg" below. On the 47 labelled *human* answer

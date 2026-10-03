@@ -25,3 +25,7 @@ The smoke performs one embedding and at most one generation call, writes a tempo
 Live evals are protected against load, not just quota: `/internal/retrieve` accepts at most 20 queries per request, and each isolate admits 60 evaluation calls per minute (`429` after that). Run the suites one at a time with `--suite`; a full retrieval run is 500 queries, so it is sent as paced chunks.
 
 There is no `ALLOWED_TELEGRAM_CHAT_IDS` setting. A group is served only after its Telegram conversation is bound to a logical space.
+
+## Listener decisions in production
+
+Production decides listener messages with the **linear classifier and the deterministic pairing policy** (`DECISION_BACKEND=baseline`, the default). The System-One decision backend exists locally for end-to-end fidelity and adds no remote adapter here: no Workers AI decision binding, no Cloudflare decision setting, no production default. Deploying the System-One work changes nothing in this procedure — the Worker behaves exactly as before. See [operations.md](operations.md#local-system-one-decision-service) for the local runtime and its two switches.
