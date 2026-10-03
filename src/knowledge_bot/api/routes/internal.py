@@ -14,19 +14,29 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from knowledge_bot.adapters.telegram.groups import bind_telegram_group
 from knowledge_bot.adapters.telegram.models import RegisterGroupRequest
 from knowledge_bot.api.context import ContextResolver, InternalKey, internal_context
+from knowledge_bot.application.assessment import BaselineAssessmentModel
+from knowledge_bot.application.listener_pairing import select_pair
 from knowledge_bot.application.review import render_review_report
 from knowledge_bot.domain.enums import AiWorkClass
+from knowledge_bot.domain.errors import (
+    InvalidModelOutputError,
+    ModelUnavailableError,
+)
 from knowledge_bot.infrastructure.context import AppContext
+from knowledge_bot.models.assessment import RetroevalCandidate
 from knowledge_bot.models.operations import (
     BackgroundBacklogRequest,
     DailyReportRequest,
     EvalAnswerRequest,
+    EvalDecisionCase,
+    EvalDecisionRequest,
     IndexRepairRequest,
     PromoteRequest,
     ReindexRequest,
     RevertRequest,
     SeedRequest,
 )
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 
 # Live-eval protection: one request may carry at most this many queries, and an
 # isolate admits this many evaluation calls per minute. An unbounded burst of
@@ -35,6 +45,7 @@ from knowledge_bot.models.operations import (
 _MAX_EVAL_QUERIES = 20
 _EVAL_CALLS_PER_MINUTE = 60
 _EMPTY_EVAL_BODY = Body(default_factory=EvalAnswerRequest)
+_EMPTY_EVAL_DECISION_BODY = Body(default_factory=EvalDecisionRequest)
 _EMPTY_REVERT_BODY = Body(default_factory=RevertRequest)
 _EMPTY_PROMOTE_BODY = Body(default_factory=PromoteRequest)
 _EMPTY_REINDEX_BODY = Body(default_factory=ReindexRequest)
@@ -43,6 +54,83 @@ _EMPTY_BACKLOG_BODY = Body(default_factory=BackgroundBacklogRequest)
 _EMPTY_REPAIR_BODY = Body(default_factory=IndexRepairRequest)
 _EMPTY_GROUP_BODY = Body(default_factory=RegisterGroupRequest)
 _EMPTY_DAILY_REPORT_BODY = Body(default_factory=DailyReportRequest)
+
+
+def _evaluation_model(context: AppContext) -> MessageAssessmentModel:
+    """Return the evaluation-only decision model, or refuse the request.
+
+    Args:
+        context: The application context.
+
+    Returns:
+        A decision model that is never reachable from user traffic.
+
+    Raises:
+        HTTPException: 503 when this runtime cannot reach a decision model.
+    """
+    factory = context.decision_evaluator
+    if factory is None:
+        raise HTTPException(
+            status_code=503,
+            detail="this runtime has no decision evaluator configured",
+        )
+    return factory()
+
+
+async def _decide_one(
+    context: AppContext,
+    assessment: MessageAssessmentModel,
+    backend: str,
+    case: EvalDecisionCase,
+    candidates: tuple[RetroevalCandidate, ...],
+) -> dict[str, object]:
+    """Decide one evaluated case and report the outcome or the failure.
+
+    Args:
+        context: The application context, for the pairing policy's thresholds.
+        assessment: The backend deciding this case.
+        backend: The requested backend, echoed in the result.
+        case: The message and its open questions.
+        candidates: The open questions, as domain values.
+
+    Returns:
+        The decisions for this case, or an error describing the failure.
+    """
+    started = time.perf_counter()
+    try:
+        decided = await assessment.assess(case.text, candidates=candidates)
+    except (InvalidModelOutputError, ModelUnavailableError) as error:
+        return {
+            "case_id": case.case_id,
+            "backend": backend,
+            "error": type(error).__name__,
+            "detail": error.args[0] if error.args else "",
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        }
+    selected = select_pair(
+        decided,
+        candidates,
+        relevance_threshold=context.settings.retroeval_relevance_threshold,
+        relevance_margin=context.settings.retroeval_relevance_margin,
+    )
+    classification = decided.classification
+    return {
+        "case_id": case.case_id,
+        "backend": backend,
+        "intent_probabilities": {
+            "question": classification.scores.question,
+            "knowledge_update": classification.scores.knowledge_update,
+            "correction": classification.scores.correction,
+            "chitchat": classification.scores.chitchat,
+        },
+        "best_label": classification.best_label.value,
+        "best_score": classification.best_score,
+        "margin": classification.margin,
+        "prefiltered": classification.prefiltered,
+        "relevance": decided.pair_relevance,
+        "selected_candidate_id": selected.candidate_id if selected else None,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
 
 
 async def _require_evaluation_budget(context: AppContext) -> None:
@@ -159,6 +247,51 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
                 if item.source_id in outcome.source_ids
             ],
         }
+
+    @router.post("/internal/eval/decision")
+    async def internal_eval_decision(
+        request: Request,
+        body: EvalDecisionRequest = _EMPTY_EVAL_DECISION_BODY,
+        key: InternalKey = None,
+    ) -> dict[str, object]:
+        """Decide messages with an alternative backend, changing nothing.
+
+        This is the measurement surface for the decision layer: it answers with
+        either the deployed baseline or the evaluation-only decision model, and
+        it persists nothing — no message, no pair, no projection, no delivery,
+        no bot state. A failure of the decision model is reported per case as
+        an error; it is never answered from the baseline, because an evaluation
+        that silently substitutes another model measures the wrong thing.
+
+        Each message becomes at most one request to the decision model, carrying
+        its intent plus every candidate relevance, and the pairing decision is
+        taken here by the application's own policy.
+        """
+        context = await internal_context(request, key, resolve_context)
+        if not body.cases:
+            raise HTTPException(status_code=422, detail="at least one case required")
+        _admit_eval_call()
+        await _require_evaluation_budget(context)
+        assessment = (
+            BaselineAssessmentModel(context.classifier)
+            if body.backend == "baseline"
+            else _evaluation_model(context)
+        )
+        results: list[dict[str, object]] = []
+        for case in body.cases:
+            candidates = tuple(
+                RetroevalCandidate(
+                    candidate_id=item.candidate_id,
+                    question_message_id=item.question_message_id or item.candidate_id,
+                    question=item.question,
+                    relation=item.relation,
+                )
+                for item in case.candidates
+            )
+            results.append(
+                await _decide_one(context, assessment, body.backend, case, candidates)
+            )
+        return {"backend": body.backend, "results": results}
 
     @router.get("/internal/budget")
     async def internal_budget(
