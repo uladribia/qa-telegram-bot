@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Ollama REST adapters for the local runtime."""
 
+import json
 import re
 
 import httpx
@@ -17,6 +18,21 @@ from knowledge_bot.ports.generator import (
 )
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _complete_output_schema() -> dict[str, object]:
+    """Return the generation schema with every field marked required.
+
+    ``GenerationOutput`` gives ``answer`` and ``source_ids`` defaults, so the
+    plain schema leaves them optional and a small local model answers with
+    ``{"status": "answered"}`` and nothing else — a reply that cannot be
+    validated, on a request the service did answer. Marking the fields
+    required only constrains decoding; it does not relax the contract, and the
+    same parsed output is validated afterwards either way.
+    """
+    schema = json.loads(json.dumps(GenerationOutput.model_json_schema()))
+    schema["required"] = sorted(schema.get("properties", {}))
+    return schema
 
 
 class _OllamaMessage(BaseModel):
@@ -143,7 +159,7 @@ class OllamaGenerator:
                     "model": self._model,
                     "messages": messages,
                     "stream": False,
-                    "format": GenerationOutput.model_json_schema(),
+                    "format": _complete_output_schema(),
                     "options": {"temperature": 0},
                 },
                 timeout=self._timeout,

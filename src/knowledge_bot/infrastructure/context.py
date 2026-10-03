@@ -31,6 +31,7 @@ from knowledge_bot.application.reviewers import ReviewerManager, ReviewerRouter
 from knowledge_bot.application.runtime_smoke import RuntimeSmokeService
 from knowledge_bot.application.seed import SeedService
 from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.repositories import DeliveryReceiptRepository
 
@@ -43,6 +44,7 @@ class AppContext:
     clock: Clock
     ingestor: MessageIngestor
     classifier: MessageClassifier
+    assessment: MessageAssessmentModel
     listener: ListenerIngestor
     background_indexer: BackgroundIndexer
     answer: AnswerService

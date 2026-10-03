@@ -81,13 +81,19 @@ class IntentScores:
 
 @dataclass(frozen=True, slots=True)
 class Classification:
-    """One classification result and its reusable message embedding."""
+    """One classification result and its reusable message embedding.
+
+    ``prefiltered`` is the explicit signal that a deterministic rule answered
+    the message, which is not the same as a model returning no embedding: a
+    System-One decision carries no embedding but was still classified.
+    """
 
     scores: IntentScores
     best_label: IntentLabel
     best_score: float
     margin: float
     embedding: tuple[float, ...]
+    prefiltered: bool = False
 
     @property
     def confident(self) -> bool:
@@ -114,10 +120,8 @@ class MessageClassifier:
 
     async def classify(self, text: str) -> Classification:
         """Classify text, using no model call for deterministic prefilter cases."""
-        normalized = " ".join(text.split()).casefold()
-        alphanumeric = [character for character in normalized if character.isalnum()]
-        if not alphanumeric or len(alphanumeric) < 2 or normalized in _ACKNOWLEDGEMENTS:
-            return _prefilter_classification()
+        if should_prefilter(text):
+            return prefilter_classification()
         vectors = await self.embedder.embed([text])
         embedding = tuple(vectors[0])
         probabilities = _softmax(self.head.logits(embedding))
@@ -169,13 +173,27 @@ def _softmax(logits: list[float]) -> tuple[float, float, float, float]:
     return first, second, third, fourth
 
 
-def _prefilter_classification() -> Classification:
+def should_prefilter(text: str) -> bool:
+    """Whether a message is decidable without any model call.
+
+    Empty, near-empty, and bare acknowledgement messages carry no signal any
+    decision model could use. Every backend applies this rule before spending
+    a request, so the rule lives here and nowhere else.
+    """
+    normalized = " ".join(text.split()).casefold()
+    alphanumeric = [character for character in normalized if character.isalnum()]
+    return not alphanumeric or len(alphanumeric) < 2 or normalized in _ACKNOWLEDGEMENTS
+
+
+def prefilter_classification() -> Classification:
+    """Return the chitchat decision for a message no model should see."""
     return Classification(
         scores=IntentScores(chitchat=1.0),
         best_label=CHITCHAT,
         best_score=1.0,
         margin=1.0,
         embedding=(),
+        prefiltered=True,
     )
 
 

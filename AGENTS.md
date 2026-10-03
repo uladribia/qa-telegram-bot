@@ -32,9 +32,10 @@ execution is for the product code and its tests, not for editing the repository.
 
 - **Use the harness tools for all file operations** (see §0). Never edit files
   via Python or shell scripts.
-- **Zero cost.** Only the models listed in `ALLOWED_AI_MODELS` may be called.
-  No paid fallback, no alternative provider. On quota exhaustion, degrade safely
-  and never lose the inbound event.
+- **Zero-cost runtime.** Runtime code, tests, CI, local development flows, and
+  production flows call only the models allowed by the active runtime
+  (Workers AI free tier, local Ollama), and never for money. No paid fallback
+  and no alternative provider are allowed.
 - **Dependency rule.** `domain` and `application` never import transport,
   framework, or infrastructure code (see §3).
 - **Connector-owned provenance.** Connectors declare source id, source kind, and
@@ -54,6 +55,32 @@ execution is for the product code and its tests, not for editing the repository.
 - **Never commit directly to `main`.** Always work on a branch (see §9).
 - **No backwards compatibility.** This is a personal prototype, not a published
   library. Break things freely (see §4.1).
+
+### 1.1 Local System-One decision service
+
+The listener can take its intent decision from a local System-One decision
+service instead of the linear classifier:
+
+- `DECISION_BACKEND=systemone` sends **one** `POST /v1/systemone` request per
+  listener message. Candidates multiply decisions inside that request, never
+  requests. `baseline` stays the production default.
+- The application depends on one provider-neutral `SystemOneTransport` port
+  (`ports/system_one.py`). Provider specifics belong in
+  `infrastructure/local/system_one.py`.
+- **Safety floor:** `DECISION_INCLUDE_RELEVANCE` is off. The service classifies
+  the message; the deterministic pairing policy still decides which open
+  question it answers. Turning it on makes one request carry intent plus every
+  candidate relevance and lets the model's scores accept at most one pair.
+- **Degrade, never lose:** `DECISION_FALLBACK_TO_BASELINE` (on) answers from the
+  linear classifier when the service is unreachable or returns something
+  unusable, and logs `decision_fallback_to_baseline`. Without it the failure
+  surfaces to the caller.
+- The local service is a **testing runtime**. `make decision-eval` measures it
+  for information; it is not a release gate, and its numbers describe one
+  machine, not the bot that serves the group.
+- No training, no remote model calls, and no new dependency are part of this
+  path. The linear classifier and the deterministic pairing logic remain the
+  baseline and must keep working.
 
 ## 2. Stack (locked)
 
@@ -177,6 +204,8 @@ Pick the smallest command that covers the change:
 | `entry.py`, routes, bindings, Dockerfile, `wrangler.jsonc` | `make smoke`                                                                             |
 | Real-Telegram delivery chain (deployed Worker)             | `make test-e2e-telegram` (explicit live authorization; see docs/e2e-telegram.md)          |
 | Before merging to `main`                                   | `make lint` plus the smallest tier that covers the change                                |
+| Local decision service (runtime gate)                      | `make decision-smoke`                                                                  |
+| Local decision service (informational scoring)             | `make decision-eval`                                                                   |
 
 Do not run `make smoke` on every change: it builds and boots the Worker and takes
 minutes. Reserve it for milestone boundaries and runtime-affecting changes.

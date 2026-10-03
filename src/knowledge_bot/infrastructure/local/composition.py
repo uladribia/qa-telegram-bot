@@ -11,6 +11,10 @@ from knowledge_bot.adapters.telegram.client import TelegramClient
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.assessment import (
+    BaselineAssessmentModel,
+    SystemOneAssessmentModel,
+)
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
@@ -42,13 +46,14 @@ from knowledge_bot.infrastructure.local.ollama import (
     OllamaGenerator,
 )
 from knowledge_bot.infrastructure.local.sqlite_repositories import SQLiteBinding
+from knowledge_bot.infrastructure.local.system_one import HttpSystemOneTransport
 from knowledge_bot.infrastructure.local.vector_store import NumpySqliteVectorStore
 from knowledge_bot.infrastructure.logging import build_tracer
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
 )
-from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.settings import DecisionBackend, Settings
 from knowledge_bot.infrastructure.sql.lexical import SqlLexicalIndex
 from knowledge_bot.infrastructure.sql.repositories import (
     SqlAiUsageRepository,
@@ -74,6 +79,7 @@ from knowledge_bot.infrastructure.sql.repositories import (
     SqlSpaceRepository,
     SqlTelegramInteractionRepository,
 )
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 from knowledge_bot.ports.clock import Clock
 
 D1AiUsageRepository = SqlAiUsageRepository
@@ -201,6 +207,27 @@ async def build_context(
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
+    if settings.decision_backend is DecisionBackend.BASELINE:
+        assessment: MessageAssessmentModel = BaselineAssessmentModel(classifier)
+    else:
+        assessment = SystemOneAssessmentModel(
+            transport=HttpSystemOneTransport(
+                client=client,
+                base_url=settings.decision_base_url,
+                timeout_seconds=settings.ai_decision_timeout_seconds,
+            ),
+            model=settings.decision_model,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
+            relevance_threshold=settings.retroeval_relevance_threshold,
+            relevance_margin=settings.retroeval_relevance_margin,
+            include_relevance=settings.decision_include_relevance,
+            fallback=(
+                BaselineAssessmentModel(classifier)
+                if settings.decision_fallback_to_baseline
+                else None
+            ),
+        )
     answers = D1BotAnswerRepository(binding)
     messages = D1MessageRepository(binding)
     sources = D1SourceRepository(binding)
@@ -230,7 +257,7 @@ async def build_context(
         messages=messages,
         conversations=conversations,
         sources=sources,
-        classifier=classifier,
+        assessment=assessment,
         projector=projector,
         clock=clock,
         confidence_threshold=settings.classifier_confidence_threshold,
@@ -243,12 +270,12 @@ async def build_context(
         sources=sources,
         candidates=pair_candidates,
         projector=projector,
+        assessment=assessment,
         clock=clock,
-        budget=budget,
         question_window_minutes=settings.pairing_question_window_minutes,
         max_pending_questions=settings.pairing_max_pending_questions,
-        confidence_threshold=settings.classifier_confidence_threshold,
-        margin_threshold=settings.classifier_margin_threshold,
+        relevance_threshold=settings.retroeval_relevance_threshold,
+        relevance_margin=settings.retroeval_relevance_margin,
     )
     answer = AnswerService(
         retrieval=RetrievalService(
@@ -277,9 +304,10 @@ async def build_context(
         clock=clock,
         ingestor=ingestor,
         classifier=classifier,
+        assessment=assessment,
         listener=ListenerIngestor(
             ingestor=ingestor,
-            classifier=classifier,
+            assessment=assessment,
             budget=budget,
             pairing=pairing,
             background_indexer=background_indexer,

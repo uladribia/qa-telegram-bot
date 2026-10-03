@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from knowledge_bot.adapters.telegram.flow import DM_ACCESS_NOTICE
 from knowledge_bot.adapters.telegram.routes import TELEGRAM_WEBHOOK_PATH
 from knowledge_bot.api.app import create_app
+from knowledge_bot.application.assessment import BaselineAssessmentModel
 from knowledge_bot.application.classifier import MessageClassifier
 from knowledge_bot.application.listener import ListenerIngestor
 from knowledge_bot.domain.entities import Message, TelegramInteraction
@@ -222,12 +223,14 @@ def _listener_context(**vectors: list[float]) -> AppContext:
         embedder=embedder,
         head=linear_head(len(embedder.vector)),
     )
+    assessment = BaselineAssessmentModel(classifier)
     return replace(
         context,
         classifier=classifier,
+        assessment=assessment,
         listener=ListenerIngestor(
             ingestor=context.ingestor,
-            classifier=classifier,
+            assessment=assessment,
             budget=context.budget,
             pairing=context.pairing,
             background_indexer=context.background_indexer,

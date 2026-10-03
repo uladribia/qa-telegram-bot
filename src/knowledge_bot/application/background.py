@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, replace
 
 from knowledge_bot.application.budget import AiBudget
-from knowledge_bot.application.classifier import MessageClassifier, message_is_confident
+from knowledge_bot.application.classifier import message_is_confident
 from knowledge_bot.application.indexing import SearchProjectionService
 from knowledge_bot.domain.entities import Message
 from knowledge_bot.domain.enums import (
@@ -16,6 +16,7 @@ from knowledge_bot.domain.enums import (
 )
 from knowledge_bot.domain.policies import effective_message_authority
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
+from knowledge_bot.ports.assessment import MessageAssessmentModel
 from knowledge_bot.ports.clock import Clock
 from knowledge_bot.ports.index import IndexableMessage
 from knowledge_bot.ports.repositories import (
@@ -41,7 +42,7 @@ class BackgroundIndexer:
         messages: MessageRepository,
         conversations: ConversationRepository,
         sources: SourceRepository,
-        classifier: MessageClassifier,
+        assessment: MessageAssessmentModel,
         projector: SearchProjectionService,
         clock: Clock,
         confidence_threshold: float,
@@ -52,7 +53,7 @@ class BackgroundIndexer:
         self._messages = messages
         self._conversations = conversations
         self._sources = sources
-        self._classifier = classifier
+        self._assessment = assessment
         self._projector = projector
         self._clock = clock
         self._confidence_threshold = confidence_threshold
@@ -80,7 +81,9 @@ class BackgroundIndexer:
                 )
                 processed += 1
                 continue
-            classification = await self._classifier.classify(message.text)
+            classification = (
+                await self._assessment.assess(message.text)
+            ).classification
             scores = classification.scores
             await self._messages.save(
                 replace(
@@ -89,7 +92,7 @@ class BackgroundIndexer:
                     intent_score=classification.best_score,
                     classification_status=(
                         ClassificationStatus.PREFILTER_CHITCHAT
-                        if not classification.embedding
+                        if classification.prefiltered
                         else ClassificationStatus.CLASSIFIED
                     ),
                     intent_scores_json=json.dumps(

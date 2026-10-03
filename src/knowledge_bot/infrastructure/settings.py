@@ -28,6 +28,17 @@ class RuntimeMode(StrEnum):
     CLOUDFLARE = "cloudflare"
 
 
+class DecisionBackend(StrEnum):
+    """Which model decides what a listener message is and what it answers.
+
+    ``baseline`` is the linear classifier plus deterministic pairing.
+    ``systemone`` sends one request per message to a local decision service.
+    """
+
+    BASELINE = "baseline"
+    SYSTEM_ONE = "systemone"
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the knowledge bot."""
 
@@ -92,6 +103,25 @@ class Settings(BaseSettings):
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5
     pairing_max_pending_questions: int = 5
+    #: Which backend decides a listener message's intent and pair relevance.
+    #: ``baseline`` is the linear classifier plus deterministic pairing and
+    #: stays the default; ``systemone`` asks one decision service per message.
+    decision_backend: DecisionBackend = DecisionBackend.BASELINE
+    decision_base_url: str = "http://knowledge-bot-ollama:11434"
+    decision_model: str = "tev1:0.8b"
+    ai_decision_timeout_seconds: float = Field(default=20.0, gt=0, le=55)
+    #: Ask the decision service for candidate relevance as well as intent.
+    #: Off by default: the model then decides what a message *is*, and the
+    #: deterministic policy still decides which question it answers. Turning
+    #: it on sends one request carrying every candidate relevance and lets the
+    #: model's relevance scores accept at most one pair.
+    decision_include_relevance: bool = False
+    #: Fall back to the baseline decision when the service is unreachable or
+    #: answers something unusable. On, so a decision-service outage degrades
+    #: the listener instead of losing the message; every fallback is logged.
+    decision_fallback_to_baseline: bool = True
+    retroeval_relevance_threshold: float = 0.80
+    retroeval_relevance_margin: float = 0.15
     classifier_confidence_threshold: float = 0.60
     classifier_margin_threshold: float = 0.15
     classifier_model_path: str = "data/classifier/model.json"
@@ -146,6 +176,8 @@ class Settings(BaseSettings):
             "answer_similarity_floor",
             "classifier_confidence_threshold",
             "classifier_margin_threshold",
+            "retroeval_relevance_threshold",
+            "retroeval_relevance_margin",
         ):
             value = getattr(self, name)
             if not 0.0 <= value <= 1.0:

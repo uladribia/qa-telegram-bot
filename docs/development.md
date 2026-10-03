@@ -57,12 +57,42 @@ semantic-only retrieval (question+answer vectors) against question-focused
 retrieval, and runs 110 deterministic listener
 scenarios. It needs only the local Ollama runtime and regenerates
 `reports/retrieval-classifier-listener.md` with the authoritative numbers and
-gate table. Key results of the latest run: classifier macro F1 0.964,
-knowledge_update precision 0.944, correction precision 0.931, coverage 0.918;
-retrieval Recall@1 0.940, Recall@3 0.962, MRR 0.953 (baseline MRR
-0.455); listener pair precision 1.000 and factual-index precision 1.000, with
-lower recall (0.667 / 0.833) as the accepted cost of the conservative
-confidence policy. All plan acceptance gates pass.
+gate table. Key results of the latest run: retrieval Recall@1 0.988, MRR 0.993;
+listener pair precision 1.000 at recall 1.000 and factual-index precision 0.978
+at recall 1.000.
+
+The classifier gates **fail** in that run (macro F1 0.594, precision among
+confident 0.584). It reproduces on unmodified `main`, so it is a pre-existing
+regression and not a result of the System-One listener refactor; the numbers
+quoted by older commits (0.964) no longer reproduce. Investigate it before
+treating the linear classifier as a trustworthy baseline — the local decision
+model is meant to replace it, and a broken baseline makes that comparison
+meaningless.
+
+## The local runtime is for end-to-end fidelity
+
+`make dev-up` builds the local stack: SQLite, Ollama (embeddings and the 270m
+generator), and — since the decision backend switch was added — the local
+System-One decision service. Its purpose is that a change is exercised against
+the same request path production uses, not that the local model is good enough
+to ship.
+
+`make test-e2e-local` is the tier that proves it: the Telegram flows, the
+seed/retrieval/answer flow, and one canonical System-One request against the
+decision service. `make decision-eval` scores the local decision model on
+`data/classifier/test.jsonl` and writes `reports/decision-service.md`. Read
+those numbers as a description of the testing setup. Quality is decided in
+production, on the real corpus; the local numbers are not a release gate and
+nothing in CI blocks on them.
+
+Two local facts worth knowing before reading a number:
+
+- `DECISION_INCLUDE_RELEVANCE=false` means the local decision model classifies
+  messages but does not choose pairs; the deterministic policy still does. The
+  relevance code path is wired, tested and off.
+- The linear classifier the baseline uses is currently failing its own gates
+  (see the eval note above), so on this machine the "baseline" is not a strong
+  reference point.
 
 ## Boundaries
 

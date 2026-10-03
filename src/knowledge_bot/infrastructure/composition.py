@@ -8,6 +8,7 @@ from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
+from knowledge_bot.application.assessment import BaselineAssessmentModel
 from knowledge_bot.application.background import BackgroundIndexer
 from knowledge_bot.application.budget import AiBudget
 from knowledge_bot.application.classifier import MessageClassifier
@@ -204,6 +205,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
+    assessment = BaselineAssessmentModel(classifier)
     ingestor = MessageIngestor(
         sources=listener_sources,
         conversations=listener_conversations,
@@ -214,7 +216,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         messages=listener_messages,
         conversations=listener_conversations,
         sources=listener_sources,
-        classifier=classifier,
+        assessment=assessment,
         projector=projector,
         clock=clock,
         confidence_threshold=settings.classifier_confidence_threshold,
@@ -227,12 +229,10 @@ def build_context(env: WorkerEnv) -> AppContext:
         sources=listener_sources,
         candidates=pair_candidates,
         projector=projector,
+        assessment=assessment,
         clock=clock,
-        budget=budget,
         question_window_minutes=settings.pairing_question_window_minutes,
         max_pending_questions=settings.pairing_max_pending_questions,
-        confidence_threshold=settings.classifier_confidence_threshold,
-        margin_threshold=settings.classifier_margin_threshold,
     )
     answer = AnswerService(
         retrieval=RetrievalService(
@@ -261,9 +261,10 @@ def build_context(env: WorkerEnv) -> AppContext:
         clock=clock,
         ingestor=ingestor,
         classifier=classifier,
+        assessment=assessment,
         listener=ListenerIngestor(
             ingestor=ingestor,
-            classifier=classifier,
+            assessment=assessment,
             budget=budget,
             pairing=pairing,
             background_indexer=background_indexer,
