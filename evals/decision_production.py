@@ -35,11 +35,16 @@ import sys
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import yaml
+
+from knowledge_bot.application.classifier import Classification, IntentScores
+from knowledge_bot.domain.enums import IntentLabel
+from knowledge_bot.models.assessment import MessageAssessment, RetroevalCandidate
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -64,8 +69,9 @@ CHARS_PER_TOKEN = 3.6
 OUTPUT_TOKEN_RESERVE = 120
 #: The repository's own deliberately conservative chat estimate.
 NEURONS_PER_CHAR = 0.020
-#: Cap for the whole experiment.
-EXPERIMENT_NEURON_CAP = 1500
+#: Cap for the whole experiment, raised from the plan's 1,500 by explicit
+#: authorization so both backends run across all three suites.
+EXPERIMENT_NEURON_CAP = 4500
 
 #: Maximum cases per request, matching the endpoint's own limit.
 BATCH = 5
@@ -80,6 +86,9 @@ PRIMARY_THRESHOLD = 0.80
 PRIMARY_MARGIN = 0.15
 
 INTENT_LABELS = ("question", "knowledge_update", "correction", "chitchat")
+
+#: Fixed evaluation time for replayed scenarios.
+_NOW = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
 
 
 class NeuronCapExceededError(Exception):
@@ -181,11 +190,125 @@ def load_intent_cases() -> list[Case]:
     return cases
 
 
+def _listener_cases() -> list[Case]:
+    """Flatten the real scenarios into one case per message.
+
+    Each message is decided on its own so the suites share one calling path; the
+    candidates a replayed message actually has come from the running flow, not
+    from this list.
+    """
+    cases: list[Case] = []
+    for scenario in load_listener_scenarios():
+        for message in scenario["messages"]:
+            cases.append(
+                Case(
+                    case_id=f"{scenario['id']}/{message['id']}",
+                    text=message["text"],
+                    expected_label=message.get("expected_label"),
+                    category="listener_real",
+                )
+            )
+    return cases
+
+
 def load_listener_scenarios() -> list[dict[str, Any]]:
     """Load the real listener regression scenarios."""
     document = yaml.safe_load(LISTENER_FILE.read_text(encoding="utf-8"))
     scenarios = document if isinstance(document, list) else document["scenarios"]
     return [scenario for scenario in scenarios if scenario.get("synthetic") is False]
+
+
+class EndpointAssessment:
+    """A decision model whose answers come from the deployed evaluation route.
+
+    It implements the same port the listener uses, so a real scenario replays
+    through the production flow with only the decision swapped: candidate
+    collection, pairing and projection all run locally and unmodified.
+    """
+
+    def __init__(self, backend: str, base_url: str, key: str, revision: str) -> None:
+        """Configure the backend, where to ask, and what to cache under."""
+        self.backend = backend
+        self.base_url = base_url
+        self.key = key
+        self.revision = revision
+        self.cache = Cache(revision, backend)
+        self.confidence_threshold = 0.60
+        self.margin_threshold = 0.15
+        self.calls = 0
+
+    async def assess(
+        self, text: str, *, candidates: tuple[RetroevalCandidate, ...] = ()
+    ) -> MessageAssessment:
+        """Ask the route to decide one message together with its candidates."""
+        case = {
+            "case_id": f"listener-{self.calls}",
+            "text": text,
+            "candidates": [
+                {
+                    "candidate_id": item.candidate_id,
+                    "question_message_id": item.question_message_id,
+                    "question": item.question,
+                    "relation": item.relation,
+                }
+                for item in candidates
+            ],
+        }
+        payload = {"backend": self.backend, "cases": [case]}
+        self.calls += 1
+        cache_key = Cache.key(self.revision, self.backend, payload)
+        raw = self.cache.get(cache_key)
+        if raw is None:
+            async with httpx.AsyncClient() as client:
+                raw = await call(client, self.base_url, self.key, payload)
+            self.cache.put(cache_key, raw)
+        return _assessment_from(raw[0])
+
+    def is_question(self, classification: Classification) -> bool:
+        """Whether the message is a confident question."""
+        return (
+            classification.is_confident_with(
+                self.confidence_threshold, self.margin_threshold
+            )
+            and classification.best_label is IntentLabel.QUESTION
+        )
+
+    def is_answer_like(self, classification: Classification) -> bool:
+        """Whether the message is a confident factual update or correction."""
+        return classification.is_confident_with(
+            self.confidence_threshold, self.margin_threshold
+        ) and classification.best_label in (
+            IntentLabel.KNOWLEDGE_UPDATE,
+            IntentLabel.CORRECTION,
+        )
+
+
+def _assessment_from(result: dict[str, Any]) -> MessageAssessment:
+    """Turn one route result into a message assessment."""
+    if result.get("error"):
+        message = f"{result['error']}: {result.get('detail', '')}"
+        raise RuntimeError(message)
+    probabilities = result.get("intent_probabilities") or {}
+    scores = IntentScores(
+        question=float(probabilities.get("question", 0.0)),
+        knowledge_update=float(probabilities.get("knowledge_update", 0.0)),
+        correction=float(probabilities.get("correction", 0.0)),
+        chitchat=float(probabilities.get("chitchat", 0.0)),
+    )
+    return MessageAssessment(
+        classification=Classification(
+            scores=scores,
+            best_label=IntentLabel(str(result["best_label"])),
+            best_score=float(result["best_score"]),
+            margin=float(result["margin"]),
+            embedding=(),
+            prefiltered=bool(result.get("prefiltered")),
+        ),
+        pair_relevance={
+            str(name): float(value)
+            for name, value in (result.get("relevance") or {}).items()
+        },
+    )
 
 
 class Cache:
@@ -351,6 +474,133 @@ def _to_results(
             )
         )
     return results
+
+
+async def replay_scenarios(
+    base_url: str, key: str, revision: str, backend: str
+) -> dict[str, Any]:
+    """Replay the real listener scenarios with one backend deciding.
+
+    The whole application flow runs: candidates are collected by the real
+    pairing service, the decision comes from the deployed route, and the pair
+    is selected by the application's own policy. Only the decision is swapped,
+    which is what makes the two backends comparable.
+    """
+    from datetime import timedelta
+
+    from knowledge_bot.application.background import BackgroundIndexer
+    from knowledge_bot.application.budget import AiBudget
+    from knowledge_bot.application.indexing import SearchProjectionService
+    from knowledge_bot.application.ingest import MessageIngestor
+    from knowledge_bot.application.listener import ListenerIngestor
+    from knowledge_bot.application.listener_pairing import MessagePairingService
+    from knowledge_bot.domain.enums import ContentType
+    from knowledge_bot.models.common import SourceDescriptor
+    from knowledge_bot.models.messages import NormalizedMessage
+    from tests.fakes.ai import (
+        FakeEmbedder,
+        FakeSearchIndexSource,
+        FakeVectorStore,
+        InMemorySearchProjectionRepository,
+    )
+    from tests.fakes.backend import InMemoryBackend
+    from tests.fakes.support import FrozenClock
+
+    scenarios = load_listener_scenarios()
+    made: dict[str, dict[str, int]] = {}
+    for scenario in scenarios:
+        backend_store = InMemoryBackend()
+        clock = FrozenClock(_NOW)
+        embedder = FakeEmbedder()
+        vectors = FakeVectorStore()
+        manifest = InMemorySearchProjectionRepository()
+        assessment = EndpointAssessment(backend, base_url, key, revision)
+        projector = SearchProjectionService(
+            FakeSearchIndexSource(), embedder, vectors, manifest, clock
+        )
+        budget = AiBudget(backend_store.ai_usage, clock)
+        ingestor = MessageIngestor(
+            backend_store.sources,
+            backend_store.conversations,
+            backend_store.messages,
+            backend_store.attachments,
+        )
+        background = BackgroundIndexer(
+            backend_store.messages,
+            backend_store.conversations,
+            backend_store.sources,
+            assessment,
+            projector,
+            clock,
+            0.60,
+            0.15,
+            budget,
+        )
+        pair_repository = backend_store.message_pair_candidates
+        pairing = MessagePairingService(
+            backend_store.messages,
+            backend_store.conversations,
+            backend_store.sources,
+            pair_repository,
+            projector,
+            assessment,
+            clock,
+        )
+        listener = ListenerIngestor(
+            ingestor=ingestor,
+            assessment=assessment,
+            budget=budget,
+            pairing=pairing,
+            background_indexer=background,
+        )
+        for message in scenario["messages"]:
+            await listener.handle(
+                NormalizedMessage(
+                    id=f"{scenario['conversation_id']}:{message['id']}",
+                    source=SourceDescriptor(
+                        id="listener-source", kind="test", authority=40
+                    ),
+                    conversation_id=scenario["conversation_id"],
+                    sender_is_admin=False,
+                    timestamp=_NOW + timedelta(seconds=len(made)),
+                    content_type=ContentType.TEXT,
+                    text=message["text"],
+                )
+            )
+        made[scenario["id"]] = {
+            "expected": len(scenario.get("expected_pairs") or []),
+            "made": len(pair_repository._items),  # type: ignore[attr-defined]
+            "wrong": _wrong_pairs(scenario, pair_repository._items),  # type: ignore[attr-defined]
+        }
+    expected = sum(item["expected"] for item in made.values())
+    wrong = sum(item["wrong"] for item in made.values())
+    found = sum(item["made"] for item in made.values())
+    return {
+        "scenarios": len(scenarios),
+        "expected_pairs": expected,
+        "made_pairs": found,
+        "wrong_pairs": wrong,
+        "pair_recall": _ratio(found, expected),
+        "per_scenario": made,
+    }
+
+
+def _wrong_pairs(scenario: dict[str, Any], pairs: dict[str, Any]) -> int:
+    """Count pairs the scenario did not expect."""
+    expected = {tuple(sorted(pair)) for pair in scenario.get("expected_pairs") or []}
+    return sum(
+        1
+        for pair in pairs.values()
+        if tuple(
+            sorted(
+                (
+                    pair.question_message_id.split(":")[-1],
+                    pair.answer_message_id.split(":")[-1],
+                )
+            )
+        )
+        not in expected
+    )
 
 
 def dry_run(backend_costs: list[tuple[str, int, int, int, int]]) -> None:
@@ -565,6 +815,105 @@ def _fmt(value: float | int | str) -> str:
     return f"{value:.4f}" if isinstance(value, float) else str(value)
 
 
+def evaluate_gates(
+    intent: dict[str, dict[str, Any]],
+    windows: dict[str, dict[str, Any]],
+    listener: dict[str, dict[str, Any]],
+    calibration: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the plan's safety gates and value gates, both sides reported."""
+    base, clef = intent[BASELINE], intent[CLEF]
+    checks: list[tuple[str, bool, str]] = []
+
+    def check(name: str, passed: bool, detail: str) -> None:
+        checks.append((name, passed, detail))
+
+    check(
+        "intent question recall (no worse than baseline by >0.02)",
+        clef["question_recall"] >= base["question_recall"] - 0.02,
+        f"baseline {base['question_recall']:.4f} vs clef {clef['question_recall']:.4f}",
+    )
+    check(
+        "intent knowledge_update precision (<=0.02 worse)",
+        clef["update_precision"] >= base["update_precision"] - 0.02,
+        f"baseline {base['update_precision']:.4f}, clef {clef['update_precision']:.4f}",
+    )
+    check(
+        "intent correction precision (<=0.02 worse)",
+        clef["correction_precision"] >= base["correction_precision"] - 0.02,
+        f"baseline {base['correction_precision']:.4f}, "
+        f"clef {clef['correction_precision']:.4f}",
+    )
+    check(
+        "intent confident precision (<=0.01 worse)",
+        clef["confident_precision"] >= base["confident_precision"] - 0.01,
+        f"baseline {base['confident_precision']:.4f}, "
+        f"clef {clef['confident_precision']:.4f}",
+    )
+    check(
+        "intent coverage (<=0.05 worse)",
+        clef["coverage"] >= base["coverage"] - 0.05,
+        f"baseline {base['coverage']:.4f} vs clef {clef['coverage']:.4f}",
+    )
+    check(
+        "intent error rate < 1%",
+        clef["error_rate"] < 0.01,
+        f"clef {clef['error_rate']:.4f}",
+    )
+    check(
+        "10 real scenarios: 0 wrong pairs (clef)",
+        listener[CLEF]["wrong_pairs"] == 0,
+        f"baseline {listener[BASELINE]['wrong_pairs']} wrong, "
+        f"clef {listener[CLEF]['wrong_pairs']} wrong",
+    )
+    held_out = windows[CLEF]
+    check(
+        "held-out pair precision >= 0.98",
+        held_out["pair_precision"] >= 0.98,
+        f"baseline {windows[BASELINE]['pair_precision']:.4f}, "
+        f"clef {held_out['pair_precision']:.4f}",
+    )
+    check(
+        "held-out wrong pairs <= 1",
+        held_out["wrong_pairs"] <= 1,
+        f"clef {held_out['wrong_pairs']}",
+    )
+    categories = held_out["categories"]
+    expectations = (
+        ("no_correct", "correct", 6, 7),
+        ("ambiguous_two_plausible", "correct", 3, 4),
+        ("explicit_unrelated", "correct", 3, 4),
+        ("chitchat_noise", "correct", 3, 3),
+    )
+    for category, key, minimum, total in expectations:
+        counts = categories.get(category, {})
+        got = (
+            counts.get(key, 0) if category != "no_correct" else counts.get("correct", 0)
+        )
+        check(
+            f"{category}: >= {minimum}/{total}",
+            got >= minimum,
+            f"clef {got}/{total}",
+        )
+    multi = categories.get("multi_one_correct", {})
+    recovered = multi.get("correct", 0)
+    value_multi = recovered >= 7
+    recall_gain = held_out["pair_recall"] - windows[BASELINE]["pair_recall"]
+    value_recall = recall_gain >= 0.15
+    safety_passed = all(passed for _, passed, _ in checks)
+    worth = safety_passed and (value_multi or value_recall)
+    return {
+        "checks": checks,
+        "safety_passed": safety_passed,
+        "value_multi_question": value_multi,
+        "value_recall_gain": value_recall,
+        "recall_gain": recall_gain,
+        "verdict": (
+            "CLEF_IS_WORTH_A_PRODUCTION_ROLLOUT_PLAN" if worth else "KEEP_CURRENT"
+        ),
+    }
+
+
 def write_report(report: dict[str, Any]) -> None:
     """Write the evaluation report."""
     lines = [
@@ -638,6 +987,30 @@ def write_report(report: dict[str, Any]) -> None:
             f"| {category} | {counts['expected_pair']} | {counts['correct']} "
             f"| {counts['wrong']} | {counts['missed']} |"
         )
+    lines += [
+        "",
+        "## 10 real listener scenarios",
+        "",
+        "| metric | baseline | clef-flash |",
+        "|---|---:|---:|",
+    ]
+    for metric in ("expected_pairs", "made_pairs", "wrong_pairs", "pair_recall"):
+        lines.append(
+            f"| {metric} | {_fmt(report['listener'][BASELINE][metric])} "
+            f"| {_fmt(report['listener'][CLEF][metric])} |"
+        )
+    lines += ["", "## Gates", "", "| gate | result | detail |", "|---|---|---|"]
+    for name, passed, detail in report["gates"]["checks"]:
+        lines.append(f"| {name} | {'PASS' if passed else 'FAIL'} | {detail} |")
+    lines += [
+        "",
+        f"- safety gates passed: {report['gates']['safety_passed']}",
+        f"- value gate, multi-question recovery: "
+        f"{report['gates']['value_multi_question']}",
+        f"- value gate, held-out recall gain: {report['gates']['value_recall_gain']} "
+        f"(gain {report['gates']['recall_gain']:.4f})",
+        "",
+    ]
     REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
     REPORT_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -647,7 +1020,12 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
     revision = git_sha()
     intent_cases = load_intent_cases()
     windows = load_windows()
-    suites = {"intent_manual": intent_cases, "windows": windows}
+    listener_cases = _listener_cases()
+    suites = {
+        "intent_manual": intent_cases,
+        "windows": windows,
+        "listener_replay": listener_cases,
+    }
     costs = plan_costs(suites)
     if dry:
         dry_run(costs)
@@ -663,6 +1041,10 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
             window_results[backend] = await decide(
                 client, base_url, key, backend, windows, Cache(revision, backend)
             )
+    listener_reports = {
+        backend: await replay_scenarios(base_url, key, revision, backend)
+        for backend in (BASELINE, CLEF)
+    }
     calibration_cases = [case for case in windows if case.split == "calibration"]
     calibration_results = await decide(
         client, base_url, key, CLEF, calibration_cases, cache
@@ -676,6 +1058,7 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
         for backend, results in window_results.items()
     }
     chosen = calibrate(calibration_results, calibration_cases)
+    gates = evaluate_gates(intent, windows_report, listener_reports, chosen)
     report = {
         "revision": revision,
         "safety_note": (
@@ -693,8 +1076,10 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
             f"{_fmt(windows_report[CLEF]['pair_precision'])}"
         ),
         "calibration": chosen,
-        "one_pass": "verified by tests/internal eval route: one request per message",
-        "verdict": "KEEP_CURRENT",
+        "listener": listener_reports,
+        "one_pass": "one request per message, asserted by the endpoint tests",
+        "gates": gates,
+        "verdict": gates["verdict"],
     }
     write_report(report)
     print(f"wrote {REPORT_FILE.relative_to(ROOT)}")
