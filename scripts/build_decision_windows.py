@@ -148,6 +148,13 @@ STOPWORDS = frozenset(
 #: answer is very likely answered by it, so it is not a hard negative at all.
 ANSWERABLE_OVERLAP = 0.6
 
+#: The same question in different words ("taules de mides" / "guia de talles")
+#: defeats lexical overlap entirely, so a question close to the answer in
+#: embedding space is also treated as answered. This check exists because the
+#: first version of this dataset shipped two "no correct candidate" windows
+#: whose negative was in fact answered, and the model was penalised for it.
+ANSWERABLE_SIMILARITY = 0.72
+
 #: Two questions sharing this fraction of their content words are near
 #: duplicates, which makes "pick exactly one of these" unanswerable.
 DUPLICATE_OVERLAP = 0.5
@@ -227,11 +234,22 @@ def _overlap(left: set[str], right: set[str]) -> float:
     return len(left & right) / min(len(left), len(right))
 
 
-def is_answerable(question: str, answer: str) -> bool:
-    """Whether a question's words are largely contained in the answer."""
-    return (
-        _overlap(_content_words(question), _content_words(answer)) >= ANSWERABLE_OVERLAP
-    )
+def is_answerable(
+    question: str,
+    answer: str,
+    vectors: dict[str, list[float]] | None = None,
+) -> bool:
+    """Whether a question is answered by the answer text.
+
+    Two independent signals, because either alone misses cases: word overlap
+    catches literal repetition, embedding similarity catches the same question
+    phrased differently ("taules de mides" against "guia de talles").
+    """
+    if _overlap(_content_words(question), _content_words(answer)) >= ANSWERABLE_OVERLAP:
+        return True
+    if vectors and question in vectors and answer in vectors:
+        return cosine(vectors[question], vectors[answer]) >= ANSWERABLE_SIMILARITY
+    return False
 
 
 def is_duplicate(left: str, right: str) -> bool:
@@ -456,7 +474,7 @@ def _hard_negatives(
         query, anchor.anchor_id, anchors, vectors
     ):
         candidate = by_id[anchor_id]
-        if is_answerable(candidate.question, anchor.answer):
+        if is_answerable(candidate.question, anchor.answer, vectors):
             continue
         if positive_question and is_duplicate(candidate.question, positive_question):
             continue
@@ -495,7 +513,7 @@ def _temporal_candidates(
         anchor.question, anchor.anchor_id, anchors, vectors
     ):
         other = next(item for item in anchors if item.anchor_id == anchor_id)
-        if is_answerable(other.question, anchor.answer):
+        if is_answerable(other.question, anchor.answer, vectors):
             continue
         if is_duplicate(other.question, anchor.question):
             continue

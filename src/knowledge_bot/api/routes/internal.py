@@ -14,7 +14,14 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from knowledge_bot.adapters.telegram.groups import bind_telegram_group
 from knowledge_bot.adapters.telegram.models import RegisterGroupRequest
 from knowledge_bot.api.context import ContextResolver, InternalKey, internal_context
-from knowledge_bot.application.assessment import BaselineAssessmentModel
+from knowledge_bot.application.assessment import (
+    BaselineAssessmentModel,
+    build_answer_decision_request,
+    build_proactive_question,
+    parse_evidence_relevance,
+    parse_relevance_decision,
+    parse_sufficiency_decision,
+)
 from knowledge_bot.application.listener_pairing import select_pair
 from knowledge_bot.application.review import render_review_report
 from knowledge_bot.domain.enums import AiWorkClass
@@ -37,6 +44,7 @@ from knowledge_bot.models.operations import (
     SeedRequest,
 )
 from knowledge_bot.ports.assessment import MessageAssessmentModel
+from knowledge_bot.ports.system_one import SystemOneTransport
 
 # Live-eval protection: one request may carry at most this many queries, and an
 # isolate admits this many evaluation calls per minute. An unbounded burst of
@@ -75,6 +83,93 @@ def _evaluation_model(context: AppContext) -> MessageAssessmentModel:
             detail="this runtime has no decision evaluator configured",
         )
     return factory()
+
+
+def _transport_for(assessment: MessageAssessmentModel) -> SystemOneTransport:
+    """Return the transport behind a System-One assessment model.
+
+    Only the decision backend has one; the baseline has no transport, and a
+    post-retrieval case is meaningless for it because nothing decides there yet.
+    """
+    transport = getattr(assessment, "transport", None)
+    if not isinstance(transport, SystemOneTransport):
+        raise HTTPException(
+            status_code=422,
+            detail="post-retrieval decisions require the clef-flash backend",
+        )
+    return transport
+
+
+def _model_name(assessment: MessageAssessmentModel) -> str:
+    """Return the model name a System-One assessment model uses."""
+    return str(getattr(assessment, "model", ""))
+
+
+async def _decide_answer_case(
+    context: AppContext,
+    case: EvalDecisionCase,
+    transport: SystemOneTransport,
+    model: str,
+    backend: str,
+    sufficiency_floor: float,
+) -> dict[str, object]:
+    """Decide one post-retrieval case: sufficiency, selection and trigger.
+
+    The answer path needs two decisions over the same shortlist — is anything
+    here enough, and which items answer the question — and the listener path
+    can ask in the same request whether the message is an open question worth
+    answering. All of it travels in one request, because the state is sent once
+    and each extra question costs far less than another round trip.
+    """
+    settings = context.settings
+    started = time.perf_counter()
+    evidence = tuple((item.evidence_id, item.text) for item in case.evidence)
+    question = case.question or case.text
+    state, questions = build_answer_decision_request(question, evidence)
+    if case.ask_proactive:
+        questions["open_question"] = build_proactive_question()
+    try:
+        payload = await transport.decide(model=model, state=state, questions=questions)
+        sufficiency = parse_sufficiency_decision(payload)
+        relevance = parse_evidence_relevance(
+            payload, tuple(evidence_id for evidence_id, _ in evidence)
+        )
+        proactive = _optional_noul(payload, "open_question")
+    except (InvalidModelOutputError, ModelUnavailableError) as error:
+        return {
+            "case_id": case.case_id,
+            "backend": backend,
+            "error": type(error).__name__,
+            "detail": error.args[0] if error.args else "",
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        }
+    selected = sorted(
+        (
+            name
+            for name, score in relevance.items()
+            if score >= settings.retroeval_relevance_threshold
+        ),
+        key=lambda name: relevance[name],
+        reverse=True,
+    )
+    return {
+        "case_id": case.case_id,
+        "backend": backend,
+        "sufficiency": sufficiency,
+        "evidence_relevance": relevance,
+        "selected": selected if sufficiency >= sufficiency_floor else [],
+        "proactive": proactive,
+        "evidence_count": len(evidence),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+    }
+
+
+def _optional_noul(payload: dict[str, object], decision: str) -> float | None:
+    """Return one yes/no probability, or ``None`` when it was not asked."""
+    try:
+        return parse_relevance_decision(payload, (decision,))[decision]
+    except InvalidModelOutputError:
+        return None
 
 
 async def _decide_one(
@@ -288,9 +383,23 @@ def build_internal_router(resolve_context: ContextResolver) -> APIRouter:
                 )
                 for item in case.candidates
             )
-            results.append(
-                await _decide_one(context, assessment, body.backend, case, candidates)
-            )
+            if case.question or case.evidence:
+                results.append(
+                    await _decide_answer_case(
+                        context,
+                        case,
+                        _transport_for(assessment),
+                        _model_name(assessment),
+                        body.backend,
+                        context.settings.answer_similarity_floor,
+                    )
+                )
+            else:
+                results.append(
+                    await _decide_one(
+                        context, assessment, body.backend, case, candidates
+                    )
+                )
         return {"backend": body.backend, "results": results}
 
     @router.get("/internal/budget")

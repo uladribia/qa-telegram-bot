@@ -35,6 +35,13 @@ class EvalAnswerRequest(BaseModel):
     evidence: list[FrozenEvidence] | None = None
 
 
+class EvalEvidenceItem(BaseModel):
+    """One shortlisted evidence item handed to the decision model."""
+
+    evidence_id: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=8000)
+
+
 class EvalDecisionCandidate(BaseModel):
     """One open question an evaluated message could answer."""
 
@@ -45,11 +52,19 @@ class EvalDecisionCandidate(BaseModel):
 
 
 class EvalDecisionCase(BaseModel):
-    """One message to decide, with the open questions it could answer."""
+    """One message to decide, with the open questions it could answer.
+
+    Exactly one of ``candidates`` (the listener shape: a message and the
+    questions it might answer) and ``question``/``evidence`` (the answer shape:
+    a question and the shortlist retrieval already chose) is used per case.
+    """
 
     case_id: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=8000)
     candidates: list[EvalDecisionCandidate] = Field(default_factory=list, max_length=5)
+    question: str | None = Field(default=None, max_length=4000)
+    evidence: list[EvalEvidenceItem] = Field(default_factory=list, max_length=8)
+    ask_proactive: bool = False
 
 
 class EvalDecisionRequest(BaseModel):

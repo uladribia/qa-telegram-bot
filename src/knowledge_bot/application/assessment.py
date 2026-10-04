@@ -358,3 +358,128 @@ class SystemOneAssessmentModel:
             IntentLabel.KNOWLEDGE_UPDATE,
             IntentLabel.CORRECTION,
         )
+
+
+#: Decision name of the "is this evidence enough at all" question.
+SUFFICIENCY_DECISION = "evidence.sufficient"
+
+#: Decision name of the proactive trigger: is this message an open question.
+PROACTIVE_DECISION = "open_question"
+
+_SUFFICIENCY_INSTRUCTIONS = (
+    "Can the question in the state be answered from the evidence provided, "
+    "without inventing anything? Judge only from the evidence."
+)
+_EVIDENCE_INSTRUCTIONS = (
+    "Does this evidence item answer the question asked in the state? "
+    "Being on the same topic is not enough; it must carry the fact the "
+    "question asks for."
+)
+_OPEN_QUESTION_INSTRUCTIONS = (
+    "Is this message an open question that deserves an answer from the "
+    "group's knowledge, rather than social conversation, a statement, or a "
+    "correction?"
+)
+
+
+def build_answer_decision_request(
+    question: str,
+    evidence: tuple[tuple[str, str], ...],
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Build the post-retrieval decision request for one question.
+
+    One state carries the question and the shortlist the cosine retrieval
+    already chose; the questions are the two decisions the answer path needs:
+    whether anything here is enough, and which items actually answer it. The
+    shortlist stays small by construction, because the cosine floor is what
+    bounds the tokens this request may cost.
+
+    Args:
+        question: The question that must be answered.
+        evidence: The shortlisted ``(evidence_id, text)`` pairs, in rank order.
+
+    Returns:
+        The ``state`` object and the ``questions`` mapping.
+    """
+    state: dict[str, object] = {
+        "question": question,
+        "evidence": [
+            {"id": evidence_id, "text": text} for evidence_id, text in evidence
+        ],
+    }
+    questions: dict[str, object] = {
+        SUFFICIENCY_DECISION: {
+            "type": "noul",
+            "instructions": _SUFFICIENCY_INSTRUCTIONS,
+            "criteria": {
+                "true": "The evidence contains what the question asks for.",
+                "false": "The evidence does not answer the question.",
+            },
+        }
+    }
+    for evidence_id, _ in evidence:
+        questions[f"evidence.{evidence_id}.relevant"] = {
+            "type": "noul",
+            "instructions": _EVIDENCE_INSTRUCTIONS,
+            "criteria": {
+                "true": "This item answers the question asked.",
+                "false": "This item does not answer the question asked.",
+            },
+        }
+    return state, questions
+
+
+def build_proactive_question() -> dict[str, object]:
+    """Return the proactive-trigger question added to a listener request.
+
+    The trigger rides in the request the listener already makes for this
+    message, so a proactive group pays no extra call for it.
+    """
+    return {
+        "type": "noul",
+        "instructions": _OPEN_QUESTION_INSTRUCTIONS,
+        "criteria": {
+            "true": "The message is an open question worth answering.",
+            "false": "It is not an open question worth answering.",
+        },
+    }
+
+
+def parse_sufficiency_decision(payload: dict[str, object]) -> float:
+    """Return the probability that the evidence is enough to answer.
+
+    Args:
+        payload: The raw decision response.
+
+    Returns:
+        The yes probability for ``evidence.sufficient``.
+
+    Raises:
+        InvalidModelOutputError: The sufficiency answer is missing or unusable.
+    """
+    return parse_relevance_decision(payload, (SUFFICIENCY_DECISION,))[
+        SUFFICIENCY_DECISION
+    ]
+
+
+def parse_evidence_relevance(
+    payload: dict[str, object], evidence_ids: tuple[str, ...]
+) -> dict[str, float]:
+    """Return the per-item relevance probabilities of a shortlist.
+
+    Args:
+        payload: The raw decision response.
+        evidence_ids: The evidence ids that must each have an answer.
+
+    Returns:
+        The probability that each item answers the question.
+
+    Raises:
+        InvalidModelOutputError: An item has no usable answer.
+    """
+    names = tuple(f"evidence.{evidence_id}.relevant" for evidence_id in evidence_ids)
+    scored = parse_relevance_decision(payload, names)
+    return {
+        evidence_id: scored[f"evidence.{evidence_id}.relevant"]
+        for evidence_id in evidence_ids
+    }
