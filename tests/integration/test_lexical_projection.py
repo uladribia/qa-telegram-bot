@@ -20,6 +20,7 @@ from knowledge_bot.infrastructure.sql.lexical import (
     SqlLexicalIndex,
     lexical_match_query,
 )
+from knowledge_bot.infrastructure.sql.repositories import SqlSearchProjectionRepository
 from knowledge_bot.ports.index import IndexableQA, LexicalRecord
 from tests.fakes.ai import (
     FakeEmbedder,
@@ -163,5 +164,110 @@ async def test_a_query_of_only_stopwords_matches_nothing(tmp_path: Path) -> None
         assert [m.id for m in await lexical.search("on és el camp?", top_k=5)] == [
             "qa:qa-three"
         ]
+    finally:
+        await database.close()
+
+
+async def _drift(database: SQLiteDatabase) -> tuple[list[str], list[str]]:
+    """Return the vector-only and lexical-only ids of the Q&A projections.
+
+    The two projections are written together from the same metadata, so a
+    corpus that has been fully projected must have no ids on one side only.
+    An id on the left was indexed without its answer text, which makes the
+    lexical leg silently blind to it; an id on the right has no vector and is
+    invisible to semantic retrieval.
+    """
+    cursor = await database.connection.execute(
+        "SELECT vector_id FROM search_projection WHERE kind = 'qa' "
+        "AND vector_id NOT IN (SELECT vector_id FROM search_fts)"
+    )
+    vector_only = sorted({row[0] for row in await cursor.fetchall()})
+    cursor = await database.connection.execute(
+        "SELECT vector_id FROM search_fts WHERE kind = 'qa' "
+        "AND vector_id NOT IN (SELECT vector_id FROM search_projection)"
+    )
+    lexical_only = sorted({row[0] for row in await cursor.fetchall()})
+    return vector_only, lexical_only
+
+
+async def _service(
+    database: SQLiteDatabase, corpus: list[IndexableQA]
+) -> SearchProjectionService:
+    """Build a projection service writing to real SQL on both sides.
+
+    The manifest must be the real repository, not the in-memory fake: the
+    invariant under test is about the ``search_projection`` table, and a fake
+    manifest would leave that table empty and make every id look lexical-only.
+    """
+    return SearchProjectionService(
+        source=FakeSearchIndexSource(qa=corpus),
+        embedder=FakeEmbedder([1.0, 0.0]),
+        vectors=NumpySqliteVectorStore(database),
+        manifest=SqlSearchProjectionRepository(_binding(database)),
+        clock=FrozenClock(NOW),
+        lexical=SqlLexicalIndex(_binding(database)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_projected_corpus_leaves_no_drift_between_the_projections(
+    tmp_path: Path,
+) -> None:
+    """Projecting the whole corpus populates both projections equally.
+
+    This is the invariant that production violated: the club corpus was
+    vector-indexed before the FTS table existed, so it was never projected
+    lexically, and nothing detected it. Every Q&A id must appear in both.
+    """
+    database = await _database(tmp_path)
+    try:
+        corpus = [
+            IndexableQA(
+                qa_item_id=f"qa-{index}",
+                version_id=f"v{index}",
+                question=f"Pregunta {index}?",
+                answer=f"Resposta {index} amb el Camp del Pau Negre.",
+                authority=90,
+                canonical_key=f"qa-{index}",
+                source_anchor=f"qa-{index}",
+                url="https://example.org",
+            )
+            for index in range(5)
+        ]
+        service = await _service(database, corpus)
+
+        for item in corpus:
+            await service.project_qa(item)
+
+        assert await _drift(database) == ([], [])
+        matches = await SqlLexicalIndex(_binding(database)).search(
+            "pau negre", top_k=10, filters={"kind": "qa"}
+        )
+        assert len(matches) == 5
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_drift_is_detected_when_a_lexical_row_is_missing(
+    tmp_path: Path,
+) -> None:
+    """The audit must actually notice a one-sided projection.
+
+    A drift check that cannot fail is worse than none, so this deletes the
+    lexical row the way the pre-0024 corpus looks and asserts it is reported.
+    """
+    database = await _database(tmp_path)
+    try:
+        service = await _service(database, [QA])
+
+        await service.project_qa(QA)
+        assert await _drift(database) == ([], [])
+
+        await database.connection.execute(
+            "DELETE FROM search_fts WHERE vector_id = ?", ("qa:qa-one",)
+        )
+
+        assert await _drift(database) == (["qa:qa-one"], [])
     finally:
         await database.close()

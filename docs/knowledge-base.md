@@ -54,22 +54,46 @@ ranking:
 
 A single cosine threshold decides what evidence exists: candidates at or above
 `ANSWER_SIMILARITY_FLOOR` (0.35) are kept, the best `QA_TOP_K` (5) Q&A and
-`MESSAGE_TOP_K` (2) group candidates go to the model, a group's own variant
-suppresses the global answer for the same canonical question, and authority
-breaks remaining ties.
+`MESSAGE_TOP_K` (2) group candidates go to the model, and a group's own variant
+suppresses the global answer for the same canonical question.
 
-A second, subordinate leg can run BM25 over **answer** text, and it is
-**disabled** (`QA_ANSWER_TOP_K=0`): it measured 23/26 on the live gold set
-against 24/26 without it. It exists because the distinctive terms of this
+**Authority is blended into the ranking, not left as a tiebreaker.** It is
+normalised onto the cosine's 0..1 scale and averaged 50/50 with it. It used to
+break ties only, which meant it never influenced a real ordering: measured in
+production, for "on son els entrenaments?" a medical-payment entry (authority
+30) outranked the venue entry (authority 90) on cosine alone, 0.6502 against
+0.6474, and the generator abstained on the wrong evidence. Blended, the venue
+entry scores 0.774 against 0.475 and wins.
+
+Blending reorders candidates that **already cleared the floor**; it never
+decides which candidates are admitted. That separation is deliberate: the floor
+and the gated recall metric are calibrated on the raw cosine, and mixing
+authority into admission would move both silently. Production authority values
+are 30 (inferred from chat), 90 (club-published), and 100 (authoritative).
+
+A second, subordinate leg runs BM25 over **answer** text, enabled with
+`QA_ANSWER_TOP_K` (5). It exists because the distinctive terms of this
 knowledge base live in the answers — measured in production, `Cluber` was in 5
 answers and 0 canonical questions, and the venue entry's answer says `camp`
 while its question does not — and because a lexical index over questions cannot
 reach those facts at all. It only runs when the semantic pool already cleared
 the floor, so it can add context but never authorise an answer on its own.
-Searching costs no AI budget, and both projections are written together from
-the same metadata, so they cannot drift. It is worth reviving behind a generator
-fix, not a retrieval one: see [operations.md](operations.md#retrieval). The answer model (Mistral) and correction workflow are
-unchanged.
+Searching costs no AI budget.
+
+**The two projections must agree, and nothing used to check.** The lexical
+projection is written beside the vector projection from the same metadata, but
+that only holds for items indexed *after* the FTS table existed. The club
+corpus was seeded before `0024_answer_fts.sql`, so it was vector-indexed and
+never lexically projected: production held 68 vector rows against 11 lexical
+ones, all 11 being self-QA and E2E artefacts rather than club knowledge. The
+leg was not merely under-used, it was blind to every real entry.
+`tests/integration/test_lexical_projection.py` now pins the invariant in both
+directions and proves the audit can fail; **after any change to the projection
+schema, reindex before trusting the lexical leg**, and check the counts agree.
+
+Its earlier 23/26-against-24/26 measurement was taken against that near-empty
+index, so it did not test the leg as designed. Re-measure before trusting any
+old number about it.
 
 There is no lexical (BM25/FTS5) ranking. It was measured, found to be returning
 rows for 2 of 91 eval questions as written, and removed; the `search_fts`

@@ -13,6 +13,14 @@ from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 # Vectorize accepts at most 100 ids per delete call.
 _DELETE_CHUNK = 100
 
+#: Vectorize rejects any id longer than this with ``VECTOR_DELETE_ERROR``
+#: (code 40008), which is a hard platform limit, not a quota. Such an id can
+#: therefore never exist in the index, so asking to delete it is meaningless
+#: and fails the whole batch. One legacy Q&A version id measured 76 bytes,
+#: which made the projection-cleanup endpoint return 500 and blocked every
+#: reindex: the id could not be deleted and the request could not proceed.
+_MAX_ID_BYTES = 64
+
 
 class VectorizeIndex(Protocol):
     """The subset of the Vectorize binding used here."""
@@ -79,6 +87,16 @@ class VectorizeStore:
         ]
 
     async def delete(self, ids: list[str]) -> None:
-        """Delete vectors by id, in chunks the index accepts."""
-        for chunk in batched(ids, _DELETE_CHUNK, strict=False):
+        """Delete vectors by id, in chunks the index accepts.
+
+        Ids past the platform's byte limit are dropped rather than sent: they
+        cannot be present in the index, and including one rejects the entire
+        batch with a 500. Skipping is therefore not a silent partial delete.
+        """
+        deletable = [
+            vector_id
+            for vector_id in ids
+            if len(vector_id.encode("utf-8")) <= _MAX_ID_BYTES
+        ]
+        for chunk in batched(deletable, _DELETE_CHUNK, strict=False):
             await self._index.deleteByIds(list(chunk))
