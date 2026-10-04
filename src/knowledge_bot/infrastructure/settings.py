@@ -16,6 +16,7 @@ ALLOWED_AI_MODELS = frozenset(
         "@cf/google/embeddinggemma-300m",
         "@cf/mistralai/mistral-small-3.1-24b-instruct",
         "@cf/zai-org/glm-4.7-flash",
+        "@cf/cloudflare/clef-flash",
     }
 )
 LOCAL_ALLOWED_AI_MODELS = frozenset({"embeddinggemma", "gemma3:270m"})
@@ -103,13 +104,18 @@ class Settings(BaseSettings):
     reviewer_escalation_timeout_seconds: int = 86_400
     pairing_question_window_minutes: int = 5
     pairing_max_pending_questions: int = 5
-    #: Which backend decides a listener message's intent and pair relevance.
-    #: ``baseline`` is the linear classifier plus deterministic pairing and
-    #: stays the default; ``systemone`` asks one decision service per message.
-    decision_backend: DecisionBackend = DecisionBackend.BASELINE
+    #: Which backend decides listener intent, answer sufficiency and evidence
+    #: selection. ``systemone`` is the shipped path: one decision service call
+    #: per message and per answered question. ``baseline`` is the linear
+    #: classifier, the cosine floor and prompt-only abstention, kept as the
+    #: rollback that needs no decision service at all.
+    decision_backend: DecisionBackend = DecisionBackend.SYSTEM_ONE
     decision_base_url: str = "http://knowledge-bot-ollama:11434"
-    decision_model: str = "tev1:0.8b"
-    ai_decision_timeout_seconds: float = Field(default=20.0, gt=0, le=55)
+    decision_model: str = "@cf/cloudflare/clef-flash"
+    #: A decision call sits in front of an answer, so it is given a deadline a
+    #: person would not notice rather than the generation one. Measured p95 on
+    #: the local decision service is under 600 ms.
+    ai_decision_timeout_seconds: float = Field(default=8.0, gt=0, le=55)
     #: Ask the decision service for candidate relevance as well as intent.
     #: Off by default: the model then decides what a message *is*, and the
     #: deterministic policy still decides which question it answers. Turning
@@ -122,6 +128,15 @@ class Settings(BaseSettings):
     decision_fallback_to_baseline: bool = True
     retroeval_relevance_threshold: float = 0.80
     retroeval_relevance_margin: float = 0.15
+    #: Ask the decision service whether the retrieved shortlist is enough, and
+    #: which items answer the question. On by default: retrieval still chooses
+    #: the shortlist and the cosine floor still bounds it, so this decides
+    #: correctness, not recall.
+    decision_answer_path: bool = True
+    #: Minimum sufficiency before the shortlist is treated as answerable.
+    decision_sufficiency_threshold: float = 0.50
+    #: Minimum per-item relevance before an item reaches the generator.
+    decision_selection_threshold: float = 0.90
     classifier_confidence_threshold: float = 0.60
     classifier_margin_threshold: float = 0.15
     classifier_model_path: str = "data/classifier/model.json"
@@ -178,6 +193,8 @@ class Settings(BaseSettings):
             "classifier_margin_threshold",
             "retroeval_relevance_threshold",
             "retroeval_relevance_margin",
+            "decision_sufficiency_threshold",
+            "decision_selection_threshold",
         ):
             value = getattr(self, name)
             if not 0.0 <= value <= 1.0:

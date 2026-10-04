@@ -6,10 +6,15 @@ from typing import Protocol
 from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramTransport
 from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
+from knowledge_bot.application.answer_decisions import (
+    AnswerDecisionGate,
+    AnswerDecisionSettings,
+)
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.assessment import (
     BaselineAssessmentModel,
+    SystemOneAnswerDecisionModel,
     SystemOneAssessmentModel,
 )
 from knowledge_bot.application.background import BackgroundIndexer
@@ -82,9 +87,12 @@ from knowledge_bot.infrastructure.logging import build_tracer
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
+    MeteredSystemOneTransport,
 )
-from knowledge_bot.infrastructure.settings import Settings
+from knowledge_bot.infrastructure.settings import DecisionBackend, Settings
 from knowledge_bot.infrastructure.sql.lexical import SqlLexicalIndex
+from knowledge_bot.ports.assessment import MessageAssessmentModel
+from knowledge_bot.ports.system_one import SystemOneTransport
 
 
 class WorkerEnv(Protocol):
@@ -98,6 +106,11 @@ class WorkerEnv(Protocol):
 def _text(env: WorkerEnv, name: str, default: str = "") -> str:
     value = getattr(env, name, None)
     return default if value is None else str(value)
+
+
+def _flag(env: WorkerEnv, name: str, default: str) -> bool:
+    """Read a boolean Worker variable the way a var declared as a string is."""
+    return _text(env, name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ids(value: str) -> frozenset[str]:
@@ -136,6 +149,21 @@ def build_context(env: WorkerEnv) -> AppContext:
             env, "CLASSIFIER_MODEL_PATH", "data/classifier/model.json"
         ),
         answer_similarity_floor=_text(env, "ANSWER_SIMILARITY_FLOOR", "0.35"),
+        decision_backend=DecisionBackend(_text(env, "DECISION_BACKEND", "systemone")),
+        decision_model=_text(env, "DECISION_MODEL", "@cf/cloudflare/clef-flash"),
+        decision_base_url=_text(
+            env, "DECISION_BASE_URL", "http://knowledge-bot-ollama:11434"
+        ),
+        decision_include_relevance=_flag(env, "DECISION_INCLUDE_RELEVANCE", "false"),
+        decision_answer_path=_flag(env, "DECISION_ANSWER_PATH", "true"),
+        decision_fallback_to_baseline=_flag(
+            env, "DECISION_FALLBACK_TO_BASELINE", "true"
+        ),
+        decision_sufficiency_threshold=_text(
+            env, "DECISION_SUFFICIENCY_THRESHOLD", "0.50"
+        ),
+        decision_selection_threshold=_text(env, "DECISION_SELECTION_THRESHOLD", "0.90"),
+        ai_decision_timeout_seconds=_text(env, "AI_DECISION_TIMEOUT_SECONDS", "8"),
         qa_top_k=_text(env, "QA_TOP_K", "5"),
         message_top_k=_text(env, "MESSAGE_TOP_K", "2"),
         ai_daily_neuron_budget=_text(env, "AI_DAILY_NEURON_BUDGET", "10000"),
@@ -212,7 +240,48 @@ def build_context(env: WorkerEnv) -> AppContext:
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
-    assessment = BaselineAssessmentModel(classifier)
+    decision_transport: SystemOneTransport | None = None
+    if settings.decision_backend is DecisionBackend.SYSTEM_ONE:
+        decision_transport = MeteredSystemOneTransport(
+            inner=WorkersAISystemOneTransport(
+                runner=env.AI,
+                timeout_seconds=settings.ai_decision_timeout_seconds,
+            ),
+            budget=budget,
+            characters_per_neuron=settings.ai_chat_neurons_per_char,
+        )
+        fallback = (
+            BaselineAssessmentModel(classifier)
+            if settings.decision_fallback_to_baseline
+            else None
+        )
+        assessment: MessageAssessmentModel = SystemOneAssessmentModel(
+            transport=decision_transport,
+            model=settings.decision_model,
+            confidence_threshold=settings.classifier_confidence_threshold,
+            margin_threshold=settings.classifier_margin_threshold,
+            relevance_threshold=settings.retroeval_relevance_threshold,
+            relevance_margin=settings.retroeval_relevance_margin,
+            include_relevance=settings.decision_include_relevance,
+            fallback=fallback,
+        )
+        answer_decisions = (
+            AnswerDecisionGate(
+                policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+                model=SystemOneAnswerDecisionModel(
+                    transport=decision_transport, model=settings.decision_model
+                ),
+                settings=AnswerDecisionSettings(
+                    sufficiency_threshold=settings.decision_sufficiency_threshold,
+                    selection_threshold=settings.decision_selection_threshold,
+                ),
+            )
+            if settings.decision_answer_path
+            else None
+        )
+    else:
+        assessment = BaselineAssessmentModel(classifier)
+        answer_decisions = None
     ingestor = MessageIngestor(
         sources=listener_sources,
         conversations=listener_conversations,
@@ -258,6 +327,7 @@ def build_context(env: WorkerEnv) -> AppContext:
         answers=answers,
         clock=clock,
         policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+        decisions=answer_decisions,
         conversations=listener_conversations,
         sources=listener_sources,
         tracer=build_tracer(),

@@ -9,7 +9,9 @@ candidate. Nothing here knows which server answered.
 """
 
 import logging
+import time
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 from knowledge_bot.application.classifier import (
     LABELS,
@@ -515,3 +517,75 @@ def parse_evidence_relevance(
         evidence_id: scored[f"evidence.{evidence_id}.relevant"]
         for evidence_id in evidence_ids
     }
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceDecision:
+    """One post-retrieval decision: is this shortlist enough, and what answers."""
+
+    sufficiency: float
+    relevance: dict[str, float]
+    duration_ms: float = 0.0
+
+
+@runtime_checkable
+class AnswerDecisionModel(Protocol):
+    """Decides, over a shortlist, whether the evidence can answer the question."""
+
+    async def decide_evidence(
+        self, question: str, evidence: tuple[tuple[str, str], ...]
+    ) -> EvidenceDecision:
+        """Decide sufficiency and per-item relevance in one request.
+
+        Args:
+            question: The question that must be answered.
+            evidence: The shortlisted ``(evidence_id, text)`` pairs.
+
+        Returns:
+            The sufficiency probability and each item's relevance.
+
+        Raises:
+            InvalidModelOutputError: The answers are not the decisions asked for.
+            ModelUnavailableError: The decision service could not be reached.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class SystemOneAnswerDecisionModel:
+    """Answer-path decisions from the same System-One transport as the listener."""
+
+    transport: SystemOneTransport
+    model: str
+
+    async def decide_evidence(
+        self, question: str, evidence: tuple[tuple[str, str], ...]
+    ) -> EvidenceDecision:
+        """Ask one request whether the shortlist answers the question.
+
+        The listener and this share a transport and a wire format, so switching
+        either decision off changes one request, not the architecture.
+
+        Args:
+            question: The question that must be answered.
+            evidence: The shortlisted ``(evidence_id, text)`` pairs.
+
+        Returns:
+            The sufficiency probability and each item's relevance.
+
+        Raises:
+            InvalidModelOutputError: The answers are not the decisions asked for.
+            ModelUnavailableError: The decision service could not be reached.
+        """
+        started = time.perf_counter()
+        state, questions = build_answer_decision_request(question, evidence)
+        payload = await self.transport.decide(
+            model=self.model, state=state, questions=questions
+        )
+        return EvidenceDecision(
+            sufficiency=parse_sufficiency_decision(payload),
+            relevance=parse_evidence_relevance(
+                payload, tuple(evidence_id for evidence_id, _ in evidence)
+            ),
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        )

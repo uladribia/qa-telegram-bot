@@ -310,13 +310,19 @@ def test_the_endpoint_persists_nothing() -> None:
     assert vectors == {}
 
 
-def test_the_production_listener_is_still_the_baseline() -> None:
-    """Wiring an evaluation backend must not move user traffic onto it."""
-    context, _ = build_test_context()
+def test_an_evaluation_backend_is_never_reachable_from_user_traffic() -> None:
+    """The evaluation model exists only behind the evaluation route.
 
+    Swapping the runtime assessment model must not move user traffic onto the
+    evaluator: the listener and the pairing service keep the backend they were
+    built with, and only the internal route can build the evaluation one.
+    """
+    context, _ = build_test_context()
+    evaluated = _with_evaluator(context, RecordingRunner({}))
+
+    assert evaluated.listener.assessment is not evaluated.decision_evaluator
     assert isinstance(context.listener.assessment, BaselineAssessmentModel)
     assert isinstance(context.pairing.assessment, BaselineAssessmentModel)
-    assert context.settings.decision_backend.value == "baseline"
 
 
 @pytest.mark.asyncio

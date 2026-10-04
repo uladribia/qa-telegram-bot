@@ -9,10 +9,15 @@ from knowledge_bot.adapters.outbound.telegram import TelegramNotifier, TelegramT
 from knowledge_bot.adapters.telegram.channel import TelegramChannel
 from knowledge_bot.adapters.telegram.client import TelegramClient
 from knowledge_bot.adapters.telegram.identity import TelegramIdentity
+from knowledge_bot.application.answer_decisions import (
+    AnswerDecisionGate,
+    AnswerDecisionSettings,
+)
 from knowledge_bot.application.answer_policy import AnswerPolicy
 from knowledge_bot.application.answer_question import AnswerService
 from knowledge_bot.application.assessment import (
     BaselineAssessmentModel,
+    SystemOneAnswerDecisionModel,
     SystemOneAssessmentModel,
 )
 from knowledge_bot.application.background import BackgroundIndexer
@@ -52,6 +57,7 @@ from knowledge_bot.infrastructure.logging import build_tracer
 from knowledge_bot.infrastructure.metering import (
     MeteredEmbedder,
     MeteredGenerator,
+    MeteredSystemOneTransport,
 )
 from knowledge_bot.infrastructure.settings import DecisionBackend, Settings
 from knowledge_bot.infrastructure.sql.lexical import SqlLexicalIndex
@@ -81,6 +87,7 @@ from knowledge_bot.infrastructure.sql.repositories import (
 )
 from knowledge_bot.ports.assessment import MessageAssessmentModel
 from knowledge_bot.ports.clock import Clock
+from knowledge_bot.ports.system_one import SystemOneTransport
 
 D1AiUsageRepository = SqlAiUsageRepository
 D1AttachmentRepository = SqlAttachmentRepository
@@ -207,15 +214,35 @@ async def build_context(
         confidence_threshold=settings.classifier_confidence_threshold,
         margin_threshold=settings.classifier_margin_threshold,
     )
+    answer_decisions: AnswerDecisionGate | None = None
     if settings.decision_backend is DecisionBackend.BASELINE:
         assessment: MessageAssessmentModel = BaselineAssessmentModel(classifier)
     else:
-        assessment = SystemOneAssessmentModel(
-            transport=HttpSystemOneTransport(
+        decision_transport: SystemOneTransport = MeteredSystemOneTransport(
+            inner=HttpSystemOneTransport(
                 client=client,
                 base_url=settings.decision_base_url,
                 timeout_seconds=settings.ai_decision_timeout_seconds,
             ),
+            budget=budget,
+            characters_per_neuron=settings.ai_chat_neurons_per_char,
+        )
+        answer_decisions = (
+            AnswerDecisionGate(
+                policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+                model=SystemOneAnswerDecisionModel(
+                    transport=decision_transport, model=settings.decision_model
+                ),
+                settings=AnswerDecisionSettings(
+                    sufficiency_threshold=settings.decision_sufficiency_threshold,
+                    selection_threshold=settings.decision_selection_threshold,
+                ),
+            )
+            if settings.decision_answer_path
+            else None
+        )
+        assessment = SystemOneAssessmentModel(
+            transport=decision_transport,
             model=settings.decision_model,
             confidence_threshold=settings.classifier_confidence_threshold,
             margin_threshold=settings.classifier_margin_threshold,
@@ -294,6 +321,7 @@ async def build_context(
         answers=answers,
         clock=clock,
         policy=AnswerPolicy(floor=settings.answer_similarity_floor),
+        decisions=answer_decisions,
         conversations=conversations,
         sources=sources,
         tracer=build_tracer(),

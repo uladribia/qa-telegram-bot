@@ -94,6 +94,18 @@ class AiBudget:
         day = self.day()
         await self.usage.add(day, neurons, 1)
 
+    def estimate_decision(self, characters: int, per_character: float) -> float:
+        """Estimate the neurons one decision call costs.
+
+        Decision calls are priced per input token, not per generated token, so
+        the estimate is a character count times the caller's own rate.
+        """
+        return max(characters, 0) * per_character
+
+    async def record_decision(self, characters: int, per_character: float) -> None:
+        """Record one decision call against today's spend."""
+        await self.record(self.estimate_decision(characters, per_character))
+
     async def record_embedding(self, texts: list[str]) -> None:
         """Meter an embedding call over the given texts."""
         await self.record(self.estimate_embedding(sum(len(text) for text in texts)))

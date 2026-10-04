@@ -15,7 +15,8 @@ import json
 import time
 from dataclasses import dataclass, field
 
-from knowledge_bot.application.answer_policy import AnswerPolicy
+from knowledge_bot.application.answer_decisions import AnswerDecisionGate
+from knowledge_bot.application.answer_policy import AnswerPolicy, EvidenceSelection
 from knowledge_bot.application.retrieval import (
     Evidence,
     RetrievalService,
@@ -240,6 +241,10 @@ class AnswerService:
     answers: BotAnswerRepository
     clock: Clock
     policy: AnswerPolicy = field(default_factory=AnswerPolicy)
+    #: Decides sufficiency and per-item relevance over the retrieved shortlist.
+    #: Defaults to the floor alone, so a runtime without a decision model keeps
+    #: today's behaviour without configuration.
+    decisions: AnswerDecisionGate | None = None
     conversations: ConversationRepository | None = None
     sources: SourceRepository | None = None
     tracer: Tracer = field(default_factory=NoopTracer)
@@ -274,10 +279,11 @@ class AnswerService:
                 to safe user-facing outcomes here, so every caller sees the
                 same decision with the same diagnostic reason.
         """
-        selection = self.policy.select(retrieved.qa, retrieved.messages)
+        selection, decision_reason = await self._select(retrieved, question)
         with self.tracer.span(
             "evidence_selection",
             floor=self.policy.floor,
+            decided_by=decision_reason,
             qa_candidates=len(retrieved.qa),
             message_candidates=len(retrieved.messages),
         ) as selection_span:
@@ -286,6 +292,7 @@ class AnswerService:
                     "selected": [item.source_id for item in selection.evidence],
                     "selected_count": len(selection.evidence),
                     "abstained": selection.abstain,
+                    "decided_by": decision_reason,
                 }
             )
             if trace is not None:
@@ -723,6 +730,24 @@ class AnswerService:
             "qa_lexical": _candidates(retrieved.lexical_qa),
         }
         return retrieved
+
+    async def _select(
+        self, retrieved: RetrievedEvidence, question: str
+    ) -> tuple[EvidenceSelection, str]:
+        """Return the evidence the generator may see, and who decided it.
+
+        Args:
+            retrieved: The candidates retrieval returned.
+            question: The question that must be answered.
+
+        Returns:
+            The selection and the reason it was reached.
+        """
+        if self.decisions is not None:
+            return await self.decisions.select(
+                question, retrieved.qa, retrieved.messages
+            )
+        return self.policy.select(retrieved.qa, retrieved.messages), "floor"
 
     def frozen_evidence(self, evidence: list[dict[str, object]]) -> list[Evidence]:
         """Build evaluation evidence that clears the selection floor.
