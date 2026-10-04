@@ -1,14 +1,14 @@
 # Clef-Flash focused decision evaluation
 
-- experiment SHA: `fbeb094a73a6ec665826cd70e5d8b48f25d449b4`
+- experiment SHA: `cb444ccf6e7c71ce59ca0f8c546b5e3c3090e487`
 - production runtime safety: listener traffic stayed on BaselineAssessmentModel; the endpoint persists nothing
 - Clef configuration: @cf/cloudflare/clef-flash, one request per message, include_relevance=true, no fallback
-- total Clef calls: 130 (3 served from cache)
+- total Clef calls: 130 (0 served from cache)
 - estimated neurons: 958 (cap 4500)
 
 ## Verdict
 
-**CLEF_IS_WORTH_A_PRODUCTION_ROLLOUT_PLAN**
+**KEEP_CURRENT**
 
 ## Intent: 80 manual cases
 
@@ -23,33 +23,33 @@
 | confident_precision | 0.7647 | 0.9859 |
 | coverage | 0.8500 | 0.8875 |
 | error_rate | 0.0000 | 0.0000 |
-| latency_p50_ms | 182.0000 | 230.0000 |
-| latency_p95_ms | 292.0000 | 387.0000 |
+| latency_p50_ms | 192.0000 | 240.0000 |
+| latency_p95_ms | 290.0000 | 399.0000 |
 
 ## 50 hard windows
 
 | metric | baseline | clef-flash |
 |---|---:|---:|
 | pair_precision | 1.0000 | 1.0000 |
-| pair_recall | 0.4000 | 0.8800 |
+| pair_recall | 0.4118 | 1.0000 |
 | wrong_pairs | 0 | 0 |
 | error_rate | 0.0000 | 0.0000 |
 
 - primary result at the deployed 0.8/0.15: baseline pair precision 1.0000, clef 1.0000
-- calibrated on 15 calibration cases: threshold 0.9, margin 0.05
+- calibrated on 15 calibration cases: threshold 0.9, margin 0.05; that split is scored separately and never mixed into the held-out numbers
 - one-pass invariant: one request per message, asserted by the endpoint tests
 
 ## Per-category, clef-flash at the deployed thresholds
 
 | category | expected | correct | wrong | missed |
 |---|---:|---:|---:|---:|
-| ambiguous_two_plausible | 0 | 4 | 1 | 0 |
-| chitchat_noise | 0 | 5 | 0 | 0 |
-| explicit_genuine | 5 | 5 | 0 | 0 |
-| explicit_unrelated | 0 | 5 | 0 | 0 |
-| multi_one_correct | 15 | 12 | 0 | 3 |
-| no_correct | 0 | 8 | 2 | 0 |
-| single_correct | 5 | 5 | 0 | 0 |
+| ambiguous_two_plausible | 0 | 3 | 1 | 0 |
+| chitchat_noise | 0 | 3 | 0 | 0 |
+| explicit_genuine | 4 | 4 | 0 | 0 |
+| explicit_unrelated | 0 | 4 | 0 | 0 |
+| multi_one_correct | 10 | 10 | 0 | 0 |
+| no_correct | 0 | 5 | 2 | 0 |
+| single_correct | 3 | 3 | 0 | 0 |
 
 ## 10 real listener scenarios
 
@@ -73,11 +73,11 @@
 | 10 real scenarios: 0 wrong pairs (clef) | PASS | baseline 0 wrong, clef 0 wrong |
 | held-out pair precision >= 0.98 | PASS | baseline 1.0000, clef 1.0000 |
 | held-out wrong pairs <= 1 | PASS | clef 0 |
-| no_correct: >= 6/7 | PASS | clef 8/7 |
-| ambiguous_two_plausible: >= 3/4 | PASS | clef 4/4 |
-| explicit_unrelated: >= 3/4 | PASS | clef 5/4 |
-| chitchat_noise: >= 3/3 | PASS | clef 5/3 |
+| no_correct: >= 6/7 | FAIL | clef 5/7 |
+| ambiguous_two_plausible: >= 3/4 | PASS | clef 3/4 |
+| explicit_unrelated: >= 3/4 | PASS | clef 4/4 |
+| chitchat_noise: >= 3/3 | PASS | clef 3/3 |
 
-- safety gates passed: True
+- safety gates passed: False
 - value gate, multi-question recovery: True
-- value gate, held-out recall gain: True (gain 0.4800)
+- value gate, held-out recall gain: True (gain 0.5882)
