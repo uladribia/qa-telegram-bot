@@ -46,6 +46,6 @@ and never downloads a model. If it does not answer, it stops and points at
 
 ## Traces
 
-The local runtime exports request traces and content to Logfire (EU region, project `oleguer-sagarra/qa-telegram`, `environment=local`). A token is optional: the app runs normally without one and spans stay local. On a developer machine the send-only token is picked up from the gitignored `.logfire/logfire_credentials.json`; inside the container there is no such file, so set `LOGFIRE_TOKEN` in `.env.local`. Commit `.logfire/.gitignore`, never the credentials file. Set `KB_LOGFIRE_SEND_TO_LOGFIRE=false` to keep every span on the machine.
+The local runtime writes request traces to its stderr, human-readable, and nothing leaves the machine. Read them with `make dev-logs`, or `docker logs -f` for the container. One question is one `request_id`: grep it and the answer pipeline's spans come back in order.
 
-Message text, sender identity, prompts, and answers **are** exported while testing (`KB_LOGFIRE_CAPTURE_CONTENT`, default `true`), so a whole flow can be reconstructed; tokens, webhook secrets, and API keys never are. Details, the event table, and the query command are in [operations.md](operations.md#traces-logfire).
+Message text, sender identity, prompts, and answers **are** logged while testing (`KB_CAPTURE_CONTENT`, default `true`), so a whole flow can be reconstructed; tokens, webhook secrets, and API keys never are. Details and the event table are in [operations.md](operations.md#traces).

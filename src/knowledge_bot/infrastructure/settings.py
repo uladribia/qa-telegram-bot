@@ -56,21 +56,12 @@ class Settings(BaseSettings):
     )
     ollama_base_url: str = "http://127.0.0.1:11434"
 
-    # Telemetry master switch. The write token itself is not a setting: the
-    # SDK reads LOGFIRE_TOKEN or the local project credentials.
-    logfire_send_to_logfire: bool = Field(
+    # Record message text, sender identity, prompts, and answers on the
+    # process log, so a flow can be reconstructed while debugging. Credential
+    # scrubbing is not a setting and is always on.
+    capture_content: bool = Field(
         default=True,
-        validation_alias=AliasChoices(
-            "KB_LOGFIRE_SEND_TO_LOGFIRE",
-        ),
-    )
-    # Export message text, sender identity, prompts, and answers. On while
-    # testing so a flow can be reconstructed; credentials stay scrubbed.
-    logfire_capture_content: bool = Field(
-        default=True,
-        validation_alias=AliasChoices(
-            "KB_LOGFIRE_CAPTURE_CONTENT",
-        ),
+        validation_alias=AliasChoices("KB_CAPTURE_CONTENT"),
     )
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""

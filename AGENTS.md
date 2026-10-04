@@ -46,7 +46,7 @@ execution is for the product code and its tests, not for editing the repository.
   rebuildable from that runtime's SQL store. Never store semantic knowledge only
   in the index.
 - **No PII in credentials, full content in telemetry.** Message text, sender
-  identity, prompts, and answers *are* exported to Logfire while testing (see
+  identity, prompts, and answers *are* recorded in the log while testing (see
   §8); tokens, secrets, and keys are never exported.
 - **Tests are offline and deterministic.** No live network, API, or model calls
   in tests; fakes live in tests.
@@ -128,7 +128,7 @@ While evaluating `@cf/cloudflare/clef-flash` as an alternative decision backend:
 | HTTP                         | FastAPI                                 |
 | Validation / DTOs / settings | Pydantic v2                             |
 | CLIs                         | Typer                                   |
-| Logging                      | Logfire                                 |
+| Logging                      | standard library `logging`                |
 | Lint + format                | Ruff                                    |
 | Type checking                | `ty`                                    |
 | Tests                        | `pytest`                                |
@@ -138,14 +138,16 @@ While evaluating `@cf/cloudflare/clef-flash` as an alternative decision backend:
 Do not add a framework or dependency that is not in the plan without a documented
 reason. Reach for the standard library first. Prefer the existing stack.
 
-**The migration is done: there is one logging system.** The standard library
-is the application's logger and Logfire is its exporter;
-`infrastructure/logging.py` is the only module that configures either. Loguru
-is removed from dependencies and must not come back. Application events are
-emitted with contextual fields on a stdlib `Logger`, printed to stderr
-(human-readable locally, one JSON object per line in the Worker) and forwarded
-to Logfire, where the fields arrive as searchable attributes. Never add a
-second logging framework, and never configure handlers anywhere else.
+**There is one logging system, and it is the standard library.** It is the
+application's logger and the only sink it configures;
+`infrastructure/logging.py` is the only module that configures it. There is no
+exporter: a span is one line on that logger, and `wrangler tail` reads it.
+Loguru was removed and must not come back; Logfire was removed because its SDK
+exceeded the Worker's isolate memory limit, and it must not come back either.
+Application events are emitted with contextual fields on a stdlib `Logger`,
+printed to stderr (human-readable locally, one JSON object per line in the
+Worker). Never add a second logging framework, and never configure handlers
+anywhere else.
 
 ## 3. Layout and dependency rule
 
@@ -170,9 +172,9 @@ tests/{unit,integration,architecture}/
 Rules:
 
 - `domain/` and `application/` must not import `fastapi`, `workers`, Telegram
-  libraries, D1/Vectorize bindings, HTTP clients, the logging SDK (`logfire`;
-  the logging SDK, or `infrastructure/`. The application layer reaches
-  telemetry through the `ports/telemetry.py` protocols, never the SDK.
+  libraries, D1/Vectorize bindings, HTTP clients, or `infrastructure/`. The
+  application layer reaches telemetry through the `ports/telemetry.py`
+  protocols, never through a logging or tracing library.
 - `application/` depends on `ports/` Protocols, never on concrete adapters, and
   never on `AppContext`: a use case takes its collaborators as constructor or
   function arguments.
@@ -298,141 +300,125 @@ Rules:
 
 ## 8. Logging and privacy
 
-Logfire is the observability stack. `infrastructure/logging.py` is the only
-module that configures it, and it is configured with `if-token-present`: a
-runtime without a write token starts normally and keeps its spans local.
-Telemetry must never break the answer path — every step is isolated, and a
-failure is logged (`logfire_step_failed`) and skipped, never raised.
+There is no tracing SDK. The standard library is the whole observability stack,
+and a span is one line on the process log: `infrastructure/logging.py` is the
+only module that configures a handler or formatter, and
+`infrastructure/telemetry.py` is the only one that writes a span. Nothing is
+exported off the Worker and there is no token, no project, and no collector.
+This is deliberate: Logfire was tried and removed, because importing its SDK
+into Pyodide exceeded the Workers isolate's 128 MB limit and 503'd every real
+question. `wrangler tail` is a collector that already exists.
+
+**Reading a flow back.** Every HTTP request gets a `request_id` and one
+`http_request` line. Every span opened while serving it inherits that id, so one
+question is one grep:
+
+```bash
+make dev-logs                                        # local runtime, follows the log
+npx wrangler tail                                    # deployed Worker
+npx wrangler tail | grep '"request_id":"c1a2b3"'     # one flow, in order
+```
+
+A span line is `event`, `request_id`, `duration_ms`, `parent` when nested, plus
+its own attributes. Nesting is recovered from `parent`, so the tree is legible
+without any backend.
 
 **Content capture is on while the project is under test.**
-`KB_LOGFIRE_CAPTURE_CONTENT` (default `true`) exports message text, sender
-identity, prompts, and answers, deliberately, so a flow can be reconstructed end
-to end while debugging. The goal is visibility, not redaction: a half-redacted
-trace that hides the question is worse than no trace. This is a testing posture,
-not a product decision — turning it off is a one-setting change, and it must be
-revisited before anything outside a private test group is ever connected.
+`KB_CAPTURE_CONTENT` (default `true`) records message text, sender identity,
+prompts, and answers, deliberately, so a flow can be reconstructed end to end
+while debugging. The goal is visibility, not redaction: a half-redacted log that
+hides the question is worse than none. This is a testing posture, not a product
+decision — turning it off is a one-setting change, and it must be revisited
+before anything outside a private test group is ever connected.
 
-**Credentials are never exported, whatever the capture setting is.**
+**Credentials are never recorded, whatever the capture setting is.**
 
-- Never export or log a bot token, webhook secret, API key, password, or
-  cookie. Scrubbing is always on and is not optional; the SDK scrubs by key
-  name, and `SECRET_VALUE_PATTERNS` covers credential *values* that no key name
-  reveals, such as the Telegram bot token inside the transport's request URL.
-  Read a span's `attributes` after adding a field: a leak is invisible in code
-  review and obvious in a query.
+- Never log a bot token, webhook secret, API key, password, or cookie.
+  Scrubbing is always on and is not optional: `_scrub` runs over every rendered
+  field and every traceback, and `SECRET_VALUE_PATTERNS` covers credential
+  *values* that no key name reveals, such as the Telegram bot token inside the
+  transport's request URL. That pattern uses lookarounds, not `\b`, because in
+  a URL the token follows `bot` and a word boundary never falls where its digits
+  start — `\b` silently matched nothing. Add a field, then read the rendered
+  line: a leak is invisible in code review and obvious in the output.
 - Never send data to any AI service other than the allowed models.
 - Never write log files. Development stays human-readable, production structured
   JSON to stdout/stderr.
-- Tests and CI must not send telemetry: `tests/conftest.py` sets
-  `KB_LOGFIRE_SEND_TO_LOGFIRE=false` before any entrypoint is imported.
-- Never commit, print, or widen the write token, and never put it in
-  `wrangler.jsonc`. Production reads it from a Cloudflare secret.
+- Tests and CI must not log content: `tests/conftest.py` sets
+  `KB_CAPTURE_CONTENT=false` before any entrypoint is imported.
+- Never commit a token, and never put one in `wrangler.jsonc`.
 
 Prefer explicit content events (`log_content` at a flow boundary) over blanket
-body capture: they are searchable, they are scrubbed by the same rules, and they
-say what the code decided rather than what a client happened to send.
+body capture: they are scrubbed by the same rules, and they say what the code
+decided rather than what a client happened to send.
 
-### Debugging with Logfire
+### Debugging from the log
 
-Logs are a tool, not a post-mortem ritual. When something looks wrong, query
-before you speculate, and prefer a trace to an inference.
+Logs are a tool, not a post-mortem ritual. When something looks wrong, read the
+log before you speculate, and prefer a recorded flow to an inference.
 
-**The target never changes:** organization `oleguer-sagarra`, project
-`qa-telegram`, **EU** region. Pass `--region eu --org oleguer-sagarra` to every
-command, and `--project qa-telegram` to every query or link. Never query another
-project, region, or organization to "see if it has data": a span that exists
-elsewhere is a bug, not a finding.
-
-**Two ways in.** Prefer the hosted Logfire MCP server when the agent has one
-configured (`query_run` for SQL, `link project` / `link trace` for URLs).
-Otherwise use the CLI, which reuses the saved OAuth profile:
+**One question is one `request_id`.** Find it, then read its lines in order:
 
 ```bash
-uvx logfire-cli --region eu --org oleguer-sagarra --no-input --output json \
-  mcp query run "SELECT ..." --project qa-telegram
+# what just happened, newest first
+make dev-logs | tail -50
+
+# one flow end to end
+make dev-logs | grep '"request_id":"c1a2b3"'
+
+# every decision leg, for the last hundred requests
+make dev-logs | grep -E '"event":"(answer_question|retrieval|generation|answer_decision)"'
+
+# anything that failed
+make dev-logs | grep -E '"level":"(ERROR|WARNING)"'
 ```
 
-If it is not authenticated, `uvx logfire-cli --region eu --org oleguer-sagarra
-auth` opens a browser login — that is the human step, relay the URL and wait.
-The Python SDK's own `uv run logfire` CLI **cannot query**; it only does `auth`,
-`projects`, and `whoami`. Do not try to make it.
+**The events that matter.** One question produces five named spans, in both
+runtimes and through both entry paths:
 
-**The `records` view** has typed columns — use them instead of digging in
-`attributes`: `start_timestamp`, `end_timestamp`, `duration` (**seconds**, as a
-float), `trace_id`, `span_id`, `parent_span_id`, `span_name`, `message`,
-`service_name`, `http_route`, `http_method`, `http_response_status_code`,
-`is_exception`, `exception_type`, `otel_status_code`, `otel_resource_attributes`
-(which carries `deployment.environment.name`), and `attributes` (a map, for
-everything custom). There is no `kind`, `record_type`, `body`, `otel_parent_id`,
-or `resource_attributes` column; guessing names costs a round trip each.
-Filter with `service_name = 'qa-telegram'` and
-`start_timestamp > now() - interval '<N> minutes'`, and `ORDER BY
-start_timestamp DESC LIMIT <n>`.
-
-**Recipes.** These answer the questions that actually come up:
-
-```sql
--- what just happened, newest first, with timings and failures
-SELECT start_timestamp, duration, span_name, http_route, http_response_status_code, is_exception
-FROM records WHERE service_name = 'qa-telegram' AND start_timestamp > now() - interval '30 minutes'
-ORDER BY start_timestamp DESC LIMIT 50
-
--- one conversation end to end: every span of one trace, parents included
-SELECT start_timestamp, duration, span_name, parent_span_id, message
-FROM records WHERE trace_id = '<full trace id>' ORDER BY start_timestamp
-
--- what a user actually said, and who said it
-SELECT start_timestamp, attributes->>'text' AS text, attributes->>'sender_name' AS sender,
-       attributes->>'conversation_id' AS chat, attributes->>'message_id' AS message_id
-FROM records WHERE service_name = 'qa-telegram' AND span_name = 'telegram_inbound_message'
-  AND start_timestamp > now() - interval '7 days' ORDER BY start_timestamp DESC LIMIT 50
-
--- what the bot answered
-SELECT start_timestamp, attributes->>'conversation_id' AS chat, attributes->>'text' AS answer
-FROM records WHERE service_name = 'qa-telegram' AND span_name = 'telegram_outbound'
-  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 50
-
--- what the model was asked and what it said back
-SELECT start_timestamp, span_name, attributes->>'model' AS model, attributes
-FROM records WHERE service_name = 'qa-telegram'
-  AND span_name IN ('ai_generation_prompt', 'ai_generation_response', 'ai_embedding_input')
-  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 20
-
--- anything that failed
-SELECT start_timestamp, span_name, exception_type, otel_status_code, message
-FROM records WHERE service_name = 'qa-telegram' AND is_exception
-  AND start_timestamp > now() - interval '1 day' ORDER BY start_timestamp DESC LIMIT 50
+```text
+http_request        method, path, status, duration_ms, request_id
+answer_question     mode, reason, ids, question_chars
+  retrieval         qa/message candidate counts and similarities
+  evidence_selection floor, selected ids, whether it abstained
+  generation        evidence ids and authorities, model status, duration
+  answer_decision    mode, reason, cited source ids
+telegram_inbound_message   text, sender_name, conversation_id, message_id
+telegram_outbound          conversation_id, text
+ai_generation_prompt       model, messages
+ai_generation_response      model, content
 ```
 
-**Discipline around the query.**
+`answer_question.reason` is the same value as `refusal_reason` in
+`trace_json`, so the log and the durable record agree by construction.
 
-- An empty result usually means the flow never reached that stage, not that the
-  query is wrong. An update from an unregistered chat is answered `ignored`
-  before any model call, so `telegram_outbound` and the `ai_*` events are empty
-  while `telegram_inbound_message` has a row: that pairing is the diagnosis.
-- A link is not evidence and a generated URL is not ingestion. Prove
-  instrumentation by querying a span you just produced, then hand over
-  `mcp link project` or `mcp link trace <full trace id>` (full 32-character
-  trace id, not a prefix — a prefix is rejected).
-- A missing span is not a missing event. The answer pipeline's spans
-  (`answer_question`, `retrieval`, `evidence_selection`, `generation`,
-  `answer_decision`) and the process log are the same records seen two ways: the
-  log for a human reading `docker logs` or `wrangler tail`, the trace for
-  parent/child structure. An AI-call failure appears in both.
-- Answering "why did this question abstain" is a trace question, not an eval
-  question. Live evals and reindexing burn the shared daily AI budget
-  (~1.5-3k and ~9k neurons) and need explicit authorization; a query is free.
-  Reach for `make eval-live` only when the trace cannot answer it, and see
-  [operations.md](operations.md#traces-logfire) for the project link, the
-  event table, and the content/credential boundary. That document is the
-  operator's view; the recipes above are the agent's.
+**Discipline around the log.**
+
+- A missing event is a fact, not a bug to explain away. An update from an
+  unregistered chat is answered `ignored` before any model call, so
+  `telegram_outbound` and the `ai_*` events are absent while
+  `telegram_inbound_message` has a line: that pairing is the diagnosis. An empty
+  result usually means the flow never reached that stage.
+- A flow that answers nothing at all has no `request_id` to grep, because the
+  failure happened before a request was served. Answering "why did this question
+  abstain" is then a `bot_answers.trace_json` question, not a log question: see
+  [operations.md](operations.md#traces) for the durable record, which carries
+  the same `refusal_reason`, the candidates, and the selection.
+- Log lines are not durable. They are what the platform is currently holding;
+  the durable per-answer record is `bot_answers.trace_json`, and the two agree by
+  construction because the same code writes both.
+- Live evals and reindexing burn the shared daily AI budget (~1.5-3k and ~9k
+  neurons) and need explicit authorization; reading a log is free. Reach for
+  `make eval-live` only when the log cannot answer it.
 
 The `Tracer` port in `ports/telemetry.py` is how the application records work.
-`NoopTracer` is the default, so tests and any unconfigured runtime record
-nothing and cannot fail. One rule matters there: telemetry isolation guards
-opening and closing a span, never the caller's work inside it. A guard that also
-swallowed the caller's exceptions turned a provider outage into a 500, and
-`tests/unit/test_telemetry.py` now pins that.
+`NoopTracer` is the default, so tests that never configure logging record
+nothing and cannot fail; `build_tracer()` returns the log-backed one everywhere
+else, because recording a span is a `logging` call and needs no configuration.
+One rule matters there: telemetry isolation guards recording a span, never the
+caller's work inside it. A guard that also swallowed the caller's exceptions
+turned a provider outage into a 500, and `tests/unit/test_telemetry.py` pins
+that.
 
 ## 9. Git and GitHub workflow
 

@@ -1,36 +1,61 @@
 # SPDX-License-Identifier: MIT
-"""Logfire implementation of the tracing port.
+"""Log-backed implementation of the tracing port.
+
+A span is one line on the process log. Nothing is exported anywhere and no
+third-party SDK is imported, so this works identically in the Worker, in the
+local runtime, and in tests, at a cost of a single ``logging`` call per span.
+
+Reconstruction rests on three things: the ``request_id`` context variable,
+which every span opened while serving a request inherits; ``duration_ms``,
+which orders the legs against each other; and the ``parent`` name recorded
+when a span is opened inside another, which recovers the tree without a
+collector.
 
 Content is a property of the mode, not of the call site: ``CONTENT_FIELDS``
 marks the values that carry a conversation, and they are dropped unless
-content capture is on. Every other attribute is structural — ids, counts,
-sizes, similarities, reasons — and safe in both modes.
+content capture is on. Every other field is structural — ids, counts, sizes,
+similarities, reasons — and safe in both modes.
 
-Isolation is deliberately narrow. Only opening and closing a span is guarded.
-An exception raised by the *caller's* work inside the ``with`` block is the
-caller's to handle, and a guard that swallowed it would turn a provider outage
-into a crash.
+Isolation is deliberately narrow. Only recording the span is guarded. An
+exception raised by the *caller's* work inside the ``with`` block is the
+caller's to handle, and a guard that swallowed it would turn a provider
+outage into a crash.
 """
 
-from contextlib import AbstractContextManager
-from dataclasses import dataclass
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
+from dataclasses import dataclass, field
+from itertools import count
 from logging import getLogger
-from types import ModuleType, TracebackType
-from typing import Protocol, cast, runtime_checkable
+from types import TracebackType
 
-from knowledge_bot.ports.telemetry import Span
+#: Logger every span line is written to.
+_LOGGER = getLogger("knowledge_bot.span")
+
+#: Identifies everything recorded while serving one request. Set by the HTTP
+#: middleware, inherited by every span opened underneath it.
+request_id: ContextVar[str] = ContextVar("request_id", default="-")
+
+_request_ids = count(1)
 
 
-def _as_sdk(module: ModuleType) -> "TelemetrySdk":
-    """Narrow a lazily imported module to the SDK surface used here.
+def new_request_id() -> str:
+    """Return an identifier for one unit of work.
 
-    Args:
-        module: The imported Logfire module.
+    Derived from the clock and a counter rather than random bytes: the Workers
+    runtime refuses entropy calls while a Worker is starting, and a
+    correlation id does not need to be unpredictable.
 
     Returns:
-        The module, typed as the SDK protocol.
+        A short identifier, unique within this process.
     """
-    return cast("TelemetrySdk", module)
+    return f"{time.time_ns() & 0xFFFFFFFF:x}{next(_request_ids):x}"
+
+
+#: The innermost span currently open, so a nested span can name its parent.
+current_span: ContextVar[str | None] = ContextVar("current_span", default=None)
 
 
 #: Attribute names whose values are conversation content rather than structure.
@@ -49,83 +74,58 @@ CONTENT_FIELDS = frozenset(
 )
 
 
-@runtime_checkable
-class TelemetrySdk(Protocol):
-    """The part of the Logfire SDK this module uses.
-
-    The SDK is imported lazily and only exists once telemetry is configured,
-    so it is held as this protocol rather than as its concrete module type.
-    """
-
-    def span(self, name: str, **fields: object) -> AbstractContextManager[Span]:
-        """Open a named span.
-
-        Args:
-            name: The span name.
-            **fields: The span attributes.
-
-        Returns:
-            A context manager yielding the open span.
-        """
-
-
 @dataclass(frozen=True, slots=True)
-class LogfireTracer:
-    """Opens spans on the Logfire SDK for the application layer.
+class LogTracer:
+    """Opens spans as log lines for the application layer.
 
     Attributes:
-        sdk: The SDK, or ``None`` when it could not be imported.
-        capture: Whether conversation content may be exported.
+        capture: Whether conversation content may be recorded.
     """
 
-    sdk: TelemetrySdk | None
     capture: bool
 
-    def span(self, name: str, **fields: object) -> AbstractContextManager[Span]:
-        """Open one named span, isolating any SDK failure.
+    def span(self, name: str, **fields: object) -> "LogSpan":
+        """Open one named span.
 
         Args:
-            name: The span name.
+            name: The span name, in the existing ``snake_case`` style.
             **fields: Attributes describing the work about to happen.
 
         Returns:
-            A context manager yielding the open span.
+            The open span, which records one line when it closes.
         """
-        return _IsolatedSpan(self, name, _safe(self.capture, fields))
+        return LogSpan(name, safe(self.capture, fields))
 
 
-class _IsolatedSpan:
-    """A span that never lets a telemetry failure reach the caller."""
+@dataclass(slots=True)
+class LogSpan:
+    """One open span, recorded as a single line when it closes.
 
-    def __init__(
-        self, tracer: LogfireTracer, name: str, fields: dict[str, object]
-    ) -> None:
-        """Store what is needed to open the span later.
+    Attributes:
+        name: The span name, reused as the log event.
+        fields: Every attribute recorded, open-time and via ``set_attributes``.
+        started: When the span opened, for the duration on the line.
+        token: The context token restoring the enclosing span on close.
+    """
 
-        Args:
-            tracer: The tracer holding the SDK and the capture mode.
-            name: The span name.
-            fields: The attributes, already filtered for the capture mode.
-        """
-        self._tracer = tracer
-        self._name = name
-        self._fields = fields
-        self._open: AbstractContextManager[Span] | None = None
+    name: str
+    fields: dict[str, object] = field(default_factory=dict)
+    started: float = field(default_factory=time.perf_counter)
+    token: Token[str | None] | None = None
 
-    def __enter__(self) -> Span:
-        """Open the SDK span, degrading to one that records nothing.
+    @property
+    def parent(self) -> str | None:
+        """Return the name of the enclosing span, when there is one."""
+        return current_span.get()
+
+    def __enter__(self) -> "LogSpan":
+        """Mark the span open and nest anything opened inside it.
 
         Returns:
             The open span.
         """
-        if self._tracer.sdk is None:
-            return _DiscardingSpan(self._name)
-        try:
-            self._open = self._tracer.sdk.span(self._name, **self._fields)
-            return self._open.__enter__()
-        except Exception as error:
-            self._warn(error)
-            return _DiscardingSpan(self._name)
+        self.token = current_span.set(self.name)
+        return self
 
     def __exit__(
         self,
@@ -133,7 +133,7 @@ class _IsolatedSpan:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool:
-        """Close the span without letting a close failure mask a real error.
+        """Record the span and let any caller exception through untouched.
 
         Args:
             exc_type: The propagating exception type, if any.
@@ -141,57 +141,74 @@ class _IsolatedSpan:
             traceback: The propagating traceback, if any.
 
         Returns:
-            ``True`` only to suppress a telemetry-only failure.
+            ``False`` always. A failure inside the span is the caller's, and a
+            failed recording must never become a raised exception.
         """
-        if self._open is None:
-            return False
-        try:
-            return bool(self._open.__exit__(exc_type, exc, traceback))
-        except Exception as error:
-            self._warn(error)
-            return exc_type is None
+        if self.token is not None:
+            current_span.reset(self.token)
+        duration_ms = round((time.perf_counter() - self.started) * 1000, 2)
+        _record(
+            self.name,
+            {
+                "request_id": request_id.get(),
+                "duration_ms": duration_ms,
+                **({"parent": self.parent} if self.parent else {}),
+                **self.fields,
+            },
+        )
+        return False
 
-    def _warn(self, error: Exception) -> None:
-        """Record that telemetry failed, without the failure itself.
+    def set_attributes(self, fields: dict[str, object]) -> None:
+        """Record fields discovered while the span was open.
 
         Args:
-            error: The exception the SDK raised.
+            fields: The attributes to add, merged over the earlier ones.
         """
+        self.fields.update(fields)
+
+
+def _record(name: str, fields: dict[str, object]) -> None:
+    """Write one span line, never letting a logging failure reach the caller.
+
+    Args:
+        name: The span name, used as the event.
+        fields: The attributes to record.
+    """
+    try:
+        _LOGGER.info(name, extra=fields)
+    except Exception:  # pragma: no cover - the logging module swallows these
         getLogger("knowledge_bot.telemetry").warning(
-            "logfire_span_failed",
-            extra={"span": self._name, "error": type(error).__name__},
+            "span_record_failed", extra={"span": name}
         )
 
 
-def _safe(capture: bool, fields: dict[str, object]) -> dict[str, object]:
-    """Return the attributes that may be exported in this mode.
+@contextmanager
+def bind_request_id(value: str) -> Iterator[None]:
+    """Attach a correlation id to everything logged inside the block.
+
+    Args:
+        value: The identifier to bind.
+
+    Yields:
+        ``None``, for the duration of the block.
+    """
+    token = request_id.set(value)
+    try:
+        yield
+    finally:
+        request_id.reset(token)
+
+
+def safe(capture: bool, fields: dict[str, object]) -> dict[str, object]:
+    """Return the attributes that may be recorded in this mode.
 
     Args:
         capture: Whether content capture is on.
         fields: The attributes the caller recorded.
 
     Returns:
-        The attributes to export.
+        The attributes to keep.
     """
     if capture:
-        return fields
+        return dict(fields)
     return {name: value for name, value in fields.items() if name not in CONTENT_FIELDS}
-
-
-class _DiscardingSpan:
-    """A span used when the SDK is unavailable, so nothing is recorded."""
-
-    def __init__(self, name: str) -> None:
-        """Store the span name.
-
-        Args:
-            name: The span name.
-        """
-        self.name = name
-
-    def set_attributes(self, fields: dict[str, object]) -> None:
-        """Discard the fields.
-
-        Args:
-            fields: Ignored.
-        """

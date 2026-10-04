@@ -14,9 +14,3 @@
    `daily_report_state` es queda buida. Cal apuntar un planificador extern
    (GitHub Actions) a `POST /internal/jobs/daily-report` o subscriure al pla de
    pagament. Detall a [operations.md](docs/operations.md).
-4. Decidir si el SDK de Logfire ha d'anar dins el bundle de producció. Avui
-   `KB_LOGFIRE_ENABLED=false` i no s'ha de tocar: amb el tracing encès el Worker
-   mor amb *Worker exceeded resource limits* perquè l'SDK d'OpenTelemetry no
-   cabeix als 128 MB de l'isolat. La pregunta oberta no és el Logfire sinó si
-   la seva dependència ha de continuar viatgent al bundle quan el bot no el pot
-   fer servir.

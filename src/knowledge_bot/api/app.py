@@ -14,6 +14,7 @@ from knowledge_bot.api.context import ContextResolver
 from knowledge_bot.api.routes.internal import build_internal_router
 from knowledge_bot.api.routes.system import build_system_router
 from knowledge_bot.api.routes.v1 import build_api_router
+from knowledge_bot.infrastructure.logging import RequestLogger
 
 
 def create_app(
@@ -31,6 +32,7 @@ def create_app(
         The configured FastAPI app.
     """
     app = FastAPI(title="knowledge-bot")
+    app.add_middleware(RequestLogger)
     app.include_router(build_system_router())
     app.include_router(build_api_router(resolve_context))
     app.include_router(build_internal_router(resolve_context))

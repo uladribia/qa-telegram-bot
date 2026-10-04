@@ -8,17 +8,28 @@ from collections.abc import Iterator
 from types import TracebackType
 
 import pytest
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from knowledge_bot.infrastructure import logging as logging_config
 from knowledge_bot.infrastructure.logging import (
+    RequestLogger,
     _JsonFormatter,
     _TextFormatter,
     configure_logging,
     content_capture_enabled,
     log_content,
 )
+from knowledge_bot.infrastructure.telemetry import LogTracer
 
 type ExcInfo = tuple[type[BaseException], BaseException, TracebackType]
+
+
+class _HandlerError(RuntimeError):
+    """Stands in for a request handler that fails."""
+
+    def __init__(self) -> None:
+        """Report the fixed failure this fake always raises."""
+        super().__init__("handler exploded")
 
 
 @pytest.fixture
@@ -137,10 +148,104 @@ def test_logging_has_no_file_handler(fresh_logging: None) -> None:
 def test_content_events_are_dropped_when_capture_is_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A content event never reaches telemetry when capture is off."""
+    """A content event is not written when capture is off."""
     monkeypatch.setattr(logging_config, "_capture_content", False)
-    monkeypatch.setattr(logging_config, "_observability_configured", True)
 
     assert content_capture_enabled() is False
 
-    log_content("telegram_outbound", text="must not be exported")
+    log_content("telegram_outbound", text="must not be recorded")
+
+
+def _http_app(status: int = 200, fail: bool = False) -> ASGIApp:
+    """Return a minimal ASGI app for the request logger to wrap."""
+    from starlette.types import Receive, Scope, Send
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        if fail:
+            raise _HandlerError
+        await send({"type": "http.response.start", "status": status, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    return app
+
+
+async def _call(app: ASGIApp, path: str = "/adapters/telegram/webhook") -> None:
+    """Drive one HTTP request through an ASGI app."""
+
+    async def receive() -> Message:
+        return {"type": "http.request"}
+
+    async def send(message: Message) -> None:
+        del message
+
+    await app({"type": "http", "method": "POST", "path": path}, receive, send)
+
+
+@pytest.mark.asyncio
+async def test_a_request_is_logged_once_with_its_outcome(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The request line is the entry point to reconstructing a flow."""
+    caplog.set_level(logging.INFO, logger="knowledge_bot.request")
+
+    await _call(RequestLogger(_http_app(status=202)))
+
+    lines = [record for record in caplog.records if record.message == "http_request"]
+    assert len(lines) == 1
+    assert lines[0].__dict__["status"] == 202
+    assert lines[0].__dict__["method"] == "POST"
+    assert lines[0].__dict__["path"] == "/adapters/telegram/webhook"
+    assert lines[0].__dict__["duration_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_spans_opened_while_serving_share_the_request_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A span written during the request carries the request's id."""
+    caplog.set_level(logging.INFO)
+
+    async def app_with_a_span(scope: Scope, receive: Receive, send: Send) -> None:
+        del scope, receive
+        with LogTracer(capture=False).span("answer_question", reason="answered"):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+    await _call(RequestLogger(app_with_a_span))
+
+    span = next(r for r in caplog.records if r.message == "answer_question")
+    request_line = next(r for r in caplog.records if r.message == "http_request")
+    assert span.__dict__["request_id"] == request_line.__dict__["request_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_request_is_logged_and_still_propagates(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A crashed handler leaves a line and re-raises, so the 5xx is visible."""
+    caplog.set_level(logging.INFO, logger="knowledge_bot.request")
+
+    with pytest.raises(_HandlerError, match="handler exploded"):
+        await _call(RequestLogger(_http_app(fail=True)))
+
+    assert [record.message for record in caplog.records] == ["http_request_failed"]
+
+
+@pytest.mark.asyncio
+async def test_a_non_http_scope_passes_straight_through() -> None:
+    """A lifespan or websocket scope is not logged as a request."""
+    seen: list[str] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        del receive, send
+        seen.append(scope["type"])
+
+    async def receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def send(message: Message) -> None:
+        del message
+
+    await RequestLogger(app)({"type": "lifespan"}, receive, send)
+
+    assert seen == ["lifespan"]

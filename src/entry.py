@@ -4,11 +4,11 @@
 import logging
 import os
 
-# Pydantic imports every installed ``pydantic`` entry point, which pulls in the
-# Logfire plugin and the OpenTelemetry SDK. The Workers runtime forbids entropy
-# while a Worker is starting, and that import needs one, so the Worker would
-# fail to boot. Instrumented Pydantic models are not used here. This must run
-# before the first pydantic import below.
+# Pydantic imports every installed ``pydantic`` entry point. The Workers
+# runtime forbids entropy while a Worker is starting, and some plugins need
+# one, so the Worker would fail to boot without this. Instrumented Pydantic
+# models are not used here. This must run before the first pydantic import
+# below.
 os.environ.setdefault("PYDANTIC_DISABLE_PLUGINS", "true")
 
 import time
@@ -31,7 +31,6 @@ from knowledge_bot.infrastructure.logging import (
     configure_logging,
     configure_observability,
 )
-from knowledge_bot.infrastructure.settings import RuntimeMode, Settings
 
 _context: AppContext | None = None
 _scheduled_context: AppContext | None = None
@@ -43,54 +42,8 @@ def _resolve_context(request: Request) -> AppContext:
     if _context is None:
         env = cast("WorkerEnv", request.scope["env"])
         _context = build_context(env)
-        _configure_observability(env, _context.settings)
+        configure_observability(capture_content=_context.settings.capture_content)
     return _context
-
-
-def _configure_observability(env: WorkerEnv, settings: Settings) -> None:
-    """Start telemetry with the token bound to this Worker.
-
-    Worker bindings are unavailable at module import, so the exporter is
-    configured the first time a context is resolved, from either the request or
-    the scheduled entrypoint. A missing token keeps the spans local.
-
-    This is skipped entirely when ``KB_LOGFIRE_ENABLED`` is false. The Workers
-    runtime caps an isolate at 128 MB, and importing the OpenTelemetry SDK plus
-    its protobuf exporter inside Pyodide exceeds it: the isolate then dies with
-    "Worker exceeded resource limits" on the first request that resolves a
-    context, while ``/healthz`` keeps answering because it resolves none. The
-    flag is a workaround, not a preference; production tracing needs a
-    memory-compliant transport, and until then the Worker runs untraced rather
-    than unable to answer.
-    """
-    if _flag_disabled(env, "KB_LOGFIRE_ENABLED"):
-        return
-    configure_observability(
-        app,
-        environment=RuntimeMode.CLOUDFLARE.value,
-        token=str(getattr(env, "LOGFIRE_TOKEN", "") or "") or None,
-        send_to_logfire=settings.logfire_send_to_logfire,
-        capture_content=settings.logfire_capture_content,
-    )
-
-
-def _flag_disabled(env: WorkerEnv, name: str) -> bool:
-    """Return whether an environment variable is set to a false-ish value.
-
-    Args:
-        env: The Worker bindings.
-        name: The variable to read.
-
-    Returns:
-        ``True`` when the value reads as off. Anything else, including an
-        absent variable, leaves the feature on.
-    """
-    return str(getattr(env, name, "") or "").strip().lower() in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
 
 
 def _defer(processing: Awaitable[str]) -> None:
@@ -132,7 +85,9 @@ class Default(WorkerEntrypoint):
             if _scheduled_context is None:
                 scheduled_env = cast("WorkerEnv", env)
                 _scheduled_context = build_context(scheduled_env)
-                _configure_observability(scheduled_env, _scheduled_context.settings)
+                configure_observability(
+                    capture_content=_scheduled_context.settings.capture_content
+                )
             sent = await _scheduled_context.daily_report.run()
         except Exception:
             log.exception(
