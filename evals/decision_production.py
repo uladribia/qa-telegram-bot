@@ -711,8 +711,19 @@ def intent_report(results: list[Result], cases: list[Case]) -> dict[str, Any]:
     }
 
 
-def window_report(results: list[Result], cases: list[Case]) -> dict[str, Any]:
-    """Reduce window results to pairing metrics per category."""
+def window_report(
+    results: list[Result], cases: list[Case], *, split: str | None = "test"
+) -> dict[str, Any]:
+    """Reduce window results to pairing metrics per category.
+
+    Only the held-out split is scored: calibration cases chose the thresholds,
+    so counting them here would grade the model on the split it was tuned with
+    and would make a numerator and a held-out denominator incomparable.
+    """
+    if split is not None:
+        wanted = {case.case_id for case in cases if case.split == split}
+        results = [item for item in results if item.case_id in wanted]
+        cases = [case for case in cases if case.split == split]
     by_id = {case.case_id: case for case in cases}
     paired = correct_pairs = wrong_pairs = 0
     per_category: dict[str, dict[str, int]] = {}
@@ -968,11 +979,12 @@ def write_report(report: dict[str, Any]) -> None:
         )
     lines += [
         "",
-        f"- primary result at the deployed 0.80/0.15: "
-        f"{_fmt(report['windows']['primary_threshold'])}",
+        f"- primary result at the deployed {PRIMARY_THRESHOLD}/{PRIMARY_MARGIN}: "
+        f"{_fmt(report['primary_result'])}",
         "- calibrated on 15 calibration cases: threshold "
         f"{report['calibration']['threshold']}, "
-        f"margin {report['calibration']['margin']}",
+        f"margin {report['calibration']['margin']}; that split is scored "
+        f"separately and never mixed into the held-out numbers",
         f"- one-pass invariant: {report['one_pass']}",
         "",
         "## Per-category, clef-flash at the deployed thresholds",
@@ -1058,6 +1070,9 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
         for backend, results in window_results.items()
     }
     chosen = calibrate(calibration_results, calibration_cases)
+    calibration_report = window_report(
+        calibration_results, calibration_cases, split=None
+    )
     gates = evaluate_gates(intent, windows_report, listener_reports, chosen)
     report = {
         "revision": revision,
@@ -1070,12 +1085,13 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
         "estimated_neurons": sum(row[2] for row in costs) // int(TOKENS_PER_NEURON),
         "intent": intent,
         "windows": windows_report,
-        "primary_threshold": (
+        "primary_result": (
             f"baseline pair precision "
-            f"{_fmt(windows_report[BASELINE]['pair_precision'])}, clef "
-            f"{_fmt(windows_report[CLEF]['pair_precision'])}"
+            f"{windows_report[BASELINE]['pair_precision']:.4f}, "
+            f"clef {windows_report[CLEF]['pair_precision']:.4f}"
         ),
         "calibration": chosen,
+        "calibration_windows": calibration_report,
         "listener": listener_reports,
         "one_pass": "one request per message, asserted by the endpoint tests",
         "gates": gates,
