@@ -31,6 +31,16 @@ Telegram groups whose titles begin exactly with `[E2E]`, and the Telethon
 session created by `make telegram-e2e-login`. The session file lives under
 `.e2e/` and is gitignored credential material.
 
+### Last validated run
+
+2026-10-04, against worker `dd98d57c`, with the decision model live: **12 of 12
+steps passed**, cleanup clean. Steps 3 and 4 are the ones that validate the
+shipped decisions, black-box: the abstention is now produced by the sufficiency
+decision rather than only by the generator's own judgement, and the listener
+step requires the intent decision to classify the question, the deterministic
+policy to pair the reply, and the selection decision to pass that evidence to
+the generator. A regression in any of the three fails the run.
+
 ## The scenario
 
 One run exercises, in order:
@@ -40,9 +50,11 @@ One run exercises, in order:
    leftover mode), reset and reseed a sentinel Q&A baseline (global + space A);
 2. addressing — mention, `/ask`, reply-to-bot, and bot DM all answer the
    sentinel question;
-3. one real abstention for an unknown question;
+3. one real abstention for an unknown question — decided by the evidence the
+   sufficiency gate allows through;
 4. background listener — an unaddressed human question gets no direct reply,
-   an explicit human reply is paired and later retrievable;
+   an explicit human reply is paired and later retrievable, which walks the
+   intent decision, deterministic pairing, projection and evidence selection;
 5. private multi-scope answer — after group traffic, a private question is
    answered from the club's knowledge with its sources;
 6. dedup — a run-scoped question, on a subject the corpus says nothing about,

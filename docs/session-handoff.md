@@ -1,7 +1,28 @@
 # Session handoff
 
 _Last updated: 2026-10-04, after shipping the decision model for listener
-intent, answer sufficiency and evidence selection._
+intent, answer sufficiency and evidence selection, and validating it against
+the real Telegram groups._
+
+## Validated end to end, against real Telegram
+
+`make test-e2e-telegram` passed **12 of 12** against worker `dd98d57c` with the
+decision model live, cleanup clean. Two of those steps are the shipped work,
+black-box:
+
+```text
+[03/12] abstention                    an unknown question must abstain cleanly
+[04/12] listener + reply pairing      question stays quiet → reply paired →
+                                      retrievable → answered from that evidence
+```
+
+A regression in any of the three decisions fails the run. The wiring is then
+pinned offline so it cannot drift: `tests/unit/test_settings.py` asserts the
+decision model is the default, allowlisted, with both answer decisions on at the
+calibrated thresholds and the fallback armed; and
+`tests/integration/test_local_composition.py` asserts the local graph shares one
+decision transport across the listener and the answer gate, and that
+`baseline` restores the previous graph.
 
 ## The state, in one paragraph
 
@@ -46,10 +67,13 @@ one means re-running `make eval-clef-production`, not guessing.
 ## What is deployed right now
 
 ```
-worker        dd98d57c-f785-479b-9fd6-e1fa9ddd2817
-health        /healthz ok · /readyz ok
-webhook       POST /adapters/telegram/webhook (405 on GET means it is live)
-budget        852.9 of 10,000 neurons today
+main           8a46d8c  pushed, tree clean
+worker         dd98d57c-f785-479b-9fd6-e1fa9ddd2817
+health         /healthz ok · /readyz ok
+webhook        POST /adapters/telegram/webhook (405 on GET means it is live)
+budget         1,813.9 of 10,000 neurons today
+gates          make lint · make test 283 · make test-integration 228 ·
+               evals.run offline 11/11 · make test-e2e-local 5/5
 ```
 
 Verified live after the deploy: an intent case answers `question` at 0.9475, and
@@ -80,10 +104,16 @@ shipped until today, so it is well understood.
   production guarantee.
 - **Local decisions are a stand-in.** `tev1:0.8b` exercises the code path;
   `reports/decision-service.md` says nothing about the shipped model.
-- **Two bugs found and fixed in this work**, both by tests that now exist: the
+- **Three bugs found and fixed in this work**, all now covered by tests: the
   listener parser rebuilt decision names from candidate ids and broke the
-  answer-shape decisions; and the generator asked for a schema whose defaulted
-  fields were optional, which a small model answered with a bare status.
+  answer-shape decisions; the generator asked for a schema whose defaulted
+  fields were optional, which a small model answered with a bare status; and
+  three local graphs built in three event loops leaked SQLite worker threads,
+  which would have buried real warnings.
+- **The evaluation endpoint stays**, deliberately: it is how the next threshold
+  change or the next decision model gets measured instead of guessed. It is
+  internal-key gated, persists nothing, and a test fails if user traffic ever
+  reaches it.
 
 ## Next session, in order of value
 
@@ -106,6 +136,7 @@ make all                    # lint + fast tests
 make test-integration       # in-process flows
 make test-e2e-local         # local stack including the decision service
 make decision-smoke         # the local decision service answers one canonical request
+make test-e2e-telegram      # real Telegram against the deployed Worker; live, authorized
 ```
 
 Live runs need explicit authorization: `ALLOW_CLOUDFLARE_LIVE_TESTS=1`,
