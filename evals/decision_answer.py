@@ -255,6 +255,7 @@ def score(
 ) -> dict[str, Any]:
     """Score both decisions at one threshold pair."""
     by_id = {case.case_id: case for case in cases}
+    decided = [item for item in decided if item.case_id in by_id]
     answered_unanswerable = 0
     unanswerable = 0
     abstained_answerable = 0

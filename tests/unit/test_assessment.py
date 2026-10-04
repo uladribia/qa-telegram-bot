@@ -463,3 +463,46 @@ async def test_without_a_fallback_the_service_failure_surfaces() -> None:
 
     with pytest.raises(ModelUnavailableError):
         await model.assess("Quan entrenem?")
+
+
+@pytest.mark.asyncio
+async def test_post_retrieval_decisions_parse_under_their_own_names() -> None:
+    """The answer shape names its decisions its own way, and parses.
+
+    The listener parser rebuilds ``pair.<candidate>.relevant`` from a candidate
+    id. The post-retrieval questions are named for the evidence they concern,
+    so asking that parser about them looks for a decision that was never
+    requested and every case fails as if the model had said nothing.
+    """
+    from knowledge_bot.application.assessment import (
+        build_answer_decision_request,
+        parse_evidence_relevance,
+        parse_sufficiency_decision,
+    )
+
+    state, questions = build_answer_decision_request(
+        "Com demano l'equipament?",
+        (
+            ("qa-a", "La comanda de roba es fa a la botiga."),
+            ("qa-b", "Els partits són dissabte."),
+        ),
+    )
+    assert set(questions) == {
+        "evidence.sufficient",
+        "evidence.qa-a.relevant",
+        "evidence.qa-b.relevant",
+    }
+    payload: dict[str, object] = {
+        "answers": {
+            "evidence.sufficient": {"type": "noul", "noul": 0.85},
+            "evidence.qa-a.relevant": {"type": "noul", "noul": 0.91},
+            "evidence.qa-b.relevant": {"type": "noul", "noul": 0.02},
+        }
+    }
+
+    assert parse_sufficiency_decision(payload) == pytest.approx(0.85)
+    assert parse_evidence_relevance(payload, ("qa-a", "qa-b")) == {
+        "qa-a": pytest.approx(0.91),
+        "qa-b": pytest.approx(0.02),
+    }
+    assert state["question"] == "Com demano l'equipament?"

@@ -19,7 +19,7 @@ from knowledge_bot.application.assessment import (
     build_answer_decision_request,
     build_proactive_question,
     parse_evidence_relevance,
-    parse_relevance_decision,
+    parse_noul_decisions,
     parse_sufficiency_decision,
 )
 from knowledge_bot.application.listener_pairing import select_pair
@@ -140,7 +140,8 @@ async def _decide_answer_case(
             "case_id": case.case_id,
             "backend": backend,
             "error": type(error).__name__,
-            "detail": error.args[0] if error.args else "",
+            "detail": _failure_detail(error, payload),
+            "asked": sorted(questions),
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     selected = sorted(
@@ -164,10 +165,25 @@ async def _decide_answer_case(
     }
 
 
+def _failure_detail(error: Exception, payload: dict[str, object]) -> str:
+    """Describe a decision failure by the answer keys that came back.
+
+    Question names carry evidence ids, never message or document content, so
+    naming them is enough to tell "the model answered nothing" from "it
+    answered under different names" without putting content in an error.
+    """
+    answers = payload.get("answers")
+    detail = error.args[0] if error.args else ""
+    if isinstance(answers, dict):
+        return f"{detail}; returned answers: {sorted(str(k) for k in answers)}"
+    keys = sorted(str(name) for name in payload)
+    return f"{detail}; no answers object returned (keys: {keys})"
+
+
 def _optional_noul(payload: dict[str, object], decision: str) -> float | None:
     """Return one yes/no probability, or ``None`` when it was not asked."""
     try:
-        return parse_relevance_decision(payload, (decision,))[decision]
+        return parse_noul_decisions(payload, (decision,))[decision]
     except InvalidModelOutputError:
         return None
 

@@ -163,16 +163,50 @@ def parse_relevance_decision(
         InvalidModelOutputError: A candidate has no answer, or an answer is not
             a yes/no probability.
     """
-    relevance: dict[str, float] = {}
-    for candidate_id in candidate_ids:
-        answer = _answer(payload, relevance_decision_name(candidate_id))
+    return parse_noul_decisions(
+        payload,
+        tuple(relevance_decision_name(candidate_id) for candidate_id in candidate_ids),
+        keyed_by=candidate_ids,
+    )
+
+
+def parse_noul_decisions(
+    payload: dict[str, object],
+    names: tuple[str, ...],
+    *,
+    keyed_by: tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Return the yes probability for each requested yes/no decision.
+
+    The names are decision names exactly as they were asked. The listener shape
+    happens to name them ``pair.<candidate>.relevant`` and the post-retrieval
+    shape names them differently, so this function never rebuilds a name: it
+    asks for what it is given. ``keyed_by`` re-labels the result when the
+    caller wants a different key than the decision name.
+
+    Args:
+        payload: The raw decision response.
+        names: The decision names, as they appear in the request.
+        keyed_by: Optional labels to return the probabilities under.
+
+    Returns:
+        The probability per decision name, or per label when given.
+
+    Raises:
+        InvalidModelOutputError: A decision is missing or is not a usable
+            yes/no answer.
+    """
+    labels = keyed_by if keyed_by is not None else names
+    decided: dict[str, float] = {}
+    for name, label in zip(names, labels, strict=True):
+        answer = _answer(payload, name)
         if answer.get("type") != "noul":
             raise InvalidModelOutputError("schema_validation")
         raw = answer.get("noul")
         if raw is None:
             raw = _noul_true_probability(answer)
-        relevance[candidate_id] = _probability(raw)
-    return relevance
+        decided[label] = _probability(raw)
+    return decided
 
 
 def _answer(payload: dict[str, object], decision: str) -> dict[str, object]:
@@ -478,7 +512,7 @@ def parse_evidence_relevance(
         InvalidModelOutputError: An item has no usable answer.
     """
     names = tuple(f"evidence.{evidence_id}.relevant" for evidence_id in evidence_ids)
-    scored = parse_relevance_decision(payload, names)
+    scored = parse_noul_decisions(payload, names)
     return {
         evidence_id: scored[f"evidence.{evidence_id}.relevant"]
         for evidence_id in evidence_ids
