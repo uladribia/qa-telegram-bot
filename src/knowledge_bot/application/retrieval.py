@@ -35,6 +35,17 @@ _CANDIDATE_POOL = 15
 _LEXICAL_OVERSAMPLE = 4
 _TOKEN = re.compile(r"\w+", flags=re.UNICODE)
 
+#: Authority is a 0-100 score. These bounds normalise it onto the cosine's
+#: 0..1 scale so the two can be averaged; production carries 30, 90, and 100.
+_AUTHORITY_MIN = 0.0
+_AUTHORITY_MAX = 100.0
+
+#: Weight of the semantic score in the blended ranking; authority takes the
+#: remainder. Equal weights because authority is a deliberate editorial signal
+#: (30 inferred from chat, 90 club-published, 100 authoritative) that cosine
+#: cannot see at all.
+_SEMANTIC_WEIGHT = 0.5
+
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
@@ -81,11 +92,46 @@ class RetrievedEvidence:
         return [*self.qa, *self.messages]
 
 
+def _normalized_authority(match: VectorMatch) -> float:
+    """Return a match's authority mapped onto 0..1, clamped to the scale.
+
+    Args:
+        match: The candidate whose metadata carries the authority.
+
+    Returns:
+        The normalised authority. A missing or unparsable value is 0, which
+        never promotes a candidate on its own.
+    """
+    authority = _as_int(match.metadata.get("authority"))
+    span = _AUTHORITY_MAX - _AUTHORITY_MIN
+    return min(max((authority - _AUTHORITY_MIN) / span, 0.0), 1.0)
+
+
+def blended_score(match: VectorMatch) -> float:
+    """Return the ranking score: cosine and authority, averaged 50/50.
+
+    Blending reorders the candidates that already cleared the floor; it does
+    not decide which candidates exist. That separation is deliberate: the
+    floor and the gated recall metric are calibrated on the raw cosine, and
+    mixing authority into admission would silently move both.
+
+    Args:
+        match: The candidate to score.
+
+    Returns:
+        The blended score, used for ordering only.
+    """
+    return _SEMANTIC_WEIGHT * match.score + (
+        1.0 - _SEMANTIC_WEIGHT
+    ) * _normalized_authority(match)
+
+
 def _rank(matches: list[VectorMatch], top_k: int) -> list[VectorMatch]:
-    """Order candidates by cosine similarity, then authority, best first."""
+    """Order candidates by blended score, then cosine, then authority."""
     ranked = sorted(
         matches,
         key=lambda match: (
+            blended_score(match),
             match.score,
             _as_int(match.metadata.get("authority")),
         ),

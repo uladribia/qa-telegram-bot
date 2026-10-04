@@ -1,9 +1,16 @@
 # SPDX-License-Identifier: MIT
 """Tests for the retrieval service (fakes with real cosine similarity)."""
 
-from knowledge_bot.application.retrieval import RetrievalService
+import pytest
+
+from knowledge_bot.application.retrieval import (
+    RetrievalService,
+    _normalized_authority,
+    _rank,
+    blended_score,
+)
 from knowledge_bot.domain.scope import GLOBAL_SCOPE, scope_for_space
-from knowledge_bot.ports.vector_store import VectorRecord
+from knowledge_bot.ports.vector_store import VectorMatch, VectorRecord
 from tests.fakes.ai import FakeEmbedder, FakeVectorStore
 
 SPACE_A = "sp_" + "1" * 32
@@ -274,3 +281,62 @@ async def test_default_width_is_five_qa_and_two_context_candidates() -> None:
 
     assert len(retrieved.qa) == 5
     assert len(retrieved.messages) == 2
+
+
+def _match(score: float, authority: int, identifier: str = "qa:x") -> VectorMatch:
+    """Build one candidate with the given cosine and authority."""
+    return VectorMatch(
+        id=identifier,
+        score=score,
+        metadata={"authority": authority, "canonical_key": identifier},
+    )
+
+
+def test_a_higher_authority_wins_a_close_cosine() -> None:
+    """Blending is what makes this order change at all.
+
+    Measured in production: for "on son els entrenaments?" a medical-payment
+    entry (authority 30) outranked the venue entry (authority 90) on cosine
+    alone, 0.6502 against 0.6474, and the generator abstained on the wrong
+    evidence. Under cosine alone this order must be preserved.
+    """
+    medical = _match(0.6502, 30, "qa:medical")
+    venue = _match(0.6474, 90, "qa:venue")
+
+    cosine_only = sorted([medical, venue], key=lambda m: m.score, reverse=True)
+    assert [m.id for m in cosine_only] == ["qa:medical", "qa:venue"]
+
+    ranked = _rank([medical, venue], 5)
+    assert [m.id for m in ranked] == ["qa:venue", "qa:medical"]
+
+
+def test_the_blend_is_an_equal_average_of_the_two_signals() -> None:
+    """The weights are 50/50, on authority normalised to 0..1."""
+    assert blended_score(_match(0.8, 100)) == pytest.approx(0.9)
+    assert blended_score(_match(0.8, 50)) == pytest.approx(0.65)
+    assert blended_score(_match(0.8, 0)) == pytest.approx(0.4)
+
+
+def test_authority_is_clamped_to_the_scale() -> None:
+    """An out-of-range authority must not distort the blend."""
+    assert _normalized_authority(_match(0.0, 500)) == 1.0
+    assert _normalized_authority(_match(0.0, -20)) == 0.0
+
+
+def test_a_missing_authority_never_promotes_a_candidate() -> None:
+    """Unreadable authority is zero, so it cannot outrank a curated entry."""
+    unknown = VectorMatch(id="qa:unknown", score=0.40, metadata={})
+    curated = _match(0.40, 90, "qa:curated")
+
+    assert [m.id for m in _rank([unknown, curated], 5)] == ["qa:curated", "qa:unknown"]
+
+
+def test_blending_never_changes_which_candidates_admitted() -> None:
+    """The floor and the recall metric are calibrated on the raw cosine."""
+    matches = [_match(0.36, 100, "a"), _match(0.95, 30, "b")]
+
+    admitted = [m for m in matches if m.score >= 0.35]
+    assert {m.id for m in admitted} == {"a", "b"}
+
+    for match in matches:
+        assert match.score >= 0.35
