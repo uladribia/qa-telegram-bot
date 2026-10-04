@@ -491,9 +491,7 @@ def parse_sufficiency_decision(payload: dict[str, object]) -> float:
     Raises:
         InvalidModelOutputError: The sufficiency answer is missing or unusable.
     """
-    return parse_relevance_decision(payload, (SUFFICIENCY_DECISION,))[
-        SUFFICIENCY_DECISION
-    ]
+    return parse_noul_decisions(payload, (SUFFICIENCY_DECISION,))[SUFFICIENCY_DECISION]
 
 
 def parse_evidence_relevance(
