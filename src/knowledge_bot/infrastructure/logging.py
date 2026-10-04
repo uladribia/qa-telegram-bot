@@ -1,34 +1,43 @@
 # SPDX-License-Identifier: MIT
-"""Central logging and telemetry configuration.
+"""Central logging configuration.
 
 There is one logging system: the standard library. Application events are
-emitted with contextual fields, printed to stderr (structured JSON in the
-Worker, human-readable locally), and forwarded to Logfire as spans. Loguru is
-gone; this module is the only place handlers and the exporter are configured.
+emitted with contextual fields and printed to stderr, structured JSON in the
+Worker and human-readable locally. Spans are one line each, written by
+``infrastructure/telemetry.py``; no tracing SDK is imported anywhere, so the
+same code path serves the Worker, the local runtime, and tests.
+
+Reading a flow back is a matter of grepping ``request_id`` in
+``wrangler tail`` or ``docker logs``. Nothing is exported off the Worker.
 """
 
 import json
 import logging
+import re
 import sys
-from collections.abc import Callable
 from datetime import UTC, datetime
-from logging import Logger, getLogger
-from types import ModuleType
+from logging import getLogger
+from time import perf_counter
 
-from fastapi import FastAPI
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from knowledge_bot.infrastructure.telemetry import LogfireTracer, _as_sdk
-from knowledge_bot.ports.telemetry import NoopTracer, Tracer
-
-#: Service identity in Logfire. One deployable means one service name.
-SERVICE_NAME = "qa-telegram"
+from knowledge_bot.infrastructure.telemetry import (
+    LogTracer,
+    bind_request_id,
+    new_request_id,
+)
+from knowledge_bot.ports.telemetry import Tracer
 
 #: Value shapes that must never leave the process, whatever key holds them.
-#: The SDK already scrubs by key name (``secret``, ``password``, ``token``, the
-#: webhook secret header), but a Telegram bot token is a *value* shaped like
-#: ``<digits>:<base64url>`` and the transport puts it in the request URL, where
-#: no key name reveals it.
-SECRET_VALUE_PATTERNS = (r"\b\d{8,12}:[A-Za-z0-9_-]{30,}\b",)
+#: A Telegram bot token is a *value* shaped like ``<digits>:<base64url>`` and
+#: the transport puts it in the request URL, where no key name reveals it.
+#: The lookarounds are deliberate: ``\b`` would not work here, because the
+#: token in a URL is preceded by ``bot`` and the character before the digits
+#: is a word character, so a word boundary never falls where the digits start.
+SECRET_VALUE_PATTERNS = (r"(?<!\d)\d{8,12}:[A-Za-z0-9_-]{30,}(?![A-Za-z0-9_-])",)
+
+#: The same patterns compiled once, for scrubbing every rendered field.
+_SECRET_VALUES = re.compile("|".join(SECRET_VALUE_PATTERNS))
 
 #: Attributes every ``LogRecord`` carries; everything else came from the caller.
 _RESERVED_RECORD_FIELDS = frozenset(
@@ -60,7 +69,6 @@ _RESERVED_RECORD_FIELDS = frozenset(
 )
 
 _configured = False
-_observability_configured = False
 _capture_content = False
 
 
@@ -82,160 +90,148 @@ def configure_logging(*, json_logs: bool = False) -> None:
     _configured = True
 
 
-def configure_observability(
-    app: FastAPI,
-    *,
-    environment: str,
-    token: str | None = None,
-    send_to_logfire: bool = True,
-    instrument_client: bool = False,
-    capture_content: bool = False,
-) -> None:
-    """Configure Logfire once per process and instrument the HTTP surface.
+def configure_observability(*, capture_content: bool = False) -> None:
+    """Turn on content capture for this process.
 
-    A runtime without a write token — a fresh checkout, a container, CI — still
-    works: the exporter stays local instead of failing the process. Telemetry
-    is never allowed to break the answer path, so every step is isolated: a
-    failed instrumentor is logged and skipped, not raised.
+    There is no exporter to configure: the standard library sink installed by
+    ``configure_logging`` already receives every event. This only records the
+    capture mode, which decides whether message text, prompts, and answers are
+    written at all. Credential scrubbing is not a mode and is always on.
 
     Args:
-        app: The FastAPI application whose requests become spans.
-        environment: Logfire environment label, ``local`` or ``cloudflare``.
-        token: Send-only write token. ``None`` means "use ``LOGFIRE_TOKEN`` or
-            the local project credentials if present, otherwise stay local".
-        send_to_logfire: Master switch. Tests set it to ``False`` so a
-            developer's project credentials cannot receive test traffic.
-        instrument_client: Also instrument the outbound HTTP client. Only the
-            local runtime has one: the Worker calls Cloudflare bindings, and
-            the SDK raises when the client library is absent from the bundle.
-        capture_content: Export message text, sender identity, prompts, and
+        capture_content: Record message text, sender identity, prompts, and
             answers. On while testing, so a flow can be reconstructed; the
-            scrubbing that hides credentials is unaffected and always on. The
             content itself comes from ``log_content`` at the flow boundaries.
     """
-    global _observability_configured, _capture_content
-    if _observability_configured:
-        return
-    logfire = _logfire()
-    _isolated(
-        "configure",
-        lambda: logfire.configure(
-            service_name=SERVICE_NAME,
-            environment=environment,
-            token=token,
-            send_to_logfire=send_to_logfire and "if-token-present",
-            console=False,
-            scrubbing=logfire.ScrubbingOptions(
-                extra_patterns=list(SECRET_VALUE_PATTERNS)
-            ),
-        ),
-    )
-    _isolated(
-        "fastapi",
-        lambda: logfire.instrument_fastapi(app, capture_headers=capture_content),
-    )
-    if instrument_client:
-        _isolated(
-            "httpx",
-            lambda: logfire.instrument_httpx(
-                capture_request_body=capture_content,
-                capture_response_body=capture_content,
-            ),
-        )
-    _bridge_standard_library_logging(logfire)
+    global _capture_content
     _capture_content = capture_content
-    _observability_configured = True
+
+
+class RequestLogger:
+    """One log line per HTTP request, and the correlation id for its spans.
+
+    This replaces what automatic instrumentation used to provide: a line per
+    request carrying the outcome, plus a ``request_id`` that every span opened
+    while serving it inherits. That is the whole reconstruction story — grep
+    the id, read the legs in order.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        """Store the wrapped application.
+
+        Args:
+            app: The next ASGI application in the chain.
+        """
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Serve one request, logging its method, path, status, and duration.
+
+        Args:
+            scope: The ASGI connection scope.
+            receive: The ASGI receive callable.
+            send: The ASGI send callable.
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        identifier = new_request_id()
+        started = perf_counter()
+        status = 500
+        with bind_request_id(identifier):
+
+            async def capture_status(message: Message) -> None:
+                nonlocal status
+                if message["type"] == "http.response.start":
+                    status = message["status"]
+                await send(message)
+
+            try:
+                await self.app(scope, receive, capture_status)
+            except Exception:
+                getLogger("knowledge_bot.request").exception(
+                    "http_request_failed",
+                    extra={
+                        "request_id": identifier,
+                        "method": scope.get("method", "-"),
+                        "path": scope.get("path", "-"),
+                        "duration_ms": round((perf_counter() - started) * 1000, 2),
+                    },
+                )
+                raise
+        getLogger("knowledge_bot.request").info(
+            "http_request",
+            extra={
+                "request_id": identifier,
+                "method": scope.get("method", "-"),
+                "path": scope.get("path", "-"),
+                "status": status,
+                "duration_ms": round((perf_counter() - started) * 1000, 2),
+            },
+        )
 
 
 def log_content(event: str, **fields: object) -> None:
-    """Record one content-carrying event in Logfire.
+    """Record one content-carrying event on the process log.
 
-    The event is dropped when content capture is off, when observability was
-    never configured (unit tests), or when the SDK import failed. Fields use
-    structured placeholders, so they stay searchable and are scrubbed by key
-    name and by value shape.
+    The event is dropped when content capture is off. Values are scrubbed by
+    shape on the way out, so a credential can never reach the log whatever key
+    holds it.
 
     Args:
         event: The event name, in the existing ``snake_case`` style.
         **fields: The content and context to attach to the event.
     """
-    if not _capture_content or not _observability_configured:
+    if not _capture_content:
         return
-    _isolated(event, lambda: _logfire().info(event, **fields))
+    getLogger("knowledge_bot.content").info(event, extra=fields)
 
 
 def content_capture_enabled() -> bool:
     """Return whether content capture is on for this process."""
-    return _capture_content and _observability_configured
+    return _capture_content
 
 
 def build_tracer() -> Tracer:
     """Return the tracer for this process.
 
-    The application layer asks for spans without knowing whether telemetry was
-    configured, so a runtime that never configured the exporter still gets a
-    working tracer: the no-op one, which records nothing and cannot fail.
+    The application layer asks for spans without knowing how they are recorded.
+    The same tracer serves every runtime, because recording a span is a
+    ``logging`` call and needs no exporter, no token, and no configuration.
     """
-    if not _observability_configured:
-        return NoopTracer()
-    return LogfireTracer(sdk=_as_sdk(_logfire()), capture=_capture_content)
-
-
-def _logfire() -> ModuleType:
-    """Import the SDK lazily.
-
-    The Cloudflare Python runtime forbids entropy calls while a Worker is
-    starting, and importing the OpenTelemetry SDK needs one. Importing here
-    means it happens on the first request, never at module import time.
-    """
-    import logfire
-
-    return logfire
-
-
-def _isolated(step: str, action: Callable[[], None]) -> None:
-    """Run one telemetry step, logging and swallowing any failure.
-
-    Args:
-        step: Name of the step, recorded in the warning.
-        action: The step itself.
-    """
-    try:
-        action()
-    except Exception as error:
-        getLogger("knowledge_bot.telemetry").warning(
-            "logfire_step_failed", extra={"step": step, "error": type(error).__name__}
-        )
-
-
-def _bridge_standard_library_logging(logfire: ModuleType) -> None:
-    """Send standard-library records to Logfire without changing levels.
-
-    Uvicorn and the ASGI stack log through the standard library. Adding the
-    handler here leaves the existing console output and the configured
-    thresholds untouched; only records that already pass their logger's level
-    are exported.
-
-    The handler is pinned to INFO. The root logger is DEBUG in development, and
-    without this the bridge exported every library's debug chatter: on one
-    question, 70 records arrived and 50 of them were ``executing %s`` and
-    ``receive_response_headers.complete return_value=...`` from httpcore and
-    httpx. Console verbosity is a developer setting; telemetry is not.
-    """
-    root: Logger = getLogger()
-    if not any(
-        isinstance(handler, logfire.LogfireLoggingHandler) for handler in root.handlers
-    ):
-        root.addHandler(logfire.LogfireLoggingHandler(level=logging.INFO))
+    return LogTracer(capture=_capture_content)
 
 
 def _fields(record: logging.LogRecord) -> dict[str, object]:
-    """Return the contextual fields a caller attached to one record."""
+    """Return the contextual fields a caller attached to one record.
+
+    Every value is scrubbed by shape before it can be rendered, which is what
+    keeps a bot token out of the log when it rides inside a URL.
+    """
     return {
-        name: value
+        name: _scrub(value)
         for name, value in record.__dict__.items()
         if name not in _RESERVED_RECORD_FIELDS and not name.startswith("_")
     }
+
+
+def _scrub(value: object) -> object:
+    """Replace a credential-shaped value with a marker.
+
+    Args:
+        value: The field value as recorded.
+
+    Returns:
+        The value with any credential-shaped text replaced, or a ``list`` or
+        ``dict`` rebuilt with the same treatment applied inside it.
+    """
+    if isinstance(value, str):
+        return _SECRET_VALUES.sub("[scrubbed]", value)
+    if isinstance(value, list):
+        return [_scrub(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _scrub(item) for key, item in value.items()}
+    return value
 
 
 class _TextFormatter(logging.Formatter):
@@ -275,5 +271,9 @@ class _JsonFormatter(logging.Formatter):
             **_fields(record),
         }
         if record.exc_info is not None:
-            payload["exception"] = self.formatException(record.exc_info)
+            # An HTTP error carries the request URL, which is where a Telegram
+            # bot token lives, so the traceback is scrubbed like any field.
+            payload["exception"] = _SECRET_VALUES.sub(
+                "[scrubbed]", self.formatException(record.exc_info)
+            )
         return json.dumps(payload, default=str, separators=(",", ":"))

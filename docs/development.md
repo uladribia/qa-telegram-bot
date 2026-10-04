@@ -114,15 +114,16 @@ Two local facts worth knowing before reading a number:
   **not** there: they are connector payloads and live in
   `adapters/telegram/models.py`, so nothing outside the connector imports them.
 - `domain/` and `application/` contain no framework, Telegram, Cloudflare, or infrastructure imports. HTTP and Telegram adapters call explicit application services. SQL is the source of truth; vector projections are derived and repairable.
-- `logfire` is imported only from `infrastructure/logging.py` and
-  `infrastructure/telemetry.py`, the only modules that configure the exporter
-  and the span implementation. It is a deliberate exception to the locked stack:
-  request traces and a reconstructable debugging trail were the missing
-  observability surface, and the SDK is an application dependency, not a
-  service. Content events reach it through `log_content` from the adapters; the
-  answer pipeline reaches it through the `ports/telemetry.py` protocols, so
-  `application/` still never imports the SDK.
-- Content capture is a testing posture, not a product decision. `KB_LOGFIRE_CAPTURE_CONTENT` defaults to `true` so a flow can be reconstructed end to end, and credentials are scrubbed regardless. Turning it off is the change to make before anything outside a private test group is connected; do not "fix" a redacted trace by assuming the redaction is the bug.
+- There is no tracing SDK. A span is one line on the standard library logger:
+  `infrastructure/telemetry.py` writes it, `infrastructure/logging.py` formats
+  it, and `RequestLogger` (installed by `create_app`) emits one `http_request`
+  line per request plus the `request_id` its spans inherit. Nothing is exported
+  and there is no token or collector. Logfire was removed: its SDK exceeded the
+  Worker's 128 MB isolate limit and 503'd every real question. Content events
+  reach the log through `log_content` from the adapters; the answer pipeline
+  reaches it through the `ports/telemetry.py` protocols, so `application/`
+  still never imports a logging or tracing library.
+- Content capture is a testing posture, not a product decision. `KB_CAPTURE_CONTENT` defaults to `true` so a flow can be reconstructed end to end, and credentials are scrubbed regardless. Turning it off is the change to make before anything outside a private test group is connected; do not "fix" a redacted log by assuming the redaction is the bug.
 - `AnswerService.answer_message` takes the scope and the answer id from its caller, because one question can be answered once per scope and each answer is its own record with its own idempotency key. `addressed_answer_id`, `proactive_answer_id` and `scoped_answer_id` build them; never inline an `ans:...` string at a call site.
 - **An answer id has to fit a 64-byte `callback_data`.** The feedback button carries it, and Telegram answers a longer one with a 400: the answer is persisted and the send silently never happens, so the failure looks like "the bot did not answer" rather than a bug. That is why the id takes the connector's short conversation id as the scope reference and never the 35-character space id; `tests/unit/test_telegram_transport.py` pins the budget against the widest ids Telegram can hand out. Only the real-Telegram E2E found this: offline, nothing ever encodes the button.
 - `ProactiveResponder` owns the "may the bot speak uninvited" decision, including the budget admission, because that is policy and not transport. The connector calls it and delivers what comes back; it does not check `AiWorkClass` itself.
@@ -167,15 +168,16 @@ Two eval-fixture traps that have already cost time: `expected_mode` values must 
   you add a refusal branch, set a `refusal_reason` there; an answer mode alone
   does not say why. Keep the trace text-free: it is queryable storage, and the
   prompt and the model output are reconstructible from the ids it keeps.
-- `configure_observability` is idempotent per process, so the Worker can call it from both the request and the scheduled path. It runs at import time in the local entrypoint and at first context resolution in the Worker, where bindings exist. The test kill switch is `KB_LOGFIRE_SEND_TO_LOGFIRE=false`, set in `tests/conftest.py`: without it a developer's project credentials would receive test traffic, because `if-token-present` finds the local `.logfire` credentials.
-- Three Worker traps cost real time, and all are documented in [operations.md](operations.md#traces-logfire): the SDK must be imported lazily (`entry.py` also sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import), `instrument_httpx()` raises in the Worker because httpx is not in the bundle, and importing the SDK at all **exceeds the isolate's 128 MB limit**, 503-ing the first context-resolving request.
-- `make smoke` only asserts `/healthz`, which resolves no context, so it does **not** cover that path, and a healthy `/healthz` proves nothing about it. After any change to observability, POST a context-resolving route against a booted Worker and read both the logs and the response status. This cost a real incident: the tracing pass passed smoke, deployed, and then returned *Worker exceeded resource limits* to every real question, which only a live probe of `/internal/eval/answer` caught.
+- `configure_observability` is idempotent per process, so the Worker can call it from both the request and the scheduled path. It runs at import time in the local entrypoint and at first context resolution in the Worker, where bindings exist. It no longer takes an app or a token — there is no exporter to configure, only the capture mode to record. `tests/conftest.py` sets `KB_CAPTURE_CONTENT=false`, so test runs never log message text or prompts.
+- The SDK traps are gone with the SDK. `entry.py` still sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import, because any installed plugin can still reach for entropy while a Worker is starting. Nothing else in the observability path can blow the isolate's 128 MB limit, because there is nothing to import.
+- `make smoke` only asserts `/healthz`, which resolves no context. After any change to observability, POST a context-resolving route against a booted Worker and read the response status *and* the log. This cost a real incident: the tracing pass passed smoke, deployed, and then returned *Worker exceeded resource limits* to every real question, which only a live probe of `/internal/eval/answer` caught.
 - A local base URL is not a remote call. `evals/run.py` exempts localhost from the live-tests authorization, for the same reason `scripts/local-dev.sh` seeds without it, so one command runs the same suite locally and against the deployed Worker.
-- A span is evidence only after a query returns it. A clean exporter log and a
-  successful process exit are not ingestion proof: query the exact project for
-  the exercised span before calling instrumentation done. For content work, query
-  the `attributes` of the event you just added — that is the only place a leaked
-  credential shows up, since scrubbing hides it from the code path that wrote it.
+- A span is evidence only after it is read back. Recording it successfully is
+  not proof that it arrived or that it says what you think: grep the
+  `request_id` you just produced and confirm the line is there. For content
+  work, read the rendered line for the event you just added — that is the only
+  place a leaked credential shows up, since scrubbing hides it from the code
+  path that wrote it.
 
 ## Required checks before handoff
 

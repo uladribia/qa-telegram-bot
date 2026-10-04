@@ -208,29 +208,41 @@ in the same transaction as the new version. See
 There is one logging system: the standard library, configured in
 `infrastructure/logging.py`. Application events are emitted with contextual
 fields; the sink is human-readable and debug-level locally, and one JSON
-object per line in the Worker, so `wrangler tail` still works. The same
-records are forwarded to Logfire, where the fields arrive as searchable
-attributes.
+object per line in the Worker, so `wrangler tail` works. There is no exporter:
+those lines *are* the trace, and nothing leaves the machine.
 
 Logs contain ids, scope, decisions, counts, model names, durations, and state
 transitions. They never contain tokens or secrets. Message text, answers, and
-prompts are *telemetry* content, exported only under the testing flag and only
-to Logfire, never written to the process log; see
-[Traces (Logfire)](#traces-logfire).
+prompts are content, recorded only under `KB_CAPTURE_CONTENT`; see
+[Traces](#traces).
 
 Two log lines exist specifically to make otherwise-invisible failures diagnosable:
 
 - `workers_ai_call_completed` / `workers_ai_call_failed` — one per Workers AI call, from both adapters. Fields: `operation` (`embedding` or `generation`), `model`, `characters` (request size, a prompt-size proxy), `duration_ms`, and on failure `error` (the exception class, e.g. `TimeoutError`). A timed-out generation shows `workers_ai_call_failed` with `error: TimeoutError` at `duration_ms` equal to `AI_GENERATION_TIMEOUT_SECONDS`. Never log the payload, only its size.
 - `scheduled_started` / `scheduled_finished` / `scheduled_failed` — the Cron Trigger path. Fields: `use_case`, `trigger`, `sent`, `duration_ms`. A scheduled handler that raises leaves no trace in request logs, so this is the only signal that the daily report job ran.
 
-Tail live traffic with `npx wrangler tail bhc-qa-testbot` when you need the
-process log itself. For anything about a *decision*, use the trace below
-instead: a tail is a live window, and a question answered before the tail
-started is not in it.
+Read the live log with `npx wrangler tail bhc-qa-testbot`, or `make dev-logs`
+locally. Filter it by `request_id` to reconstruct one question:
+
+```bash
+npx wrangler tail bhc-qa-testbot | grep '"request_id":"c1a2b3"'
+```
+
+Wrangler labels everything the process writes to **stderr** with a red
+`✘ ERROR` prefix, including lines whose own `"level"` is `INFO` — the Worker
+writes its JSON to stderr, so every request line looks alarming. Grep the
+payload's `"level"` field, not the prefix:
+
+```bash
+npx wrangler tail bhc-qa-testbot | grep '"level":"ERROR"'
+```
+
+A tail is a live window, so a question answered before the tail started is not
+in it. For anything older, use the durable record: [Answer traces](#answer-traces).
 
 ### Debugging a question, in order
 
-1. Find the `answer_question` span for the question, and read its `reason`.
+1. Find the `answer_question` line for the question, and read its `reason`.
 2. `no_evidence` → read `retrieval` for the candidate counts and similarities,
    then `evidence_selection` for the floor and what it selected.
 3. `model_insufficient` → the evidence was there and the model declined. Read
@@ -250,10 +262,13 @@ started is not in it.
    generator; run the frozen suite for a comparable case before changing
    anything.
 
-The command recipes for step 1 are in
-[AGENTS.md](../AGENTS.md#debugging-with-logfire).
+The log lines for each step are in [AGENTS.md](../AGENTS.md#debugging-from-the-log).
 
-## Traces (Logfire)
+## Traces
+
+A trace is a set of log lines sharing one `request_id`. There is no backend, no
+SDK, and no token: `wrangler tail` is the collector, and one request is one
+grep.
 
 ### The answer trace
 
@@ -261,6 +276,7 @@ One question produces five named spans, in both runtimes and through both
 entry paths (a real answer and an evaluation alike):
 
 ```text
+http_request         method, path, status, duration_ms, request_id
 answer_question      mode, reason, duration, ids, question_chars
   retrieval          qa/message candidate counts and similarities
   evidence_selection floor, selected ids, whether it abstained
@@ -269,33 +285,43 @@ answer_question      mode, reason, duration, ids, question_chars
   answer_decision    mode, reason, cited source ids
 ```
 
-`answer_question.reason` is the same value as `refusal_reason` in
-`trace_json`, so the durable record and the trace agree by construction.
+Each line carries `request_id`, `duration_ms`, and `parent` when the span is
+nested, so the tree is legible from the lines alone. `answer_question.reason`
+is the same value as `refusal_reason` in `trace_json`, so the log and the
+durable record agree by construction.
 
-### Production tracing is disabled, and why
+```bash
+npx wrangler tail bhc-qa-testbot | grep '"request_id":"c1a2b3"'
+```
 
-`KB_LOGFIRE_ENABLED` is `false` in `wrangler.jsonc`. **Do not turn it on**
-until the memory problem below is solved: with it on, the Worker boots and
-`/healthz` answers, then dies with *Worker exceeded resource limits* on the
-first request that resolves a context, which means the bot cannot answer at
-all.
+A tail is a live window, and Cloudflare keeps only a short buffer. For a
+question older than the buffer, read `bot_answers.trace_json` instead: it holds
+the same `refusal_reason`, the candidates, and the selection, durably. See
+[Answer traces](#answer-traces).
+
+### Why there is no tracing SDK
+
+Logfire was removed, not disabled. It was configured with `if-token-present` and
+gated behind `KB_LOGFIRE_ENABLED=false`, because importing its SDK into Pyodide
+exceeded the Workers isolate's 128 MB limit:
 
 ```text
 KB_LOGFIRE_ENABLED=true   -> /healthz 200, /readyz 200, POST /internal/eval/answer 503
 KB_LOGFIRE_ENABLED=false  -> /healthz 200, /readyz 200, POST /internal/eval/answer 200
 ```
 
-The cause is the import, not the export: the Workers runtime caps an isolate at
-128 MB, and pulling the OpenTelemetry SDK plus its protobuf exporter into
-Pyodide exceeds it (about 7.5 MB of vendored modules, most of it
-`logfire`, `opentelemetry`, and `google.protobuf`). A health check cannot see
-this, because `/healthz` resolves no context and therefore never imports the
-SDK. `make smoke` has the same blind spot.
+The cause was the import, not the export: about 7.5 MB of vendored modules,
+most of it `logfire`, `opentelemetry`, and `google.protobuf`. `/healthz` could
+not see it, because it resolves no context and never imports the SDK — the same
+blind spot `make smoke` has, and the reason a passing smoke test once shipped a
+Worker that could not answer a single question.
 
-A `LOGFIRE_TOKEN` secret is already set on the Worker, so tracing is one flag
-away once a memory-compliant transport exists. Until then the Worker runs
-untraced rather than unable to answer, and the local runtime is unaffected:
-the flag is read from Worker bindings and exists only in `src/entry.py`.
+Production tracing was therefore **off for its entire life**: the `qa-telegram`
+Logfire project never received a single span. Rather than keep a dependency
+that could not run in the only runtime that mattered, the span became a log
+line. The dependency, the token, the flag, and the project are gone; nothing
+leaves the Worker. Do not reintroduce an SDK on the grounds that "traces are
+useful": the same import will 503 the Worker again.
 
 ### The generator, measured on both runtimes
 
@@ -495,30 +521,42 @@ does.
 
 ### Runtime
 
-The local runtime exports to Logfire, project `oleguer-sagarra/qa-telegram` in
-the EU region, as `environment=local`. The Worker is configured with
-`environment=cloudflare` but currently exports nothing: see
-[Production tracing is disabled](#production-tracing-is-disabled-and-why). Each HTTP request is a span named `POST /adapters/telegram/webhook`, `GET /healthz`, and so on, with the route, status, and client address as attributes. The local runtime also instruments its outbound httpx calls (Ollama), which appear as child spans of the request that made them; the Worker has no httpx, so it does not ask for client instrumentation.
+Both runtimes write to stderr and nothing else: the Worker emits one JSON
+object per line, the local runtime human-readable text. There is no
+environment label, no project, and no token. Each HTTP request is one
+`http_request` line with `method`, `path`, `status`, `duration_ms`, and the
+`request_id` that every span opened while serving it inherits.
 
 ```bash
-# fresh spans for the service, in the exact project
-logfire --region eu --org oleguer-sagarra mcp query run \
-  "SELECT start_timestamp, trace_id, span_name, attributes->>'http.route' AS route, attributes->>'http.status_code' AS status FROM records WHERE service_name = 'qa-telegram' ORDER BY start_timestamp DESC LIMIT 20" \
-  --project qa-telegram
+# the last requests, with their outcomes and timings
+npx wrangler tail bhc-qa-testbot | grep http_request
+
+# one question end to end
+npx wrangler tail bhc-qa-testbot | grep '"request_id":"c1a2b3"'
 ```
 
-The `records` view carries span attributes only; the environment and service identity are resource attributes, visible in the UI and on the service page.
+Agents debugging a live flow should use the verified recipes in [AGENTS.md](../AGENTS.md#debugging-from-the-log) rather than inventing their own: that section records the event table and how to go from a question to its flow.
 
-Agents debugging a live flow should use the verified query recipes in [AGENTS.md](../AGENTS.md#debugging-with-logfire) rather than inventing their own: that section records which `records` columns exist, which names are traps, and how to get a trace link back to a user.
-
-- **No token is required to run.** The SDK is configured with `if-token-present`: without a write token the app starts normally and spans stay local. Telemetry failure never breaks the answer path.
-- **Where the token comes from:** `LOGFIRE_TOKEN` (env var, read by the SDK) or the gitignored `.logfire/logfire_credentials.json`, created by `logfire init use --name qa-telegram --permission send`. It is send-only: never commit it, never print it, never widen it. `.dockerignore` excludes `.logfire`, so the token is never baked into an image; a container or the deployed Worker needs `LOGFIRE_TOKEN` in its environment (a Cloudflare secret, never in `wrangler.jsonc`).
-- **Worker timing:** bindings are not available at import, so the Worker configures the exporter the first time a context is resolved, from either the request or the scheduled handler. Two Worker-specific traps, both verified with `make smoke` plus a webhook request against the booted Worker:
-  - The SDK is imported **lazily**, inside `configure_observability`. The Workers runtime forbids entropy while a Worker is starting, and importing OpenTelemetry needs one: a module-level import aborts the boot. Pydantic makes it worse by importing every installed `pydantic` entry point, which pulls the Logfire plugin in at startup, so `entry.py` sets `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import. No Pydantic instrumentation is used, so nothing is lost.
-  - `logfire.instrument_httpx()` **raises** in the Worker, because httpx is not part of the Worker bundle. Client instrumentation is therefore opt-in and only the local runtime asks for it. A wrong assumption here cost a 500 on the first real request while `/healthz` still answered 200.
-- **Telemetry can never break the answer path.** Every step runs isolated: a failure is logged as `logfire_step_failed` with the step name and the exception class, and skipped.
-- **Setting:** `KB_LOGFIRE_SEND_TO_LOGFIRE` (default `true`) is the master switch; `tests/conftest.py` sets it to `false` so a developer's project credentials can never receive test traffic.
-- **Content is captured, on purpose.** `KB_LOGFIRE_CAPTURE_CONTENT` (default `true`) exports message text, sender identity, prompts, and answers, so a flow can be reconstructed end to end while debugging. It also captures request headers. It is a testing posture, not a product decision: set it to `false` before anything outside a private test group is ever connected. Explicit `log_content` events carry the content, not body capture:
+- **No token exists, and none is needed.** There is no exporter to fail. The
+  only way to lose a trace is to stop reading the log.
+- **Worker timing:** `configure_observability` still runs at first context
+  resolution in the Worker, because that is where bindings exist, but it now
+  only records the capture mode. Nothing heavy is imported: the observability
+  path is `logging` plus one pure-ASGI middleware, so it cannot push the
+  isolate toward its 128 MB limit. `entry.py` keeps
+  `PYDANTIC_DISABLE_PLUGINS=true` before its first pydantic import, because any
+  installed plugin can still reach for entropy while a Worker is starting.
+- **Recording a span can never break the answer path.** The isolation is
+  deliberately narrow: it guards *recording* the span and never the caller's
+  work inside it. A guard that also swallowed the caller's exceptions turned a
+  provider outage into a 500, and `tests/unit/test_telemetry.py` pins that.
+- **Setting:** `KB_CAPTURE_CONTENT` (default `true`) is the only switch.
+  `tests/conftest.py` sets it to `false` so test runs never log message text.
+- **Content is captured, on purpose.** `KB_CAPTURE_CONTENT` records message
+  text, sender identity, prompts, and answers, so a flow can be reconstructed
+  end to end while debugging. It is a testing posture, not a product decision:
+  set it to `false` before anything outside a private test group is ever
+  connected. Explicit `log_content` events carry the content, not body capture:
 
   | event | fields |
   |---|---|
@@ -528,20 +566,27 @@ Agents debugging a live flow should use the verified query recipes in [AGENTS.md
   | `ai_generation_prompt` | `model`, `messages` (the rendered prompt) |
   | `ai_generation_response` | `model`, `content` (the raw model output, before parsing) |
 
-  The SDK's `record_send_receive` is deliberately **not** used: in this version it emits three extra ASGI event spans per request and attaches no payload to them.
-- **Credentials never leave the process, whatever the capture setting.** Scrubbing is always on. The SDK scrubs by key name (`secret`, `password`, `token`, the webhook secret header), and `SECRET_VALUE_PATTERNS` in `infrastructure/logging.py` covers credential *values* no key name reveals — a Telegram bot token is `<digits>:<base64url>` and the transport puts it in the request URL, so `http.url` would otherwise export it verbatim. Verified: the webhook secret header arrives as `[Scrubbed due to 'secret']` while the message text is exported in full. After adding a field, query the span's `attributes`: a leak is invisible in review and obvious in a query.
-- **Privacy:** endpoint arguments and headers are captured and the SDK scrubs secrets, so the webhook secret arrives as `[Scrubbed due to 'secret']`. Message text, sender identity, prompts, and answers are captured on purpose while testing (see the content note above). Credentials are not.
+- **Credentials never reach the log, whatever the capture setting.** Scrubbing
+  is always on and is not a setting. `_scrub` in `infrastructure/logging.py`
+  walks every rendered field *and every traceback* — an HTTP error carries the
+  request URL, which is where a Telegram bot token lives — and
+  `SECRET_VALUE_PATTERNS` covers credential values no key name reveals, since a
+  token is `<digits>:<base64url>`. The pattern uses lookarounds rather than
+  `\b`: in a URL the token follows `bot`, and because `t` and `1` are both word
+  characters no word boundary falls where its digits start, so `\b` matched
+  nothing and the token would have been logged verbatim. `tests/unit/test_telemetry.py`
+  pins both the scrub and the non-scrub of an ordinary URL. After adding a
+  field, read the rendered line: a leak is invisible in review and obvious in
+  the output.
 - **Not wired yet:** the content events above are standalone records rather
   than children of the answer span, so a question's inbound message and its
   outbound answer are found by time and conversation id rather than by walking
-  the tree. The process log events (`workers_ai_call_*`, `scheduled_*`) reach
-  Logfire as records of their own, not as span children of the answer either.
-
-
+  the tree. The process log events (`workers_ai_call_*`, `scheduled_*`) are the
+  same: records of their own, not span children of the answer.
 
 ## Answer traces
 
-Because there is no log history, every answer persists a `bot_answers.trace_json` debug trace. It is the durable record of one attempt and answers the question a log line cannot: *why* did this question abstain. It holds no text — no question, no evidence body, no prompt, no model output — only ids, counts, sizes, similarities, statuses, and durations.
+Because a log is only a live window, every answer persists a `bot_answers.trace_json` debug trace. It is the durable record of one attempt and answers the question a log line cannot: *why* did this question abstain, weeks after the tail buffer has rolled over. It holds no text — no question, no evidence body, no prompt, no model output — only ids, counts, sizes, similarities, statuses, and durations.
 
 ```bash
 npx wrangler d1 execute knowledge-bot --remote --command \

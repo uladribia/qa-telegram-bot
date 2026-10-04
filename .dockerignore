@@ -14,7 +14,5 @@ htmlcov
 .env
 .env.*
 !.env.example
-# Never bake the Logfire write token into an image.
-.logfire
 data/raw
 node_modules

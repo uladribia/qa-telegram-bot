@@ -42,20 +42,15 @@ def test_local_models_use_local_allowlist() -> None:
     assert settings.generation_model in LOCAL_ALLOWED_AI_MODELS
 
 
-def test_content_capture_is_a_separate_switch_from_sending() -> None:
-    """Telemetry can be captured locally without being sent anywhere.
-
-    Content capture is the debugging switch; sending is its own switch. They
-    are separate settings on purpose, so a run can record content for the
-    console while exporting nothing.
-    """
-    settings = Settings(
-        _env_file=None,
-        logfire_capture_content=True,
-        logfire_send_to_logfire=False,
+def test_content_capture_is_a_setting() -> None:
+    """Content capture is one switch, read from the environment alias."""
+    settings = Settings(_env_file=None, capture_content=True)
+    assert settings.capture_content is True
+    assert not any(
+        "LOGFIRE" in str(alias)
+        for aliases in Settings.model_fields.values()
+        for alias in (aliases.alias or ())
     )
-    assert settings.logfire_capture_content is True
-    assert settings.logfire_send_to_logfire is False
 
 
 def test_the_removed_content_logging_setting_is_gone() -> None:

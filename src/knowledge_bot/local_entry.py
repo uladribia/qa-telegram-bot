@@ -12,7 +12,7 @@ from knowledge_bot.infrastructure.logging import (
     configure_logging,
     configure_observability,
 )
-from knowledge_bot.infrastructure.settings import RuntimeMode, Settings
+from knowledge_bot.infrastructure.settings import Settings
 
 _cached_context: AppContext | None = None
 _database = None
@@ -34,15 +34,8 @@ async def _resolve_context(_request: Request) -> AppContext:
 
 
 configure_logging(json_logs=False)
-_settings = Settings()
 app = create_app(_resolve_context)
-configure_observability(
-    app,
-    environment=RuntimeMode.LOCAL.value,
-    send_to_logfire=_settings.logfire_send_to_logfire,
-    instrument_client=True,
-    capture_content=_settings.logfire_capture_content,
-)
+configure_observability(capture_content=Settings().capture_content)
 
 
 @app.get("/readyz")
