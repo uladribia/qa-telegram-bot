@@ -25,6 +25,8 @@ venv/
 .ty/
 .mypy_cache/
 .pytest_cache/
+# Local eval embedding cache; derived state, safe to delete.
+.cache/
 .coverage
 .coverage.*
 htmlcov/

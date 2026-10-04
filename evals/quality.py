@@ -13,7 +13,10 @@ Usage::
 """
 
 import asyncio
+import hashlib
 import json
+import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
@@ -52,6 +55,60 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT_PATH = ROOT / "reports" / "retrieval-classifier-listener.md"
 OLLAMA_URL = "http://127.0.0.1:11434/api/embed"
 EMBEDDING_MODEL = "embeddinggemma"
+
+#: Wall-clock ceiling for the whole local run. Local is a smoke test, not a
+#: measurement of record: it exists to catch a regression in minutes, and a
+#: suite that takes twenty is a suite nobody runs before a change. The budget
+#: is enforced where the time is actually spent, in the embedding batches, and
+#: a run that hits it is reported as truncated and exits non-zero rather than
+#: quietly publishing partial numbers as if they were complete.
+TIME_BUDGET_SECONDS = 180.0
+
+#: Per-request ceiling for one Ollama call. Kept below the total budget so a
+#: single hung request cannot consume the whole allowance.
+_REQUEST_TIMEOUT_SECONDS = 30.0
+
+#: The shortest request worth starting. Below this the run is cut off instead,
+#: so a shrinking timeout cannot turn a clean budget stop into a read timeout
+#: that reads like an Ollama fault.
+_MIN_REQUEST_SECONDS = 15.0
+
+#: Persistent embedding cache. The corpus is fixed and the listener stage
+#: re-embeds the same texts across scenarios, so without a cache the suite
+#: spends nearly all its budget re-deriving vectors it already has. The cache
+#: is derived state keyed by model and text, so it can be deleted freely.
+EMBED_CACHE_PATH = ROOT / ".cache" / "eval-embeddings.npz"
+
+
+class TimeBudgetExhaustedError(RuntimeError):
+    """Raised when the local run exceeds its wall-clock budget."""
+
+    def __init__(self, done: int, total: int) -> None:
+        """Report how far the run got before being cut off.
+
+        Args:
+            done: How many texts were embedded before the cutoff.
+            total: How many the stage had to embed.
+        """
+        super().__init__(
+            f"local eval exceeded {TIME_BUDGET_SECONDS:.0f}s"
+            f" after embedding {done} of {total} texts"
+        )
+
+
+_STARTED = time.monotonic()
+
+
+def elapsed() -> float:
+    """Return the seconds since this run started."""
+    return time.monotonic() - _STARTED
+
+
+def _remaining() -> float:
+    """Return the seconds left before the run is cut off."""
+    return TIME_BUDGET_SECONDS - elapsed()
+
+
 NOW = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
 CONFIDENCE_THRESHOLD = 0.60
 MARGIN_THRESHOLD = 0.15
@@ -87,6 +144,22 @@ class ClassifierReport(TypedDict):
     labels: list[str]
 
 
+class AuthorityBlend(TypedDict):
+    """How the authority blend reorders candidates the corpus cannot test.
+
+    The seeded corpus carries no authority at all, so the corpus-based
+    metrics are structurally blind to the blend: every candidate normalises
+    to 0 and the blend becomes a monotonic rescale of the cosine, which
+    cannot reorder anything. These cases carry the authority dimension
+    explicitly so the gate can actually fail on the blend.
+    """
+
+    n_cases: int
+    reorder_rate: float
+    fixed_by_blend: int
+    regressed_by_blend: int
+
+
 class RetrievalReport(TypedDict):
     """Retrieval metrics before and after the change."""
 
@@ -96,6 +169,7 @@ class RetrievalReport(TypedDict):
     recall5: BeforeAfter
     mrr: BeforeAfter
     subsets: dict[str, BeforeAfter]
+    authority_blend: AuthorityBlend
 
 
 class ListenerScenario:
@@ -128,18 +202,86 @@ class ListenerReport(TypedDict):
     question_detection_recall: float
 
 
-def _embed_sync(texts: list[str]) -> np.ndarray:
-    """Embed texts synchronously with local Ollama, L2-normalized."""
-    vectors: list[list[float]] = []
-    client = httpx.Client(timeout=120.0)
-    for start in range(0, len(texts), 64):
-        batch = texts[start : start + 64]
-        response = client.post(
-            OLLAMA_URL, json={"model": EMBEDDING_MODEL, "input": batch}
+def _cache_key(text: str) -> str:
+    """Return the cache key for one text under the active model."""
+    return hashlib.sha256(f"{EMBEDDING_MODEL}\x00{text}".encode()).hexdigest()
+
+
+def _load_cache() -> dict[str, list[float]]:
+    """Return the stored embeddings, or an empty mapping if unusable.
+
+    A missing, unreadable, or foreign cache is not an error: the suite simply
+    embeds everything again. The cache is an optimisation, never a dependency.
+    """
+    try:
+        with np.load(EMBED_CACHE_PATH) as data:
+            return {
+                str(key): vector.tolist()
+                for key, vector in zip(data["keys"], data["vectors"], strict=True)
+            }
+    except (OSError, KeyError, ValueError):
+        return {}
+
+
+def _save_cache(cache: dict[str, list[float]]) -> None:
+    """Persist the embedding cache, ignoring any write failure.
+
+    Args:
+        cache: The key-to-vector mapping to store.
+    """
+    try:
+        EMBED_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        keys = sorted(cache)
+        np.savez(
+            EMBED_CACHE_PATH,
+            keys=np.array(keys),
+            vectors=np.asarray([cache[key] for key in keys], dtype=np.float32),
         )
-        response.raise_for_status()
-        vectors.extend(response.json()["embeddings"])
-    matrix = np.asarray(vectors, dtype=np.float64)
+    except OSError:
+        pass
+
+
+def _embed_sync(texts: list[str]) -> np.ndarray:
+    """Embed texts synchronously with local Ollama, L2-normalized.
+
+    Args:
+        texts: The texts to embed.
+
+    Returns:
+        One L2-normalized row per input text.
+
+    Raises:
+        TimeBudgetExhaustedError: When the run's wall-clock budget runs out.
+            The check is per batch, because the embedding calls are the only
+            place this suite spends real time.
+    """
+    cache = _load_cache()
+    missing = [text for text in dict.fromkeys(texts) if _cache_key(text) not in cache]
+    if missing:
+        client = httpx.Client(timeout=_REQUEST_TIMEOUT_SECONDS)
+        try:
+            for start in range(0, len(missing), 64):
+                remaining = _remaining()
+                if remaining < _MIN_REQUEST_SECONDS:
+                    raise TimeBudgetExhaustedError(
+                        len(texts) - len(missing) + start, len(texts)
+                    )
+                batch = missing[start : start + 64]
+                response = client.post(
+                    OLLAMA_URL,
+                    json={"model": EMBEDDING_MODEL, "input": batch},
+                    timeout=min(_REQUEST_TIMEOUT_SECONDS, remaining),
+                )
+                response.raise_for_status()
+                for text, vector in zip(
+                    batch, response.json()["embeddings"], strict=True
+                ):
+                    cache[_cache_key(text)] = list(vector)
+        finally:
+            client.close()
+        _save_cache(cache)
+    ordered = [cache[_cache_key(text)] for text in texts]
+    matrix = np.asarray(ordered, dtype=np.float64)
     return matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
 
 
@@ -208,6 +350,64 @@ def classifier_report() -> ClassifierReport:
 
 
 # --- Retrieval before/after -------------------------------------------------
+
+
+#: Cases where a high-authority entry loses on cosine to a low-authority one.
+#: Each tuple is (low_score, low_authority, low_id, high_score,
+#: high_authority, high_id). The first pair is the measured production
+#: failure: for "on son els entrenaments?" a medical-payment entry
+#: (authority 30) outranked the venue entry (authority 90) on cosine alone,
+#: 0.6502 against 0.6474, and the generator abstained on the wrong evidence.
+#: The last pair ties on authority, so cosine must still decide there.
+_AUTHORITY_CASES: list[tuple[float, int, str, float, int, str]] = [
+    (0.6502, 30, "medical", 0.6474, 90, "venue"),
+    (0.5100, 30, "inferred", 0.4800, 90, "curated"),
+    (0.5600, 90, "curated", 0.5500, 100, "authoritative"),
+    (0.6000, 90, "second", 0.7000, 90, "first"),
+]
+
+
+def authority_blend_report() -> AuthorityBlend:
+    """Measure whether blending authority reorders the right candidates."""
+    reordered = 0
+    fixed = 0
+    regressed = 0
+    for (
+        low_score,
+        low_auth,
+        low_id,
+        high_score,
+        high_auth,
+        high_id,
+    ) in _AUTHORITY_CASES:
+        candidates = [
+            VectorMatch(
+                id=f"qa:{low_id}", score=low_score, metadata={"authority": low_auth}
+            ),
+            VectorMatch(
+                id=f"qa:{high_id}", score=high_score, metadata={"authority": high_auth}
+            ),
+        ]
+        cosine_order = [
+            m.id for m in sorted(candidates, key=lambda m: m.score, reverse=True)
+        ]
+        blended_order = [m.id for m in _rank(candidates, 2)]
+        if cosine_order != blended_order:
+            reordered += 1
+        # Where authority differs, the curated entry must end up first. Where
+        # it ties, cosine must still decide, so nothing may regress.
+        prefer_curated = low_auth < high_auth
+        first = blended_order[0]
+        if prefer_curated and first == f"qa:{high_id}":
+            fixed += 1
+        if not prefer_curated and first == f"qa:{low_id}":
+            regressed += 1
+    return AuthorityBlend(
+        n_cases=len(_AUTHORITY_CASES),
+        reorder_rate=reordered / len(_AUTHORITY_CASES),
+        fixed_by_blend=fixed,
+        regressed_by_blend=regressed,
+    )
 
 
 def retrieval_report() -> RetrievalReport:
@@ -318,6 +518,7 @@ def retrieval_report() -> RetrievalReport:
         },
         "mrr": {"baseline": mrr(old_pairs), "semantic": mrr(new_pairs)},
         "subsets": subset_recall,
+        "authority_blend": authority_blend_report(),
     }
 
 
@@ -656,15 +857,91 @@ class _LocalEmbedder:
 
 
 def main() -> int:
-    """Run all local quality evals and write the Markdown report."""
-    classifier = classifier_report()
-    retrieval = retrieval_report()
-    listener = asyncio.run(listener_report())
+    """Run all local quality evals and write the Markdown report.
+
+    Returns:
+        ``0`` when every stage finished inside the budget, ``1`` when the run
+        was cut off. A truncated run still writes the stages that completed so
+        the failure is diagnosable, but it must not read as a clean pass.
+    """
+    stages: dict[str, str] = {}
+    truncated = False
+    try:
+        stages["classifier"] = "ok"
+        classifier = classifier_report()
+        stages["retrieval"] = "ok"
+        retrieval = retrieval_report()
+        stages["listener"] = "ok"
+        listener = asyncio.run(listener_report())
+    except TimeBudgetExhaustedError as error:
+        truncated = True
+        stages.setdefault("classifier", "skipped")
+        stages.setdefault("retrieval", "skipped")
+        stages.setdefault("listener", "skipped")
+        for name, value in list(stages.items()):
+            if value == "ok":
+                stages[name] = "completed before the budget ran out"
+        print(f"eval-local: {error}", file=sys.stderr)
+        classifier, retrieval, listener = _empty_reports()
     report = _render(classifier, retrieval, listener)
+    if truncated:
+        report = (
+            f"> **TRUNCATED**: this run exceeded its {TIME_BUDGET_SECONDS:.0f}s"
+            " budget and did not finish. The numbers below are partial and must"
+            " not be read as a result.\n\n" + report
+        )
+        report += (
+            "\n## Run status\n\n"
+            "| stage | status |\n|---|---|\n"
+            + "".join(f"| {name} | {status} |\n" for name, status in stages.items())
+            + f"\nElapsed: {elapsed():.1f}s of {TIME_BUDGET_SECONDS:.0f}s.\n"
+        )
     REPORT_PATH.parent.mkdir(exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")
     print(report)
-    return 0
+    return 1 if truncated else 0
+
+
+def _empty_reports() -> tuple[ClassifierReport, RetrievalReport, ListenerReport]:
+    """Return zeroed reports for stages that never ran.
+
+    Used only when the budget is exhausted: a truncated run must not publish
+    the previous run's numbers as if they described this one.
+    """
+    zero_before_after: BeforeAfter = {"baseline": 0.0, "semantic": 0.0}
+    classifier: ClassifierReport = {
+        "n_test": 0,
+        "accuracy": 0.0,
+        "macro_f1": 0.0,
+        "per_class": {},
+        "coverage": 0.0,
+        "precision_among_confident": 0.0,
+        "confusion": np.zeros((1, 1), dtype=int),
+        "labels": [],
+    }
+    retrieval: RetrievalReport = {
+        "n_queries": 0,
+        "recall1": zero_before_after,
+        "recall3": zero_before_after,
+        "recall5": zero_before_after,
+        "mrr": zero_before_after,
+        "subsets": {},
+        "authority_blend": AuthorityBlend(
+            n_cases=0,
+            reorder_rate=0.0,
+            fixed_by_blend=0,
+            regressed_by_blend=0,
+        ),
+    }
+    listener: ListenerReport = {
+        "scenarios": 0,
+        "pair_precision": 0.0,
+        "pair_recall": 0.0,
+        "factual_index_precision": 0.0,
+        "factual_index_recall": 0.0,
+        "question_detection_recall": 0.0,
+    }
+    return classifier, retrieval, listener
 
 
 def _format(value: float) -> str:
@@ -708,6 +985,18 @@ def _render(
         (
             "retrieval MRR improves over baseline",
             retrieval["mrr"]["semantic"] > retrieval["mrr"]["baseline"],
+        ),
+        # The corpus carries no authority, so Recall@5 and MRR cannot see the
+        # blend at all. This gate is the only one that can fail on it.
+        (
+            "authority blend promotes the curated entry in every case",
+            retrieval["authority_blend"]["fixed_by_blend"]
+            == retrieval["authority_blend"]["n_cases"]
+            - 1,  # the tie-in-authority case must still be won on cosine
+        ),
+        (
+            "authority blend never regresses a cosine winner",
+            retrieval["authority_blend"]["regressed_by_blend"] == 0,
         ),
         (
             "listener factual-index precision >= 0.95",
@@ -762,6 +1051,24 @@ Recall@5 by subset:
 |---|---|---|
 | catalan gold | {_format(retrieval["subsets"]["catalan_gold"]["baseline"])} | {_format(retrieval["subsets"]["catalan_gold"]["semantic"])} |
 | synthetic typo/paraphrase | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["baseline"])} | {_format(retrieval["subsets"]["synthetic_typo_paraphrase"]["semantic"])} |
+
+### Authority blend
+
+The corpus above carries no authority, so those metrics cannot see the blend:
+every candidate normalises to 0 and the blend is a monotonic rescale of the
+cosine, which cannot reorder anything. These cases carry the authority
+dimension explicitly.
+
+| metric | result |
+|---|---|
+| cases | {retrieval["authority_blend"]["n_cases"]} |
+| order changed by the blend | {_format(retrieval["authority_blend"]["reorder_rate"])} |
+| curated entry promoted to first | {retrieval["authority_blend"]["fixed_by_blend"]} |
+| cosine winner regressed | {retrieval["authority_blend"]["regressed_by_blend"]} |
+
+The blend reorders candidates that already cleared the floor. It never changes
+which candidates are admitted, because the floor and the recall metric are
+calibrated on the raw cosine.
 
 ## Listener ({listener["scenarios"]} deterministic scenarios)
 

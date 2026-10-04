@@ -51,6 +51,24 @@ Recall@5 by subset:
 | catalan gold | 0.9697 | 1.0000 |
 | synthetic typo/paraphrase | 0.9957 | 0.9979 |
 
+### Authority blend
+
+The corpus above carries no authority, so those metrics cannot see the blend:
+every candidate normalises to 0 and the blend is a monotonic rescale of the
+cosine, which cannot reorder anything. These cases carry the authority
+dimension explicitly.
+
+| metric | result |
+|---|---|
+| cases | 4 |
+| order changed by the blend | 0.7500 |
+| curated entry promoted to first | 3 |
+| cosine winner regressed | 0 |
+
+The blend reorders candidates that already cleared the floor. It never changes
+which candidates are admitted, because the floor and the recall metric are
+calibrated on the raw cosine.
+
 ## Listener (110 deterministic scenarios)
 
 | metric | result |
@@ -80,6 +98,8 @@ the test split):
 | classifier correction precision >= 0.92 | FAIL |
 | retrieval Recall@5 >= 0.95 | PASS |
 | retrieval MRR improves over baseline | PASS |
+| authority blend promotes the curated entry in every case | PASS |
+| authority blend never regresses a cosine winner | PASS |
 | listener factual-index precision >= 0.95 | PASS |
 | listener pair precision >= 0.95 | PASS |
 

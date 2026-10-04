@@ -29,8 +29,12 @@ test-all:
 
 # Local-only quality evals (Ollama + SQLite; zero Cloudflare usage). Regenerates
 # reports/retrieval-classifier-listener.md. Requires the local Ollama runtime.
+# Local is a smoke test, not a measurement of record: it must catch a
+# regression in minutes. evals/quality.py enforces a 180s budget itself and
+# reports a truncated run as a failure; this timeout is the backstop for a
+# single hung Ollama request, so the ceiling holds even then.
 eval-local:
-	uv run python -m evals.quality
+	timeout 210 uv run python -m evals.quality
 
 # Focused Clef-Flash decision evaluation against the deployed Worker. It only
 # measures: the listener stays on the baseline, the endpoint persists nothing,
