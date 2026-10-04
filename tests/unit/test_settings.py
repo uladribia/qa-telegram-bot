@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from knowledge_bot.infrastructure.settings import (
     ALLOWED_AI_MODELS,
     LOCAL_ALLOWED_AI_MODELS,
+    DecisionBackend,
     RuntimeMode,
     Settings,
 )
@@ -73,3 +74,52 @@ def test_ai_deadlines_are_bounded() -> None:
         Settings(_env_file=None, ai_generation_timeout_seconds=56)
     with pytest.raises(ValidationError):
         Settings(_env_file=None, ai_embed_timeout_seconds=0)
+
+
+def test_the_decision_model_is_the_shipped_path() -> None:
+    """Defaults must keep deciding with the model, not silently revert.
+
+    A rollback is one environment variable and a deliberate act. If the
+    default ever flips back to the baseline, nobody notices until the bot is
+    quietly answering with a classifier whose own gate fails.
+    """
+    settings = Settings(_env_file=None)
+
+    assert settings.decision_backend is DecisionBackend.SYSTEM_ONE
+    assert settings.decision_model == "@cf/cloudflare/clef-flash"
+    assert settings.decision_include_relevance is False
+    assert settings.decision_answer_path is True
+    assert settings.decision_fallback_to_baseline is True
+    assert settings.decision_sufficiency_threshold == 0.50
+    assert settings.decision_selection_threshold == 0.90
+
+
+def test_the_decision_model_is_allowlisted_for_production() -> None:
+    """The shipped decision model must pass the same allowlist as everything."""
+    settings = Settings(_env_file=None)
+
+    assert settings.decision_model in ALLOWED_AI_MODELS
+
+
+def test_the_rollback_is_reachable_without_touching_code() -> None:
+    """`baseline` must be a valid configuration, not a removed branch."""
+    settings = Settings(_env_file=None, decision_backend="baseline")
+
+    assert settings.decision_backend is DecisionBackend.BASELINE
+    assert settings.decision_model  # still configured, simply unused
+
+
+def test_a_decision_deadline_is_not_a_generation_deadline() -> None:
+    """A decision sits in front of an answer; it is not waited on like a model."""
+    settings = Settings(_env_file=None)
+
+    assert settings.ai_decision_timeout_seconds <= 10
+    assert settings.ai_decision_timeout_seconds < settings.ai_generation_timeout_seconds
+
+
+def test_decision_thresholds_are_probabilities() -> None:
+    """A threshold outside [0, 1] would decide by construction."""
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, decision_sufficiency_threshold=1.4)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, decision_selection_threshold=-0.2)
