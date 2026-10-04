@@ -1041,14 +1041,14 @@ async def run(base_url: str, key: str, *, dry: bool) -> int:
             window_results[backend] = await decide(
                 client, base_url, key, backend, windows, Cache(revision, backend)
             )
+        calibration_cases = [case for case in windows if case.split == "calibration"]
+        calibration_results = await decide(
+            client, base_url, key, CLEF, calibration_cases, cache
+        )
     listener_reports = {
         backend: await replay_scenarios(base_url, key, revision, backend)
         for backend in (BASELINE, CLEF)
     }
-    calibration_cases = [case for case in windows if case.split == "calibration"]
-    calibration_results = await decide(
-        client, base_url, key, CLEF, calibration_cases, cache
-    )
     intent = {
         backend: intent_report(results, intent_cases)
         for backend, results in intent_results.items()
