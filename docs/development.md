@@ -90,6 +90,11 @@ Two local facts worth knowing before reading a number:
 - `DECISION_INCLUDE_RELEVANCE=false` means the local decision model classifies
   messages but does not choose pairs; the deterministic policy still does. The
   relevance code path is wired, tested and off.
+- `DECISION_ANSWER_PATH=true` means the local stack runs the same sufficiency
+  and selection gate production runs. `tests/unit/test_answer_decisions.py`
+  pins the gate's four outcomes, its degradation path, and that one question is
+  one request; `tests/integration/test_internal_eval_decision.py` pins that the
+  evaluation model is unreachable from user traffic.
 - The linear classifier the baseline uses is currently failing its own gates
   (see the eval note above), so on this machine the "baseline" is not a strong
   reference point.

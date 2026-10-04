@@ -27,6 +27,12 @@ A mode never disables the control plane. Reviewer commands, replies to
 correction prompts, and pending reviews keep working in a group set to `off` or
 `silent`.
 
+When the bot declines to answer, it has checked the evidence rather than guessed:
+it looks only at what the knowledge base found for that question and answers
+only when something there actually answers it. That is why "I don't know" is a
+considered answer and not a failure — and why a question the club has never
+answered gets a plain refusal instead of the closest thing in the database.
+
 Private chats have their own mode, `TELEGRAM_DM_BOT_MODE`, with the same four
 values. A private message always addresses the bot, so `proactive` behaves like
 `active` there and `off` means the bot answers nothing in private at all. A

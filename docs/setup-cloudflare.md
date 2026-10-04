@@ -26,6 +26,28 @@ Live evals are protected against load, not just quota: `/internal/retrieve` acce
 
 There is no `ALLOWED_TELEGRAM_CHAT_IDS` setting. A group is served only after its Telegram conversation is bound to a logical space.
 
-## Listener decisions in production
+## Decisions in production
 
-Production decides listener messages with the **linear classifier and the deterministic pairing policy** (`DECISION_BACKEND=baseline`, the default). The System-One decision backend exists locally for end-to-end fidelity and adds no remote adapter here: no Workers AI decision binding, no Cloudflare decision setting, no production default. Deploying the System-One work changes nothing in this procedure — the Worker behaves exactly as before. See [operations.md](operations.md#local-system-one-decision-service) for the local runtime and its two switches.
+The Worker decides listener intent, answer sufficiency and evidence selection
+with `@cf/cloudflare/clef-flash` through the existing `AI` binding; no new binding
+and no new secret. `DECISION_BACKEND` defaults to `systemone`, so a fresh deploy
+needs nothing extra. `baseline` removes both decision calls and is the rollback.
+
+The decision model is metered like every other Workers AI call, against the same
+daily budget, so it appears in `GET /internal/budget`. It is small: roughly three
+neurons per listener message and twenty-five per answered question, against
+about a hundred for a generation. The cosine floor and `QA_TOP_K` /
+`MESSAGE_TOP_K` still bound what may reach it, so the model cannot widen the
+bill.
+
+After deploying, send one evaluation case to confirm the binding answers before
+trusting the listener:
+
+```bash
+curl -sS -X POST "$BOT_BASE_URL/internal/eval/decision" \
+  -H "X-Internal-Key: $INTERNAL_ADMIN_KEY" -H 'content-type: application/json' \
+  -d '{"backend":"clef-flash","cases":[{"case_id":"probe","text":"Quan entrenen?","candidates":[]}]}'
+```
+
+See [operations.md](operations.md#decisions-and-rollback) for troubleshooting and
+rollback.

@@ -13,37 +13,36 @@ make test-e2e-local
 
 `make dev-bootstrap` creates the `knowledge-bot-dev` network and the `knowledge-bot-data` and `knowledge-bot-ollama-data` volumes, starts Ollama (image `0.35.1`, pinned in `scripts/local-dev.sh`, because the `/v1/systemone` route exists from 0.35), pulls the three local models — `embeddinggemma` for embeddings, `gemma3:270m` for generation, `tev1:0.8b` for System-One decisions — builds the app image, applies migrations, and starts the app.
 
-## Listener decisions
+## Decisions: the local runtime mirrors production
 
-The local stack takes each unaddressed message's intent from the local
-System-One decision service: one `POST /v1/systemone` request per message,
-served by the same Ollama container. This is about **fidelity**, not quality —
-the local model is a testing stand-in, and its numbers live in
-`reports/decision-service.md`. Production runs the linear classifier and adds
-no remote decision adapter.
+`DECISION_BACKEND=systemone` is the default everywhere, and the local stack runs
+the same code path with the same settings as the Worker:
 
-Two switches in `.env.local` control the risk:
+```
+local   DECISION_MODEL=tev1:0.8b                  served by Ollama on /v1/systemone
+prod    DECISION_MODEL=@cf/cloudflare/clef-flash   served by the Workers AI binding
+```
+
+Same transport, same request shapes, same thresholds, same fallback. The local
+model is a **stand-in**: it lets the listener, the answer gate and the degraded
+paths be exercised end to end without spending anything. Never read a local
+number as a quality measurement — `make decision-eval` measures the deployed
+model, and `reports/clef-answer-decisions.md` holds the result.
+
+Three settings define what the decision model may do, and all three are on in
+both environments:
 
 ```text
-DECISION_INCLUDE_RELEVANCE=false   the service classifies; the deterministic
-                                   pairing policy still chooses the question
-DECISION_FALLBACK_TO_BASELINE=true answer from the linear classifier when the
-                                   service is unreachable, logging the reason
+DECISION_BACKEND=systemone          decide with the model; `baseline` is the rollback
+DECISION_INCLUDE_RELEVANCE=false    pairing stays with the deterministic policy
+DECISION_ANSWER_PATH=true           sufficiency and evidence selection after retrieval
+DECISION_FALLBACK_TO_BASELINE=true  a decision-service failure degrades to the floor
 ```
 
-```bash
-make decision-smoke    # runtime gate: does the service answer one canonical request?
-make decision-eval     # informational scoring of the local model
-```
-
-`make dev-up` verifies the decision service answers before starting the app and
-never downloads a model. If it does not answer, it stops and tells you to run
-`make dev-bootstrap`. Troubleshooting is in
-[operations.md](operations.md#local-system-one-decision-service).
-
-SQLite and Ollama models persist in named volumes. `make dev-reset CONFIRM=1` removes only the local SQLite volume; the Ollama model volume is preserved. `make dev-down` stops containers without deleting volumes.
-
-All local AI work is explicit. `make test` and `make test-integration` do not call Ollama. `make test-e2e-local` rebuilds the current app image and runs synthetic Telegram, real SQLite/NumPy, and real Ollama smoke flows inside the container. No real Telegram token or network is used.
+`make dev-up` checks that the decision service answers before starting the app
+and never downloads a model. If it does not answer, it stops and points at
+`make dev-bootstrap`. Troubleshooting and the rollback are in
+[operations.md](operations.md#decisions-and-rollback).
 
 ## Traces
 

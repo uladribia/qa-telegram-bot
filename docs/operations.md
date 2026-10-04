@@ -103,71 +103,73 @@ The inbound row and answer are persisted before Telegram delivery. A Telegram `o
 
 **The webhook lives at `/adapters/telegram/webhook`.** It was `/telegram/webhook` until v1.2.0, when the Telegram connector moved under `adapters/`. Telegram holds whatever URL it was last given, so the order of a path change is fixed: **`make deploy`, then `make set-webhook`.** Re-registering before the deploy points Telegram at a `404` and the bot goes silent with no error anywhere in its own logs. Confirm the route is live before repointing — `GET /adapters/telegram/webhook` returns `405` when the route exists and `404` when it does not, because the route is POST-only. There is no compatibility alias for the old path; a stale registration fails closed.
 
-## Local System-One decision service
+## Decisions and rollback
 
-`DECISION_BACKEND=systemone` takes the listener's intent decision from a
-System-One service over one `POST /v1/systemone` request per unaddressed
-message. The local runtime is the Ollama container (image `0.35.1`, which is
-where the route exists), serving `tev1:0.8b`.
-
-**This is a testing runtime, not a quality gate.** It exists so the local stack
-reproduces the production request path. Its quality is measured in production,
-where it is evaluated on the real corpus before it is trusted for anything.
-Nothing about production behaviour depends on it: `DECISION_BACKEND=baseline`
-stays the default there, and no remote decision adapter is added.
+The decision model decides three things: what an unaddressed message is, whether
+the retrieved shortlist can answer a question, and which items in it do. It is
+the shipped path in both runtimes; `DECISION_BACKEND=baseline` is the rollback.
 
 ```bash
-make decision-smoke   # runtime gate: one canonical request, PASS/FAIL
-make decision-eval    # scores the local model, writes reports/decision-service.md
+curl -sS -X POST "$BASE_URL/internal/eval/decision" \
+  -H "X-Internal-Key: $INTERNAL_ADMIN_KEY" -H 'content-type: application/json' \
+  -d '{"backend":"clef-flash","cases":[{"case_id":"probe","text":"Quan entrenen?","candidates":[]}]}'
+make decision-smoke          # the local decision service answers one canonical request
+make decision-eval           # score the local model (informational, never a gate)
 ```
 
-The local service is a **testing runtime.** `make decision-eval` measures it for
-information; it is not a release gate, and its numbers describe one machine,
-not the bot that serves the group. Current local numbers for `tev1:0.8b` on the
-500-case Catalan/Spanish intent split (zero-shot, no task fine-tuning): macro F1
-0.825, question recall 0.907, knowledge_update precision 0.759, correction
-precision 0.877, precision among confident 0.921 at 70.6% coverage, latency p95
-1.8 s on CPU. Treat those numbers as "what to expect locally", not as a promise.
+### What to check, in order
+
+1. **Is the service answering?** `/readyz` is a liveness probe that does not
+   call the model, so a healthy Worker can still fail every decision. Send one
+   `internal/eval/decision` case; `error` names the cause and the answer keys
+   that came back.
+2. **What did it decide?** The response carries `intent_probabilities`,
+   `best_label`, `margin`, `relevance` and `selected`. In a live answer, the
+   `evidence_selection` span carries `decided_by`: `decision` or `floor`.
+3. **Did it degrade?** `answer_decision_degraded` in the logs means the service
+   was unreachable or unusable and the floor answered instead. The reason is in
+   the span, never the question or the evidence.
+4. **Is it abstaining more than expected?** Compare
+   `decision_sufficiency_threshold` against the margin in
+   [the evaluation report](../reports/clef-answer-decisions.md). Raising it buys coverage and spends
+   safety; the shipped value has 0.394 of headroom under the worst unanswerable
+   case measured, so it should not be raised without re-running that evaluation.
+
+### Cost
+
+A decision call is priced per input token, not per generated token: clef-flash
+is about 122 tokens per neuron, or roughly 3 neurons for a listener message and
+25 for a shortlist decision. The repository's `AI_CHAT_NEURONS_PER_CHAR` estimate
+(0.020) is about nine times more conservative and is what the metered transport
+records, so the ledger over-counts rather than under-counts. Today's spend is on
+`GET /internal/budget`.
+
+### Rollback
 
 ```bash
-make dev-bootstrap    # fetches embeddinggemma, gemma3:270m and tev1:0.8b
-make dev-up           # checks the service answers, then starts the app
+# one variable, no deploy of code needed if it is already in the environment
+DECISION_BACKEND=baseline
 ```
 
-`dev-up` never downloads a model: it checks the configured service and stops
-with the bootstrap instruction if it does not answer.
+`baseline` removes both decision calls: the linear classifier, the cosine floor,
+prompt-only abstention and deterministic pairing. No decision service is
+contacted, and no decision setting matters. This is the state the project
+shipped until now, so the rollback is well understood rather than novel.
 
-### The two switches
+Two switches narrow the change without leaving `systemone`:
 
 ```text
-DECISION_INCLUDE_RELEVANCE=false   the service classifies; deterministic
-                                   pairing still chooses the question.
-                                   Turn on only after the model's relevance
-                                   quality is measured where it matters.
-DECISION_FALLBACK_TO_BASELINE=true answer from the linear classifier when the
-                                   service is unreachable or answers
-                                   something unusable, logging
-                                   decision_fallback_to_baseline.
+DECISION_ANSWER_PATH=false    listener decisions only; answers go floor → generator
+DECISION_INCLUDE_RELEVANCE=true  let the model choose pairs (measured, not shipped)
 ```
 
-The fallback is why a decision-service outage degrades the listener instead of
-losing the message. With it off, the failure surfaces to the caller.
+### When the service is unavailable
 
-### Decision service unavailable
-
-Symptoms: `decision_fallback_to_baseline` in the logs (degraded but working), or
-`AI decision unavailable` (no fallback configured).
-
-1. `curl -fsS "${DECISION_BASE_URL}/api/tags"` — a refused connection means the
-   Ollama container is not running: `make dev-up`.
-2. `make decision-smoke` — it reports the exact failure. A `404` or an
-   `unsupported decision encoding` error means the served model cannot answer
-   System-One requests: check `DECISION_MODEL` against `ollama list`.
-3. Malformed or missing answers (`invalid model output`) mean the service answered
-   something other than what was asked. With the fallback on it is logged and
-   the baseline answers instead; with it off the message fails loudly.
-4. Set `DECISION_BACKEND=baseline` to keep the listener on the linear head while
-   the service is unavailable. Nothing else changes.
+The listener degrades to the linear head and the answer path degrades to the
+floor, both logged, neither losing the message. If a decision model is
+persistently unavailable, set `DECISION_BACKEND=baseline` rather than raising
+timeouts: a deadline is a way to stop waiting, not a way to make the model
+answer.
 
 ## Projection repair
 

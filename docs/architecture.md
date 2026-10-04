@@ -38,6 +38,38 @@ A Telegram group is served only when `(telegram, chat_id)` has an active `channe
 
 The webhook applies the mode only after the control plane. Resolving the binding, recording who was seen in it, and the reviewer and correction prompts are never gated by it: the mode decides what happens to a question, never whether the bot keeps a promise it already made.
 
+## Answer decisions
+
+Every answered question passes through three decisions. Two of them used to be
+something else, which is why the architecture is simpler now and not more
+complex: retrieval and the generator never moved.
+
+```text
+question ─► retrieval: EMBED + cosine  ─► shortlist (bounded by QA_TOP_K +
+                                        MESSAGE_TOP_K and the cosine floor)
+                     │
+                     ▼
+        one System-One request, two questions:
+          evidence.sufficient          is anything here enough to answer?
+          evidence.<id>.relevant       does this item answer the question?
+                     │
+        sufficiency < 0.50 ──────────────────────────────► abstain
+        sufficiency ≥ 0.50 ─► keep items scoring ≥ 0.90 ──► generator
+```
+
+The floor stops being a correctness knob and becomes purely a recall-and-token
+knob: it bounds what may reach the decision model, and everything past it is
+judged. Measured on held-out cases, that moved false answers from 1.000 to
+0.000 while passing 11% of the shortlist to the generator instead of all seven
+items, at the cost of 8.7% of answerable questions abstaining.
+
+Two thresholds are tunables here, both chosen on a calibration split and frozen:
+`DECISION_SUFFICIENCY_THRESHOLD` and `DECISION_SELECTION_THRESHOLD`. The
+generator's own abstention is not removed and remains the backstop: a decision
+service that is unreachable, slow, or unusable degrades to the floor alone and
+logs `answer_decision_degraded`, so one remote call is never the only thing
+between a question and a wrong answer.
+
 ## Message decisions
 
 Every unaddressed group message needs two decisions: what it is (question,

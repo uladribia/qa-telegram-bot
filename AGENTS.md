@@ -71,13 +71,23 @@ service instead of the linear classifier:
   the message; the deterministic pairing policy still decides which open
   question it answers. Turning it on makes one request carry intent plus every
   candidate relevance and lets the model's scores accept at most one pair.
+- **Three decisions, one transport.** The same service also decides, after
+  retrieval, whether the shortlist is enough and which items answer. Retrieval
+  still chooses the shortlist and the cosine floor still bounds it, so the
+  model decides correctness, never recall or tokens.
+- Only two correctness thresholds are tunable here:
+  `DECISION_SUFFICIENCY_THRESHOLD` and `DECISION_SELECTION_THRESHOLD`. They are
+  chosen on a calibration split and applied once to held-out data; changing one
+  means re-running `make eval-clef-production`, never guessing.
 - **Degrade, never lose:** `DECISION_FALLBACK_TO_BASELINE` (on) answers from the
   linear classifier when the service is unreachable or returns something
   unusable, and logs `decision_fallback_to_baseline`. Without it the failure
   surfaces to the caller.
-- The local service is a **testing runtime**. `make decision-eval` measures it
-  for information; it is not a release gate, and its numbers describe one
-  machine, not the bot that serves the group.
+- The local runtime **mirrors production**: same settings, same code path, same
+  request shape, with a locally served model standing in for the deployed one.
+  It is a stand-in, so `make decision-eval` measures it for information only and
+  is not a release gate; the deployed model is measured by
+  `make eval-clef-production`.
 - No training and no new dependency are part of this path. The linear
   classifier and the deterministic pairing logic remain the baseline and must
   keep working.
@@ -233,6 +243,7 @@ Pick the smallest command that covers the change:
 | Before merging to `main`                                   | `make lint` plus the smallest tier that covers the change                                |
 | Local decision service (runtime gate)                      | `make decision-smoke`                                                                  |
 | Local decision service (informational scoring)             | `make decision-eval`                                                                   |
+| Deployed decision model (gated, one pass)                  | `make eval-clef-production`                                                            |
 
 Do not run `make smoke` on every change: it builds and boots the Worker and takes
 minutes. Reserve it for milestone boundaries and runtime-affecting changes.
